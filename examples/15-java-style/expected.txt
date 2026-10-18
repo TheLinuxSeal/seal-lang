@@ -1,0 +1,14 @@
+dealt: Qh 3c As 10d 3h Kc
+by rank: As 3c 3h 10d Qh Kc
+3 red cards of 6
+no faces: As 3c 3h 10d
+11 3 3 10 
+CLUBS DIAMONDS (red) HEARTS (red) SPADES 
+ok: 5h 7s
+  (tried "5h 7s")
+bad card: no card of rank 14
+  (tried "14c")
+bad text: unexpected 'x' in 9x
+  (tried "9x")
+a card: As
+an exception: not a card

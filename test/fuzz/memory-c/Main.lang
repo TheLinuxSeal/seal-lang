@@ -1,0 +1,36 @@
+struct Main
+{
+    static string shout(string s) { s.toUpper(); s.append("!"); return s; }
+
+    static int main()
+    {
+        string a = "hello";
+        string b = a;
+        b.append(" world");
+        string c = shout(b);
+        a = c;
+        IntMap<string> names = new IntMap();
+        names.put(1, a);
+        names.put(2, shout("x"));
+        names.put(1, b);
+        names.remove(2);
+        Queue<Animal> q = new Queue();
+        q.push(new Bird("tweety"));
+        q.push(new Animal("rex"));
+        q.push(q.peek().self());
+        Animal first = q.pop();
+        Bird asBird = (Bird)first;
+        string d = asBird.describe();
+        List<string> words = new List();
+        words.add(a);
+        words.add(d);
+        words.add(Integer.toString(42));
+        words.sort();
+        string<<16>> fixedText = "fixed";
+        string joined = words.get(0);
+        joined.append(fixedText);
+        System.stdout.print(joined.length() + names.size() + q.size() + first.legs);
+        System.stdout.println();
+        return 0;
+    }
+}

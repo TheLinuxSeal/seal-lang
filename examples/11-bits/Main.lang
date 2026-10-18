@@ -1,0 +1,92 @@
+// Bit-level work: memory is bit-addressed, integers have any width, and
+// bits can be indexed and sliced (§40).
+struct Main
+{
+    /** Sieve of Eratosthenes in a bit array: one bit per number. */
+    static int countPrimes(int limit, addr<bit> composite)
+    {
+        int count = 0;
+        for (int i = 2; i < limit; i++) {
+            if (!&(composite + i)) {
+                count++;
+                for (int j = i * i; j < limit; j += i) { &(composite + j) = true; }
+            }
+        }
+        return count;
+    }
+
+    /** CRC-32 (the zip and PNG checksum), one bit at a time. */
+    static uint crc32(string text)
+    {
+        uint crc = 4294967295;
+        for (int i = 0; i < text.length(); i++) {
+            crc = crc ^ (uint)text.charAt(i);
+            for (int b = 0; b < 8; b++) {
+                if (crc[0]) { crc = (crc <<< -1) ^ 3988292384; } else { crc = crc <<< -1; }
+            }
+        }
+        return ~crc;
+    }
+
+    static uint<<8>> reverse(uint<<8>> x)
+    {
+        uint<<8>> r = 0;
+        for (int i = 0; i < 8; i++) { r[7 - i] = x[i]; }
+        return r;
+    }
+
+    static int main()
+    {
+        System.stdout.println("== a prime sieve in a bit array ==");
+        int limit = 10000;
+        addr<bit> composite = new<bit>(limit);
+        System.stdout.print("primes below 10000: ");
+        System.stdout.println(countPrimes(limit, composite));
+        System.stdout.print("the bit array takes ");
+        System.stdout.print(limit * sizeof(bit));
+        System.stdout.println(" bits");
+        System.stdout.print("the last five: ");
+        int shown = 0;
+        for (int i = limit - 1; shown < 5; i--) {
+            if (!&(composite + i)) {
+                System.stdout.print(i);
+                System.stdout.print(" ");
+                shown++;
+            }
+        }
+        System.stdout.println();
+        delete composite;
+
+        System.stdout.println("== CRC-32 ==");
+        uint crc = crc32("The quick brown fox jumps over the lazy dog");
+        string hex = Integer.toString((uint<<64>>)crc, 16);
+        System.stdout.println(hex);
+
+        System.stdout.println("== counting and rotating ==");
+        uint<<64>> mask = 18374686479671623680;     // the top byte set
+        System.stdout.print("bits set: ");
+        System.stdout.println(Integer.bitCount(mask));
+        System.stdout.print("leading zeros of 1: ");
+        System.stdout.println(Integer.leadingZeros(1));
+        System.stdout.print("rol(0x80000001, 4) = ");
+        uint value = 2147483649;    // a typed variable picks the 32-bit rol
+        string rotated = Integer.toString((uint<<64>>)Integer.rol(value, 4), 16);
+        System.stdout.println(rotated);
+
+        System.stdout.println("== indexing and slicing ==");
+        uint<<8>> pattern = 6;       // 00000110
+        System.stdout.print("reverse(00000110) = ");
+        string bits = Integer.toString((uint<<64>>)reverse(pattern), 2);
+        System.stdout.println(bits);
+        System.stdout.print("Gray codes: ");
+        for (uint i = 0; i < 8; i++) {
+            System.stdout.print(i ^ (i <<< -1));
+            System.stdout.print(" ");
+        }
+        System.stdout.println();
+        int<<16>> word = -2;
+        System.stdout.print("the high byte of int<<16>> -2 is ");
+        System.stdout.println((uint)word[8..16]);
+        return 0;
+    }
+}

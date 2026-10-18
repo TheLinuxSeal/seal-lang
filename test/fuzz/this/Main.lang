@@ -1,0 +1,27 @@
+// Fuzz input: this in structs, classes, iterators and lambdas; ?: and chars.
+struct Main
+{
+    static int main()
+    {
+        Point p = new Point(1, 2);
+        Point q = p.moved(10);
+        p.shift(5);
+        System.stdout.println(p.x + " " + p.y + " " + q.x + " " + q.y);
+        Node n = new Node(1, null).prepend(2).prepend(3);
+        System.stdout.println(n.value + " " + n.next.value + " " + n.same(n) + n.same(n.next));
+        System.stdout.println(n.getter().get());
+        Chain c = new Chain();
+        c.head = n;
+        for (int v : c) { System.stdout.print(v); }
+        System.stdout.println();
+        string word = "Hello, World";
+        string out = "";
+        for (char ch : word) {
+            out = out + (Char.isUpper(ch) ? Char.toLower(ch) : Char.isLower(ch) ? Char.toUpper(ch) : '_');
+        }
+        System.stdout.println(out);
+        Node m = n.value > 2 ? n : n.next;
+        System.stdout.println(m.value + (m.next != null ? m.next.value : -1));
+        return 0;
+    }
+}

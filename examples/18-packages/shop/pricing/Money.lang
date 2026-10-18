@@ -1,0 +1,11 @@
+package shop.pricing;
+
+/** Amounts as text. */
+class Money
+{
+    public static string text(double amount)
+    {
+        if (amount < 0) { return "-" + text(-amount); }
+        return string.format("$%,.2f", amount);
+    }
+}

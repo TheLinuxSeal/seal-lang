@@ -1,0 +1,6 @@
+// An interface: method signatures only. Any class can implement it, whatever
+// its parent, and an interface name used as a type is a handle, like a class name.
+interface Describable
+{
+    string describe();
+}

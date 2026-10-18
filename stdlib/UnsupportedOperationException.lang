@@ -1,0 +1,6 @@
+// An operation an object doesn't provide.
+class UnsupportedOperationException extends(RuntimeException)
+{
+    public new() { }
+    public new(string m) { super(m); }
+}

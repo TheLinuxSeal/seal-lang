@@ -1,0 +1,10 @@
+struct Point
+{
+    public int x;
+    public int y;
+    public new() { }
+    public new(int a, int b) { x = a; y = b; }
+
+    // Methods change the object they are called on, so no pointer is needed.
+    public void moveRight(int d) { x += d; }
+}

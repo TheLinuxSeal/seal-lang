@@ -1,0 +1,70 @@
+// A first-in, first-out queue of T in a growable ring buffer. Queue is a
+// class: create one with `new Queue()`; it is shared and freed automatically.
+class Queue<T>
+{
+    addr<T> items;
+    int head;
+    int count;
+    int capacity;
+    T blank;   // never assigned; used to clear slots
+
+    public int size() { return count; }
+
+    public bit isEmpty() { return count == 0; }
+
+    /** Adds to the back. */
+    public void push(T value)
+    {
+        if (count == capacity) { grow(); }
+        &(items + offset((head + count) % capacity)) = value;
+        count++;
+    }
+
+    /** Removes from the front. */
+    public T pop()
+    {
+        if (count == 0) { throw new NoSuchElementException("pop on an empty Queue"); }
+        T value = &(items + offset(head));
+        &(items + offset(head)) = blank;
+        head = (head + 1) % capacity;
+        count--;
+        return value;
+    }
+
+    /** The front element, without removing it. */
+    public T peek()
+    {
+        if (count == 0) { throw new NoSuchElementException("peek on an empty Queue"); }
+        return &(items + offset(head));
+    }
+
+    public void clear()
+    {
+        while (count > 0) { pop(); }
+        head = 0;
+    }
+
+    delete()
+    {
+        clear();
+        delete items;
+    }
+
+    void grow()
+    {
+        int c = capacity * 2;
+        if (c < 8) { c = 8; }
+        addr<T> fresh = new<T>(c);
+        for (int i = 0; i < count; i++) {
+            int from = (head + i) % capacity;
+            &(fresh + offset(i)) = &(items + offset(from));
+            &(items + offset(from)) = blank;
+        }
+        delete items;
+        items = fresh;
+        head = 0;
+        capacity = c;
+    }
+
+    int<<64>> offset(int i) { return (int<<64>>)i * sizeof(T); }
+}

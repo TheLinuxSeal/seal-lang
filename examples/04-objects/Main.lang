@@ -1,0 +1,55 @@
+struct Main
+{
+    static void moveCopy(Point p) { p.x = 100; }    // Point is a struct: this changes a copy
+
+    static int firstOverLimit()
+    {
+        Account temp = new Account(99);
+        for (int i = 1; i <= 10; i++) {
+            if (!Bank.deposit(temp, 300000)) {
+                return i;   // temp is still destroyed on this early return
+            }
+        }
+        return -1;
+    }
+
+    static int main()
+    {
+        System.stdout.println("== constructors and destructors ==");
+        {
+            Account a = new Account(1);
+            Bank.deposit(a, 250);             // lent to deposit, not copied
+            {
+                Account b = new Account(2);
+                System.stdout.print("  accounts open: ");
+                System.stdout.println(Account.open);
+            }
+            System.stdout.print("  balance of #1: ");
+            System.stdout.println(a.getBalance());
+            // a.balance = 5;   would not compile: balance is private<Bank>
+            // Account c = a;   would not compile: Account is unique
+        }
+        System.stdout.print("accounts open after the block: ");
+        System.stdout.println(Account.open);
+
+        System.stdout.println("== early return still runs destructors ==");
+        int over = firstOverLimit();
+        System.stdout.print("deposit number ");
+        System.stdout.print(over);
+        System.stdout.println(" went over the limit");
+
+        System.stdout.println("== objects are values ==");
+        Point p = new Point(1, 2);
+        Point q = p;           // a copy
+        q.x = 50;
+        moveCopy(p);           // gets a copy too
+        System.stdout.print("p.x = ");
+        System.stdout.print(p.x);
+        System.stdout.print(", q.x = ");
+        System.stdout.println(q.x);
+        p.moveRight(99);       // a method changes the original
+        System.stdout.print("after p.moveRight(99), p.x = ");
+        System.stdout.println(p.x);
+        return 0;
+    }
+}

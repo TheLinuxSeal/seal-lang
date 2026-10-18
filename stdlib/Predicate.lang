@@ -1,0 +1,5 @@
+// A yes/no test: Predicate<int> even = x -> x % 2 == 0;
+interface Predicate<T>
+{
+    bit test(T x);
+}

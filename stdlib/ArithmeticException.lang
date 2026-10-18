@@ -1,0 +1,7 @@
+// An arithmetic operation with no result, such as BigUInt division by zero.
+// (Division by zero on plain integers stops the program instead: it is a VM fault.)
+class ArithmeticException extends(RuntimeException)
+{
+    public new() { }
+    public new(string m) { super(m); }
+}

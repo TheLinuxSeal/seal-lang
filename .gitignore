@@ -1,0 +1,3 @@
+# Build output of ./test.sh
+out/
+*.class

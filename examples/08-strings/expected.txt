@@ -1,0 +1,15 @@
+== fixed-capacity strings ==
+Hello, world
+length 12 of at most 12
+== growable strings ==
+counting: 1 4 9 16 25
+COUNTING: 1 4 9 16 25
+counting
+== comparing and sorting ==
+apple banana fig kiwi pear 
+index of apple: 0
+== characters and numbers ==
+Nggnpx ng Qnja
+Attack at Dawn
+"-12345" parses to -12345
+255 in base 2: 11111111

@@ -1,0 +1,20 @@
+package shop.pricing;
+
+import shop.model.Cart;
+
+/** Buy some of an item, get one more free: "3 for 2" is BulkDeal(name, 3). */
+class BulkDeal implements(Discount)
+{
+    string product;
+    int group;
+
+    public new(string product, int group) { this.product = product; this.group = group; }
+
+    public double saving(Cart.Entry e)
+    {
+        if (e.item.name != product) { return 0; }
+        return (e.count / group) * e.item.price;
+    }
+
+    public string describe() { return group + " for " + (group - 1) + " on " + product; }
+}

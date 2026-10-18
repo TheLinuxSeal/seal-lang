@@ -1,0 +1,23 @@
+// An abstract class: it can't be created with `new`, and its abstract methods
+// (no body, just `;`) must be implemented by every class that can be.
+// It can still have fields, constructors and ordinary methods that call the
+// abstract ones.
+abstract class Shape implements(Describable, Comparable<Shape>)
+{
+    public static int made = 0;
+
+    public new() { made++; }
+
+    public abstract string name();
+    public abstract int area();
+
+    public string describe()
+    {
+        string s = name();
+        s.append(", area ");
+        s.append(Integer.toString(area()));
+        return s;
+    }
+
+    public int compareTo(Shape other) { return area() - other.area(); }
+}

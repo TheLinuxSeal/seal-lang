@@ -1,0 +1,6 @@
+class Box
+{
+    public int v;
+    public new(int n) { v = n; }
+    delete() { System.stdout.print("~box" + v + " "); }
+}

@@ -1,0 +1,14 @@
+== one generic class, many element types ==
+largest int: 41
+largest double: 9.75
+largest fixed: 3.25
+last word alphabetically: plum
+largest BigUInt: 99999999999999999999999
+== sizes depend on the instantiation ==
+Stack<int><<5>>:            192
+Stack<bit><<64>>:           96
+Stack<fixed<<4, 4>>><<10>>: 128
+== nesting ==
+nested.first.pop() * nested.second = 10.0
+== emptying a stack ==
+7 41 3 

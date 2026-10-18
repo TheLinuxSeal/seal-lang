@@ -1,0 +1,140 @@
+// A path to a file or folder, like Java's java.io.File (§42.1). Making one
+// doesn't touch the disk; its methods ask about, or change, what is there.
+//
+//   File dir = new File("photos");
+//   for (File f : dir.listFiles()) { if (f.getExtension() == "jpg") { ... } }
+//
+// Methods that change things (delete, mkdir, renameTo) return whether they
+// worked, as in Java; Files has versions that throw an IOException instead.
+class File
+{
+    string path;
+
+    public new(string path)
+    {
+        // "photos/" and "photos" are the same folder.
+        this.path = path.length() > 1 && path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
+    }
+
+    /** The file `name` inside the folder `parent`. */
+    public new(File parent, string name) { path = Files.join(parent.path, name); }
+    public new(string parent, string name) { path = Files.join(parent, name); }
+
+    public string getPath() { return path; }
+    public string toString() { return path; }
+
+    /** The path, for "found " + file and println(file) (§46). */
+    @overload(Operator.CAST) public string text() { return path; }
+
+    /** The last name in the path: "report.txt" for "docs/report.txt". */
+    public string getName()
+    {
+        int slash = path.lastIndexOf('/');
+        return slash < 0 ? path : path.substring(slash + 1, path.length());
+    }
+
+    /** The part of the name after its last dot, "txt" for "report.txt"; "" if there is none. */
+    public string getExtension()
+    {
+        string name = getName();
+        int dot = name.lastIndexOf('.');
+        return dot <= 0 ? "" : name.substring(dot + 1, name.length());
+    }
+
+    /** The path of the folder it is in: "docs" for "docs/report.txt"; "" if the path has no folder. */
+    public string getParent()
+    {
+        int slash = path.lastIndexOf('/');
+        if (slash < 0) { return ""; }
+        if (slash == 0) { return "/"; }
+        return path.substring(0, slash);
+    }
+
+    /** The folder it is in, or null if the path has none. */
+    public File getParentFile()
+    {
+        string parent = getParent();
+        return parent.isEmpty() ? null : new File(parent);
+    }
+
+    public string getAbsolutePath() { return Files.absolutePath(path); }
+    public File getAbsoluteFile() { return new File(getAbsolutePath()); }
+
+    public bit exists() { return Files.exists(path); }
+    public bit isFile() { return Files.isFile(path); }
+    public bit isDirectory() { return Files.isDirectory(path); }
+
+    /** The size in bytes; 0 if it doesn't exist. */
+    public int<<64>> length() { return isFile() ? Files.size(path) : 0; }
+
+    /** When it last changed, in milliseconds since 1970 (UTC); 0 if it doesn't exist. */
+    public int<<64>> lastModified() { return exists() ? Files.lastModified(path) : 0; }
+
+    /** Deletes the file, or the folder if it is empty; true if it did. */
+    public bit delete()
+    {
+        try {
+            Files.delete(path);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** Makes this folder (its parent must exist); true if it did. */
+    public bit mkdir()
+    {
+        try {
+            Files.createDirectory(path);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** Makes this folder and any missing parents; true if it made it. */
+    public bit mkdirs()
+    {
+        if (exists()) { return false; }
+        try {
+            Files.createDirectories(path);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** Moves or renames it to dest; true if it did. */
+    public bit renameTo(File dest)
+    {
+        try {
+            Files.move(path, dest.path);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** The names of what this folder holds, sorted. Throws an IOException if it isn't a folder. */
+    public List<string> list() { return Files.names(path); }
+
+    /** What this folder holds, sorted by name. */
+    public List<File> listFiles()
+    {
+        List<File> out = new List();
+        for (string name : Files.names(path)) { out.add(new File(this, name)); }
+        return out;
+    }
+
+    /** This and everything below it, each folder before what it holds. */
+    public List<File> walk()
+    {
+        List<File> out = new List();
+        for (string p : Files.walk(path)) { out.add(new File(p)); }
+        return out;
+    }
+
+    /** Two Files are equal if their paths are. */
+    @overload(Operator.EQUALS)
+    public bit equals(File other) { return other != null && path == other.path; }
+}

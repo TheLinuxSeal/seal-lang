@@ -1,0 +1,12 @@
+package shop.report;
+
+/** One line of a receipt: what, and how much (negative for a saving). */
+struct Line
+{
+    public string label;
+    public double amount;
+
+    public new() { }
+
+    public new(string label, double amount) { this.label = label; this.amount = amount; }
+}

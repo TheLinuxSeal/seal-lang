@@ -1,0 +1,15 @@
+// A class: a shared object, like a Java object. Variables refer to it, and
+// it is freed automatically when the last reference goes away.
+class Note
+{
+    public int n;
+
+    public new(int v) { n = v; }
+
+    delete()
+    {
+        System.stdout.print("  note ");
+        System.stdout.print(n);
+        System.stdout.println(" freed");
+    }
+}

@@ -1,0 +1,55 @@
+struct Main
+{
+    /** Insertion sort of anything comparable to itself. */
+    static void sort(List<Shape> xs)
+    {
+        for (int i = 1; i < xs.size(); i++) {
+            Shape x = xs.get(i);
+            int j = i - 1;
+            while (j >= 0 && xs.get(j).compareTo(x) > 0) {
+                xs.set(j + 1, xs.get(j));
+                j--;
+            }
+            xs.set(j + 1, x);
+        }
+    }
+
+    static int main()
+    {
+        System.stdout.println("== shapes, sorted by area ==");
+        List<Shape> shapes = new List();
+        shapes.add(new Rect(3, 5));
+        shapes.add(new Circle(2));
+        shapes.add(new Square(3));
+        shapes.add(new Circle(1));
+        sort(shapes);
+        for (int i = 0; i < shapes.size(); i++) {
+            System.stdout.println(shapes.get(i).describe());
+        }
+        System.stdout.print("shapes made: ");
+        System.stdout.println(Shape.made);
+
+        System.stdout.println("== anything Describable ==");
+        array<Describable><<3>> things = [new Note("interfaces cross class trees"), shapes.get(0), new Square(1)];
+        for (int i = 0; i < 3; i++) {
+            System.stdout.println(things[i].describe());
+        }
+
+        System.stdout.println("== checked casts ==");
+        Describable d = things[2];
+        Rect r = (Rect)d;                   // a Square is a Rect
+        System.stdout.println(r.area());
+        Comparable<Shape> c = (Comparable<Shape>)d;
+        System.stdout.println(c.compareTo(new Rect(1, 3)));
+        // (Shape)things[0] would stop the program: "cannot cast Note to Shape".
+        // instanceof asks first, and names the object with its type when it is one.
+        for (int i = 0; i < 3; i++) {
+            if (things[i] instanceof Shape shape) {
+                System.stdout.println("a shape of area " + shape.area());
+            } else {
+                System.stdout.println("not a shape");
+            }
+        }
+        return 0;
+    }
+}

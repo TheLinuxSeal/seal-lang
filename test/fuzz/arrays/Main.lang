@@ -1,0 +1,27 @@
+struct Main
+{
+    static int sum(array<Cell><<8>> cs) { int t = 0; for (int i = 0; i < 8; i += 1) { t += cs[i].v; } return t; }
+
+    static int main()
+    {
+        array<Cell><<8>> a;
+        a[2].tag = new Tag(5);
+        a[3].tag = a[2].tag;
+        array<Cell><<8>> b = a;
+        b[2].tag = new Tag(6);
+        a = b;
+        array<Slot><<6>> slots;
+        slots[1].tag = new Tag(9);
+        Board board = new Board();
+        board.tags[2] = new Tag(4);
+        board.cells[2][3].tag = board.tags[2];
+        Board same = board;
+        board = null;
+        array<Tag><<10>> tags;
+        for (int i = 0; i < 10; i += 1) { tags[i] = new Tag(i); }
+        tags[4] = tags[5];
+        System.stdout.print(sum(a) + sum(b) + same.total() + slots[1].tag.n + tags[4].n + a[3].tag.n);
+        System.stdout.println();
+        return 0;
+    }
+}

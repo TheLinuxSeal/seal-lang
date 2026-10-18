@@ -1,0 +1,90 @@
+// Files and folders: building a small project tree, scanning it, writing a
+// report and reading it back. Everything happens in a temporary folder that
+// is deleted at the end.
+struct Main
+{
+    /** Counts lines in every file under `root`, by extension: kinds[i] has lines[i]. */
+    static void scan(string root, List<string> kinds, List<int> lines)
+    {
+        for (File f : new File(root).walk()) {
+            if (!f.isFile()) { continue; }
+            string kind = f.getExtension().isEmpty() ? "(none)" : f.getExtension();
+            int k = kinds.indexOf(kind);
+            if (k < 0) {
+                kinds.add(kind);
+                lines.add(0);
+                k = kinds.size() - 1;
+            }
+            lines.set(k, lines.get(k) + Files.readAllLines(f.getPath()).size());
+        }
+    }
+
+    static int main()
+    {
+        string root = Files.createTempDirectory("files-example");
+
+        System.stdout.println("== making a project ==");
+        Files.createDirectories(root + "/src/util");
+        Files.createDirectories(root + "/docs");
+        Files.writeString(root + "/src/Main.lang", "struct Main\n{\n    static int main() { return 0; }\n}\n");
+        Files.writeString(root + "/src/util/Strings.lang", "struct Strings\n{\n}\n");
+        List<string> notes = new List();
+        notes.add("# Notes");
+        notes.add("");
+        notes.add("Read the spec first.");
+        Files.writeLines(root + "/docs/notes.md", notes);
+        Files.writeString(root + "/LICENSE", "Do what you like.\n");
+        for (string path : Files.walk(root)) {
+            string shown = path == root ? "." : path.substring(root.length() + 1, path.length());
+            System.stdout.println((Files.isDirectory(path) ? "[dir]  " : "[file] ") + shown);
+        }
+
+        System.stdout.println("== lines by kind ==");
+        List<string> kinds = new List();
+        List<int> lines = new List();
+        scan(root, kinds, lines);
+        for (int k = 0; k < kinds.size(); k++) {
+            System.stdout.println(kinds.get(k) + ": " + lines.get(k));
+        }
+
+        System.stdout.println("== the biggest file ==");
+        File biggest = null;
+        for (File f : new File(root).walk()) {
+            if (f.isFile() && (biggest == null || f.length() > biggest.length())) { biggest = f; }
+        }
+        System.stdout.println(biggest.getName() + " in " + new File(biggest.getParent()).getName()
+                + ", " + biggest.length() + " bytes");
+
+        System.stdout.println("== a report, written and read a line at a time ==");
+        string report = root + "/report.txt";
+        FileWriter out = new FileWriter(report);
+        for (File f : new File(root + "/src").walk()) {
+            if (f.getExtension() == "lang") { out.writeLine(f.getName() + " " + f.length()); }
+        }
+        out.close();
+        int n = 1;
+        for (string line : new FileReader(report)) {
+            System.stdout.println(n + ": " + line);
+            n++;
+        }
+
+        System.stdout.println("== renaming, copying, and what can go wrong ==");
+        new File(root + "/LICENSE").renameTo(new File(root + "/LICENSE.txt"));
+        Files.copy(root + "/LICENSE.txt", root + "/docs/LICENSE.txt");
+        System.stdout.println(new File(root, "docs").list().size() + " files in docs");
+        try {
+            Files.readString(root + "/LICENSE");
+        } catch (FileNotFoundException e) {
+            System.stdout.println("LICENSE is gone (renamed)");
+        }
+        try {
+            Files.delete(root + "/docs");
+        } catch (IOException e) {
+            System.stdout.println("can't delete docs: it isn't empty");
+        }
+
+        Files.deleteRecursively(root);
+        System.stdout.println("cleaned up: " + !Files.exists(root));
+        return 0;
+    }
+}

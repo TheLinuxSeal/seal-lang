@@ -1,0 +1,6 @@
+// Anything a for-each loop can go over: for (T x : items) asks items for an
+// iterator and calls next() while hasNext() (§41.3).
+interface Iterable<T>
+{
+    Iterator<T> iterator();
+}

@@ -1,0 +1,26 @@
+class Card
+{
+    public int rank;
+    public Suit suit;
+
+    public new(int r, Suit s)
+    {
+        if (r < 1 || r > 13) { throw new IllegalArgumentException("no card of rank " + r); }
+        rank = r;
+        suit = s;
+    }
+
+    public string name()
+    {
+        string s;
+        switch (rank) {
+            case 1 -> s = "A";
+            case 11 -> s = "J";
+            case 12 -> s = "Q";
+            case 13 -> s = "K";
+            default -> s = "" + rank;
+        }
+        s.append(suit.symbol());
+        return s;
+    }
+}

@@ -1,0 +1,89 @@
+// The Java-style conveniences together: enums and switch, for-each, lambdas
+// with the standard functional interfaces, string joining with +, instanceof,
+// and exceptions with try/catch/finally.
+struct Main
+{
+    static List<Card> parseHand(string text)
+    {
+        List<Card> hand = new List();
+        int rank = 0;
+        for (char c : text) {
+            switch (c) {
+                case 'c' -> { hand.add(new Card(rank, Suit.CLUBS)); rank = 0; }
+                case 'd' -> { hand.add(new Card(rank, Suit.DIAMONDS)); rank = 0; }
+                case 'h' -> { hand.add(new Card(rank, Suit.HEARTS)); rank = 0; }
+                case 's' -> { hand.add(new Card(rank, Suit.SPADES)); rank = 0; }
+                case ' ' -> { }
+                default -> {
+                    if (!Char.isDigit(c)) { throw new NumberFormatException("unexpected '" + c + "' in " + text); }
+                    rank = rank * 10 + Char.digitValue(c);
+                }
+            }
+        }
+        return hand;
+    }
+
+    static void show(string label, List<Card> hand)
+    {
+        string line = label + ":";
+        for (Card c : hand) { line = line + " " + c.name(); }
+        System.stdout.println(line);
+    }
+
+    static int main()
+    {
+        List<Card> hand = parseHand("12h 3c 1s 10d 3h 13c");
+        show("dealt", hand);
+
+        hand.sort((a, b) -> a.rank - b.rank);           // stable: 3c stays before 3h
+        show("by rank", hand);
+
+        Predicate<Card> red = c -> c.suit.isRed();
+        int reds = 0;
+        for (Card c : hand) {
+            if (red.test(c)) { reds++; }
+        }
+        System.stdout.println(reds + " red cards of " + hand.size());
+
+        hand.removeIf(c -> c.rank > 10);
+        show("no faces", hand);
+
+        Function<Card, int> points = c -> {
+            if (c.rank == 1) { return 11; }
+            return c.rank;
+        };
+        hand.forEach(c -> System.stdout.print(points.apply(c) + " "));
+        System.stdout.println();
+
+        for (Suit s : Suit.values()) {
+            System.stdout.print(s.name() + " ");
+            if (s.isRed()) { System.stdout.print("(red) "); }
+        }
+        System.stdout.println();
+
+        array<string><<3>> inputs = ["5h 7s", "14c", "9x"];
+        for (string text : inputs) {
+            try {
+                show("ok", parseHand(text));
+            } catch (NumberFormatException e) {
+                System.stdout.println("bad text: " + e.getMessage());
+            } catch (IllegalArgumentException e) {
+                System.stdout.println("bad card: " + e.getMessage());
+            } finally {
+                System.stdout.println("  (tried \"" + text + "\")");
+            }
+        }
+
+        List<Object> things = new List();
+        things.add(hand.get(0));
+        things.add(new Exception("not a card"));
+        for (Object o : things) {
+            if (o instanceof Card card) {
+                System.stdout.println("a card: " + card.name());
+            } else if (o instanceof Exception e) {
+                System.stdout.println("an exception: " + e.getMessage());
+            }
+        }
+        return 0;
+    }
+}

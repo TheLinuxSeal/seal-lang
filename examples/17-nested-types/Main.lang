@@ -1,0 +1,89 @@
+// Nested types: a whole program in one file. Types declared inside another
+// are used by their bare name inside it, and by Outer.Name outside it; a
+// nested type that isn't public is private to its outer type.
+struct Main
+{
+    enum Priority { LOW, NORMAL, URGENT }
+
+    /** Something to do. Main may use its private fields: nested types share privates with their outer type. */
+    class Task
+    {
+        string title;
+        Priority priority;
+        bit done;
+
+        public new(string title, Priority priority) { this.title = title; this.priority = priority; }
+
+        public string describe() { return (done ? "[x] " : "[ ] ") + title + " (" + priority.name() + ")"; }
+    }
+
+    /** What a filter accepts. */
+    interface Rule
+    {
+        bit accepts(Task t);
+    }
+
+    class OpenAndAtLeast implements(Rule)
+    {
+        Priority least;
+
+        public new(Priority least) { this.least = least; }
+        public bit accepts(Task t) { return !t.done && !(t.priority < least); }
+    }
+
+    /** A list of tasks, with its own nested type for counts. */
+    class Board
+    {
+        public struct Counts
+        {
+            public int open;
+            public int done;
+        }
+
+        List<Task> tasks = new List();
+
+        public void add(string title, Priority p) { tasks.add(new Task(title, p)); }
+
+        public void finish(string title)
+        {
+            for (Task t : tasks) {
+                if (t.title == title) { t.done = true; }
+            }
+        }
+
+        public Counts counts()
+        {
+            Counts c;
+            for (Task t : tasks) {
+                if (t.done) { c.done++; } else { c.open++; }
+            }
+            return c;
+        }
+
+        public void print(Rule rule)
+        {
+            for (Task t : tasks) {
+                if (rule.accepts(t)) { System.stdout.println("  " + t.describe()); }
+            }
+        }
+    }
+
+    static int main()
+    {
+        Board board = new Board();
+        board.add("water the plants", Priority.LOW);
+        board.add("fix the build", Priority.URGENT);
+        board.add("write the spec", Priority.NORMAL);
+        board.add("answer mail", Priority.NORMAL);
+        board.finish("answer mail");
+
+        System.stdout.println("everything:");
+        board.print(t -> true);
+        System.stdout.println("open, normal or above:");
+        board.print(new OpenAndAtLeast(Priority.NORMAL));
+
+        Board.Counts c = board.counts();
+        System.stdout.println(c.open + " open, " + c.done + " done");
+        return 0;
+    }
+}

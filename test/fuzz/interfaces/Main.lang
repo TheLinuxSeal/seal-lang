@@ -1,0 +1,47 @@
+// Fuzz input: abstract classes and interfaces, with handles stored and replaced.
+struct Main
+{
+    static int total(List<Drawable> ds)
+    {
+        int t = 0;
+        for (int i = 0; i < ds.size(); i += 1) { t += ds.get(i).draw(); }
+        return t;
+    }
+
+    static int main()
+    {
+        List<Drawable> ds = new List();
+        Shape head = new Circle(1);
+        head.next = new Square(2);
+        head.next.next = new Circle(3);
+        Shape s = head;
+        while (s != null) {
+            ds.add(s);
+            s = s.next;
+        }
+        System.stdout.println(total(ds));
+        Drawable d = ds.get(1);
+        Square sq = (Square)d;
+        sq.side = 5;
+        System.stdout.println(d.draw());
+        head.next = null;
+        ds.clear();
+        ds.add(head);
+        System.stdout.println(total(ds));
+        int squares = 0;
+        for (int i = 0; i < ds.size(); i += 1) {
+            if (ds.get(i) instanceof Square found && found.side > 0) { squares += found.side; }
+            else if (ds.get(i) instanceof Circle c) { squares -= c.r; }
+        }
+        System.stdout.println(squares);
+        int k = 0;
+        while (k < ds.size() && ds.get(k) instanceof Shape sh) {
+            System.stdout.println(sh.area());
+            k += 1;
+        }
+        array<Drawable><<2>> pair = [new Square(1), head];
+        pair = [pair[1], pair[0]];
+        System.stdout.println(pair[0].draw() + pair[1].draw());
+        return 0;
+    }
+}

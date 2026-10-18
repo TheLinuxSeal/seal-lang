@@ -1,0 +1,36 @@
+struct Main
+{
+    static Res make(int i) { Res r = new Res(i); return r; }
+    static Pair pairOf(Res a, Res b) { Pair p; p.left = a; p.right = b; return p; }
+    static int total(List<Res> xs) { int t = 0; for (int i = 0; i < xs.size(); i += 1) { t += xs.get(i).id; } return t; }
+
+    static int main()
+    {
+        Res a = make(1);
+        Res b = new Res(2);
+        Res c = a + b;
+        Pair p = pairOf(a, c);
+        Pair q = p;
+        q.right = make(7);
+        a.chain(10);
+        a.chain(11).chain(12);
+        List<Res> xs = new List();
+        xs.add(a);
+        xs.add(b);
+        xs.add(c);
+        xs.add(make(5));
+        xs.sort();
+        xs.removeAt(1);
+        Res last = xs.removeLast();
+        xs.insert(0, last);
+        array<Res><<3>> arr;
+        arr[0] = a;
+        arr[1] = xs.get(0);
+        arr[2] = arr[0];
+        if (a < b && make(3).id > 2) { b = make(4); }
+        for (int i = 0; i < 3; i += 1) { xs.add(new Res(i)); }
+        System.stdout.print(p.sum() + q.sum() + total(xs) + arr[1].id);
+        System.stdout.println();
+        return 0;
+    }
+}

@@ -1,0 +1,64 @@
+// Reads text a line at a time (§42.2): System.stdin, and the base of FileReader.
+//
+//   while (System.stdin.hasNextLine()) { string line = System.stdin.readLine(); ... }
+//   for (string line : System.stdin) { ... }
+//
+// It closes itself when the last reference to it goes, if not before.
+class Reader implements(Iterable<string>)
+{
+    int<<64>> file;        // the VM's stream, 0 once closed
+    string pending;        // a line hasNextLine read ahead
+    bit hasPending;
+
+    private<FileReader, System> new(int<<64>> file) { this.file = file; }
+
+    /** Whether there is another line to read. */
+    public bit hasNextLine()
+    {
+        if (hasPending) { return true; }
+        if (file == 0) { return false; }
+        int<<64>> n = Files.nReadLine(file);
+        if (n == -3) { return false; } // the end
+        pending = Files.text(n);
+        hasPending = true;
+        return true;
+    }
+
+    /** The next line, without its line end; throws a NoSuchElementException at the end. */
+    public string readLine()
+    {
+        if (!hasNextLine()) { throw new NoSuchElementException("no more lines to read"); }
+        hasPending = false;
+        return pending;
+    }
+
+    /** The lines left. */
+    public List<string> readAllLines()
+    {
+        List<string> lines = new List();
+        while (hasNextLine()) { lines.add(readLine()); }
+        return lines;
+    }
+
+    public void close()
+    {
+        if (file != 0) {
+            Files.nClose(file);
+            file = 0;
+        }
+    }
+
+    public Iterator<string> iterator() { return new Lines(this); }
+
+    delete() { close(); }
+
+    /** The lines of a Reader, for a for-each loop. */
+    class Lines implements(Iterator<string>)
+    {
+        Reader reader;
+
+        public new(Reader reader) { this.reader = reader; }
+        public bit hasNext() { return reader.hasNextLine(); }
+        public string next() { return reader.readLine(); }
+    }
+}

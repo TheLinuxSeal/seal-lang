@@ -1,0 +1,19 @@
+package shop.model;
+
+/** Items and how many of each. Other packages name the nested type Cart.Entry. */
+class Cart
+{
+    public class Entry
+    {
+        public Item item;
+        public int count;
+
+        public new(Item item, int count) { this.item = item; this.count = count; }
+
+        public double total() { return item.price * count; }
+    }
+
+    public List<Entry> entries = new List();
+
+    public void add(Item item, int count) { entries.add(new Entry(item, count)); }
+}

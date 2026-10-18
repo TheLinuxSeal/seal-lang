@@ -1,0 +1,9 @@
+class Res
+{
+    public int id;
+    public Res next;
+    public new(int i) { id = i; }
+    public Res chain(int i) { Res r = new Res(i); r.next = next; next = r; return r; }
+    @overload(Operator.ADD) public Res plus(Res o) { return new Res(id + o.id); }
+    @overload(Operator.LESS) public bit less(Res o) { return id < o.id; }
+}

@@ -1,0 +1,449 @@
+// Strings of 16-bit characters (§39).
+//
+//   string<<N>>  holds up to N characters inline. It never allocates.
+//   string       (the bare shape) grows as needed, with its characters in a
+//                shared heap buffer.
+//
+// Strings are values: `b = a` gives b the same text, and changing b never
+// changes a. Copies share their characters until one of them is changed
+// (copy-on-write), and buffers are freed automatically. A string made from a
+// literal uses the literal's characters until it is first changed.
+struct string<<>>
+struct string<<int N>>
+{
+    int size;
+    array<char><<N>> chars<<int N>>;
+    addr<char> chars<<>>;
+    int capacity<<>>;
+    // The buffer that `chars` points into; null while using a literal's characters.
+    StringBuffer owner<<>>;
+
+    // ------------------------------------------------------------ construction
+
+    public new() { }
+
+    /**
+     * A fixed string becomes a bare one wherever a bare string is wanted:
+     * `string s = fixed;`, passing it to a `string` parameter, returning it.
+     */
+    @implicit
+    public new<<>>(string<<int K>> other)
+    {
+        reserve(other.length());
+        append(other);
+    }
+
+    /** The n characters the last file operation produced, as a new bare string (§42.1). */
+    private<Files, Reader> static string takeText(int n)
+    {
+        string s;
+        s.reserve(n);
+        takeInto(s.chars);
+        s.size = n;
+        return s;
+    }
+
+    @native("io_text_take") static int<<64>> takeInto(addr<char> buf) { }
+
+    // ------------------------------------------------------------ formatting (§42.6)
+
+    /**
+     * Text from a format and values, as Java's String.format: string.format("%-8s %6.2f", name, price).
+     * Up to eight values; Format (§42.6) lists the specifiers.
+     */
+    public static string format(string fmt) { Format fm = new Format(fmt); return fm.finish(); }
+    public static <A> string format(string fmt, A a) { Format fm = new Format(fmt); fm.arg(a); return fm.finish(); }
+    public static <A, B> string format(string fmt, A a, B b) { Format fm = new Format(fmt); fm.arg(a); fm.arg(b); return fm.finish(); }
+    public static <A, B, C> string format(string fmt, A a, B b, C c) { Format fm = new Format(fmt); fm.arg(a); fm.arg(b); fm.arg(c); return fm.finish(); }
+    public static <A, B, C, D> string format(string fmt, A a, B b, C c, D d) { Format fm = new Format(fmt); fm.arg(a); fm.arg(b); fm.arg(c); fm.arg(d); return fm.finish(); }
+    public static <A, B, C, D, E> string format(string fmt, A a, B b, C c, D d, E e) { Format fm = new Format(fmt); fm.arg(a); fm.arg(b); fm.arg(c); fm.arg(d); fm.arg(e); return fm.finish(); }
+    public static <A, B, C, D, E, F> string format(string fmt, A a, B b, C c, D d, E e, F f) { Format fm = new Format(fmt); fm.arg(a); fm.arg(b); fm.arg(c); fm.arg(d); fm.arg(e); fm.arg(f); return fm.finish(); }
+    public static <A, B, C, D, E, F, G> string format(string fmt, A a, B b, C c, D d, E e, F f, G g) { Format fm = new Format(fmt); fm.arg(a); fm.arg(b); fm.arg(c); fm.arg(d); fm.arg(e); fm.arg(f); fm.arg(g); return fm.finish(); }
+    public static <A, B, C, D, E, F, G, H> string format(string fmt, A a, B b, C c, D d, E e, F f, G g, H h) { Format fm = new Format(fmt); fm.arg(a); fm.arg(b); fm.arg(c); fm.arg(d); fm.arg(e); fm.arg(f); fm.arg(g); fm.arg(h); return fm.finish(); }
+
+    /** A bare string holding n characters read from memory. */
+    public static string fromChars(addr<char> chars, int n)
+    {
+        string s;
+        s.reserve(n);
+        for (int i = 0; i < n; i++) { s.append(&(chars + (int<<64>>)i * 16)); }
+        return s;
+    }
+
+    // ------------------------------------------------------------ size
+
+    public int length() { return size; }
+
+    public bit isEmpty() { return size == 0; }
+
+    /** The most characters this string can hold. */
+    public int maxLength<<int N>>() { return N; }
+
+    // ------------------------------------------------------------ characters
+
+    public char charAt<<int N>>(int i)
+    {
+        if (i < 0 || i >= size) { throw new IndexOutOfBoundsException("string index " + i + " out of range for length " + size); }
+        return chars[i];
+    }
+
+    public char charAt<<>>(int i)
+    {
+        if (i < 0 || i >= size) { throw new IndexOutOfBoundsException("string index " + i + " out of range for length " + size); }
+        return &(chars + (int<<64>>)i * 16);
+    }
+
+    public void set<<int N>>(int i, char c)
+    {
+        if (i < 0 || i >= size) { throw new IndexOutOfBoundsException("string index " + i + " out of range for length " + size); }
+        chars[i] = c;
+    }
+
+    public void set<<>>(int i, char c)
+    {
+        if (i < 0 || i >= size) { throw new IndexOutOfBoundsException("string index " + i + " out of range for length " + size); }
+        reserve(size);
+        &(chars + (int<<64>>)i * 16) = c;
+    }
+
+    /**
+     * The characters as an array of the string's capacity; places past
+     * length() are 0. For a literal the two are equal: "abc".toCharArray()
+     * is a char[3].
+     */
+    /** The characters as an array of exactly length() chars. */
+    public array<char> toCharArray<<>>()
+    {
+        array<char> out = new array<char>(size);
+        for (int i = 0; i < size; i++) { out[i] = charAt(i); }
+        return out;
+    }
+
+    public array<char><<N>> toCharArray<<int N>>()
+    {
+        array<char><<N>> result;
+        for (int i = 0; i < size; i++) { result[i] = chars[i]; }
+        return result;
+    }
+
+    // ------------------------------------------------------------ building
+
+    public void append<<int N>>(char c)
+    {
+        if (size >= N) { throw new IllegalStateException("string<<" + N + ">> is full"); }
+        chars[size] = c;
+        size++;
+    }
+
+    public void append<<>>(char c)
+    {
+        reserve(size + 1);
+        &(chars + (int<<64>>)size * 16) = c;
+        size++;
+    }
+
+    public void append<<int N>>(string other)
+    {
+        for (int i = 0; i < other.length(); i++) { append(other.charAt(i)); }
+    }
+
+    public void append<<>>(string other)
+    {
+        reserve(size + other.length());
+        for (int i = 0; i < other.length(); i++) { append(other.charAt(i)); }
+    }
+
+    public void append<<int N>>(string<<int K>> other)
+    {
+        for (int i = 0; i < other.length(); i++) { append(other.charAt(i)); }
+    }
+
+    public void append<<>>(string<<int K>> other)
+    {
+        reserve(size + other.length());
+        for (int i = 0; i < other.length(); i++) { append(other.charAt(i)); }
+    }
+
+    /** Joins two fixed strings into one whose capacity is the sum of theirs. */
+    @overload(Operator.ADD)
+    public string<<N + K>> add<<int N>>(string<<int K>> other)
+    {
+        string<<N + K>> result;
+        for (int i = 0; i < size; i++) { result.append(chars[i]); }
+        result.append(other);
+        return result;
+    }
+
+    // Joining with a bare string, a char, or a number's text gives a bare string:
+    // "total: " + n, name + "!", fixed + bare. (`add` is guarded per shape, as the
+    // fixed + fixed version above is, so each comes in a <<int N>> and a <<>> form.)
+
+    @overload(Operator.ADD) public string add<<int N>>(string other) { return join(other); }
+    @overload(Operator.ADD) public string add<<int N>>(int x) { return join(Integer.toString(x)); }
+    @overload(Operator.ADD) public string add<<int N>>(int<<int W>> x) { return join(Integer.toString((int<<64>>)x)); }
+    @overload(Operator.ADD) public string add<<int N>>(uint<<int W>> x) { return join(Integer.toString((uint<<64>>)x)); }
+    @overload(Operator.ADD) public string add<<int N>>(double x) { return join(Double.toString(x)); }
+    @overload(Operator.ADD) public string add<<int N>>(float x) { return join(Float.toString(x)); }
+    @overload(Operator.ADD) public string add<<int N>>(fixed<<int A, int B>> x) { return join(Fixed.toString(x)); }
+    @overload(Operator.ADD) public string add<<int N>>(ufixed<<int A, int B>> x) { return join(Fixed.toString(x)); }
+    @overload(Operator.ADD) public string add<<int N>>(bit x) { if (x) { return join("true"); } return join("false"); }
+    @overload(Operator.ADD) public string add<<int N>>(char c) { string r = copy(); r.append(c); return r; }
+
+    @overload(Operator.ADD) public string add<<>>(string other) { return join(other); }
+    @overload(Operator.ADD) public string add<<>>(string<<int K>> other) { return join(other); }
+    @overload(Operator.ADD) public string add<<>>(int x) { return join(Integer.toString(x)); }
+    @overload(Operator.ADD) public string add<<>>(int<<int W>> x) { return join(Integer.toString((int<<64>>)x)); }
+    @overload(Operator.ADD) public string add<<>>(uint<<int W>> x) { return join(Integer.toString((uint<<64>>)x)); }
+    @overload(Operator.ADD) public string add<<>>(double x) { return join(Double.toString(x)); }
+    @overload(Operator.ADD) public string add<<>>(float x) { return join(Float.toString(x)); }
+    @overload(Operator.ADD) public string add<<>>(fixed<<int A, int B>> x) { return join(Fixed.toString(x)); }
+    @overload(Operator.ADD) public string add<<>>(ufixed<<int A, int B>> x) { return join(Fixed.toString(x)); }
+    @overload(Operator.ADD) public string add<<>>(bit x) { if (x) { return join("true"); } return join("false"); }
+    @overload(Operator.ADD) public string add<<>>(char c) { string r = copy(); r.append(c); return r; }
+
+    string join(string text)
+    {
+        string r = copy();
+        r.append(text);
+        return r;
+    }
+
+    public void clear() { size = 0; }
+
+    /**
+     * Makes room for at least n characters in a buffer this string alone
+     * uses. Copy-on-write: if the buffer is shared with another copy (or is a
+     * literal's), the characters are copied into a new buffer first.
+     */
+    public void reserve<<>>(int n)
+    {
+        bit shared = owner == null || System.refCount(owner) > 1;
+        if (!shared && n <= capacity) { return; }
+        int c = capacity;
+        if (n > c) {
+            c = capacity * 2;
+            if (c < 8) { c = 8; }
+            if (c < n) { c = n; }
+        }
+        StringBuffer fresh = new StringBuffer();
+        fresh.chars = new<char>(c);
+        for (int i = 0; i < size; i++) {
+            &(fresh.chars + (int<<64>>)i * 16) = &(chars + (int<<64>>)i * 16);
+        }
+        chars = fresh.chars;
+        capacity = c;
+        owner = fresh;     // the old buffer is released, and freed if nothing else uses it
+    }
+
+    // ------------------------------------------------------------ comparison
+
+    @overload(Operator.EQUALS)
+    public bit equals(string other)
+    {
+        if (size != other.length()) { return false; }
+        for (int i = 0; i < size; i++) {
+            if (charAt(i) != other.charAt(i)) { return false; }
+        }
+        return true;
+    }
+
+    @overload(Operator.EQUALS)
+    public bit equals(string<<int K>> other)
+    {
+        if (size != other.length()) { return false; }
+        for (int i = 0; i < size; i++) {
+            if (charAt(i) != other.charAt(i)) { return false; }
+        }
+        return true;
+    }
+
+    /** Negative, zero or positive as this string sorts before, equal to, or after the other. */
+    public int compare(string other)
+    {
+        int n = size;
+        if (other.length() < n) { n = other.length(); }
+        for (int i = 0; i < n; i++) {
+            char a = charAt(i);
+            char b = other.charAt(i);
+            if (a != b) { return a - b; }
+        }
+        return size - other.length();
+    }
+
+    public int compare(string<<int K>> other)
+    {
+        int n = size;
+        if (other.length() < n) { n = other.length(); }
+        for (int i = 0; i < n; i++) {
+            char a = charAt(i);
+            char b = other.charAt(i);
+            if (a != b) { return a - b; }
+        }
+        return size - other.length();
+    }
+
+    @overload(Operator.LESS)
+    public bit less(string other) { return compare(other) < 0; }
+
+    @overload(Operator.LESS)
+    public bit less(string<<int K>> other) { return compare(other) < 0; }
+
+    public bit startsWith(string prefix)
+    {
+        if (prefix.length() > size) { return false; }
+        for (int i = 0; i < prefix.length(); i++) {
+            if (charAt(i) != prefix.charAt(i)) { return false; }
+        }
+        return true;
+    }
+
+    public bit endsWith(string suffix)
+    {
+        int n = suffix.length();
+        if (n > size) { return false; }
+        for (int i = 0; i < n; i++) {
+            if (charAt(size - n + i) != suffix.charAt(i)) { return false; }
+        }
+        return true;
+    }
+
+    // ------------------------------------------------------------ searching
+
+    /** Index of the first c, or -1. */
+    public int indexOf(char c)
+    {
+        for (int i = 0; i < size; i++) {
+            if (charAt(i) == c) { return i; }
+        }
+        return -1;
+    }
+
+    public bit contains(char c) { return indexOf(c) >= 0; }
+
+    /** Index of the last c, or -1. */
+    public int lastIndexOf(char c)
+    {
+        for (int i = size - 1; i >= 0; i--) {
+            if (charAt(i) == c) { return i; }
+        }
+        return -1;
+    }
+
+    /** Index of the first place `part` starts, or -1 ("" is found at 0). */
+    public int indexOf(string part)
+    {
+        int n = part.length();
+        for (int i = 0; i + n <= size; i++) {
+            int k = 0;
+            while (k < n && charAt(i + k) == part.charAt(k)) { k++; }
+            if (k == n) { return i; }
+        }
+        return -1;
+    }
+
+    public bit contains(string part) { return indexOf(part) >= 0; }
+
+    // ------------------------------------------------------------ splitting
+
+    /** The pieces between separators, empty ones included: "a,,b" gives "a", "", "b". */
+    public List<string> split(char separator)
+    {
+        List<string> parts = new List();
+        int start = 0;
+        for (int i = 0; i < size; i++) {
+            if (charAt(i) == separator) {
+                parts.add(substring(start, i));
+                start = i + 1;
+            }
+        }
+        parts.add(substring(start, size));
+        return parts;
+    }
+
+    /**
+     * The lines, without their line ends (\n or \r\n), as in Java's lines(): a final line
+     * end doesn't start another, empty line, and "" has no lines.
+     */
+    public List<string> lines()
+    {
+        List<string> out = new List();
+        int start = 0;
+        for (int i = 0; i < size; i++) {
+            if (charAt(i) == '\n') {
+                int end = i > start && charAt(i - 1) == '\r' ? i - 1 : i;
+                out.add(substring(start, end));
+                start = i + 1;
+            }
+        }
+        if (start < size) {
+            out.add(substring(start, size));
+        }
+        return out;
+    }
+
+    /** Without the spaces and control characters at either end. */
+    public string trim()
+    {
+        int from = 0;
+        int to = size;
+        while (from < to && charAt(from) <= ' ') { from++; }
+        while (to > from && charAt(to - 1) <= ' ') { to--; }
+        return substring(from, to);
+    }
+
+    // ------------------------------------------------------------ conversion
+
+    /** Characters from (inclusive) to to (exclusive), as a new bare string the caller owns. */
+    public string substring(int from, int to)
+    {
+        if (from < 0 || to > size || from > to) { throw new IndexOutOfBoundsException("substring(" + from + ", " + to + ") out of range for length " + size); }
+        string result;
+        result.reserve(to - from);
+        for (int i = from; i < to; i++) { result.append(charAt(i)); }
+        return result;
+    }
+
+    /** A copy as a bare string the caller owns. */
+    public string copy() { return substring(0, size); }
+
+    public void toUpper()
+    {
+        for (int i = 0; i < size; i++) { set(i, Char.toUpper(charAt(i))); }
+    }
+
+    public void toLower()
+    {
+        for (int i = 0; i < size; i++) { set(i, Char.toLower(charAt(i))); }
+    }
+
+    /** Parses an optionally negative decimal integer; fails on anything else. */
+    public int<<64>> toInt()
+    {
+        if (size == 0) { throw new NumberFormatException("cannot parse an empty string as an integer"); }
+        int i = 0;
+        bit negative = false;
+        if (charAt(0) == '-') {
+            negative = true;
+            i = 1;
+            if (size == 1) { throw new NumberFormatException("cannot parse \"-\" as an integer"); }
+        }
+        int<<64>> value = 0;
+        for (; i < size; i++) {
+            char c = charAt(i);
+            if (!Char.isDigit(c)) { throw new NumberFormatException("not a decimal integer: \"" + copy() + "\""); }
+            value = value * 10 + (int<<64>>)Char.digitValue(c);
+        }
+        if (negative) { return -value; }
+        return value;
+    }
+
+    /** FNV-1a hash of the characters. */
+    public uint<<64>> hash()
+    {
+        uint<<64>> h = 14695981039346656037;
+        for (int i = 0; i < size; i++) {
+            h = (h ^ (uint<<64>>)charAt(i)) * 1099511628211;
+        }
+        return h;
+    }
+}

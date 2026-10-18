@@ -1,0 +1,81 @@
+// The standard library's collections: List<T>, Queue<T> and IntMap<V>.
+struct Main
+{
+    /** Length of the Collatz sequence from n down to 1, memoized in an IntMap. */
+    static int collatz(int<<64>> n, IntMap<int> memo)
+    {
+        if (n == 1) { return 1; }
+        if (memo.has(n)) { return memo.get(n); }
+        int<<64>> next = n / 2;
+        if (n % 2 == 1) { next = 3 * n + 1; }
+        int length = collatz(next, memo) + 1;
+        memo.put(n, length);
+        return length;
+    }
+
+    static int main()
+    {
+        System.stdout.println("== breadth-first search with a Queue ==");
+        // A small graph as an array of adjacency lists.
+        array<List<int>><<7>> edges;
+        for (int i = 0; i < 7; i++) { edges[i] = new List(); }
+        edges[0].add(1); edges[0].add(2);
+        edges[1].add(3);
+        edges[2].add(3); edges[2].add(4);
+        edges[3].add(5);
+        edges[4].add(5);
+        edges[5].add(6);
+        array<int><<7>> distance = [0, -1, -1, -1, -1, -1, -1];   // -1: not reached yet
+        Queue<int> queue = new Queue();
+        queue.push(0);
+        while (!queue.isEmpty()) {
+            int node = queue.pop();
+            for (int k = 0; k < edges[node].size(); k++) {
+                int next = edges[node].get(k);
+                if (distance[next] < 0) {
+                    distance[next] = distance[node] + 1;
+                    queue.push(next);
+                }
+            }
+        }
+        for (int i = 0; i < 7; i++) {
+            System.stdout.print("distance to ");
+            System.stdout.print(i);
+            System.stdout.print(": ");
+            System.stdout.println(distance[i]);
+        }
+        
+        System.stdout.println("== memoization with an IntMap ==");
+        IntMap<int> memo = new IntMap();
+        int bestStart = 1;
+        int bestLength = 1;
+        for (int n = 1; n < 1000; n++) {
+            int length = collatz((int<<64>>)n, memo);   // the map is shared, not copied
+            if (length > bestLength) {
+                bestLength = length;
+                bestStart = n;
+            }
+        }
+        System.stdout.print("longest Collatz chain below 1000 starts at ");
+        System.stdout.print(bestStart);
+        System.stdout.print(" (");
+        System.stdout.print(bestLength);
+        System.stdout.println(" numbers)");
+        System.stdout.print("values remembered: ");
+        System.stdout.println(memo.size());
+
+        System.stdout.println("== sorting and searching a List ==");
+        List<double> samples = new List();
+        Random rng = new Random(2026);
+        for (int i = 0; i < 10; i++) { samples.add(Math.round(rng.nextDouble() * 1000) / 10); }
+        samples.sort();
+        for (int i = 0; i < samples.size(); i++) {
+            System.stdout.print(samples.get(i));
+            System.stdout.print(" ");
+        }
+        System.stdout.println();
+        System.stdout.print("median: ");
+        System.stdout.println((samples.get(4) + samples.get(5)) / 2);
+        return 0;
+    }
+}

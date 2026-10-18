@@ -1,0 +1,7 @@
+package shop.model;
+
+/** What kind of thing an item is; discounts can apply to a whole category. */
+enum Category
+{
+    PAPER, PENS, BOOKS;
+}

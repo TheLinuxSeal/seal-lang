@@ -1,0 +1,7 @@
+// A singly linked list node. A struct can't contain itself inline,
+// but it can hold the address of another node.
+struct Node
+{
+    public int value;
+    public addr<Node> next;
+}

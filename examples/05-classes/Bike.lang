@@ -1,0 +1,1 @@
+class Bike { public string<<8>> kind() { return "bike"; } }

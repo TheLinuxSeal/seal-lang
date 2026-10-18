@@ -1,0 +1,41 @@
+// Fuzz input: array literals of numbers, strings, structs-with-strings and handles.
+struct Main
+{
+    static int total(array<int><<4>> xs)
+    {
+        int t = 0;
+        for (int i = 0; i < 4; i += 1) { t += xs[i]; }
+        return t;
+    }
+
+    static int main()
+    {
+        array<int><<4>> xs = [3, 1, 4, 1];
+        xs = [xs[3], xs[2], xs[1], xs[0]];
+        System.stdout.println(total(xs) + total([5, 9, 2, 6]));
+        array<int><<2, 2>> m = [[1, 2], [3, 4]];
+        m = [m[1], m[0]];
+        System.stdout.println(m[0][1] * 10 + m[1][0]);
+        array<string><<3>> names = ["ann", "bob", "cy"];
+        names[1].append("!");
+        names = [names[2], names[1], "dee"];
+        System.stdout.println(names[1]);
+        Box first = new Box(10);
+        array<Box><<3>> boxes = [first, new Box(20), null];
+        boxes = [boxes[1], boxes[0], new Box(30)];
+        int sum = 0;
+        for (int i = 0; i < 3; i += 1) { sum += boxes[i].v; }
+        System.stdout.println(sum);
+        first = null;
+        System.stdout.println([7, 8, 9][2] + ['a', 'b'][1]);
+        int all = 0;
+        for (Box b : boxes) { all += b.v; }
+        for (string s : names) { for (char ch : s) { all += 1; } }
+        for (array<int><<2>> row : m) { for (int v : row) { all += v; } }
+        List<Box> kept = new List();
+        for (Box b : boxes) { if (b.v > 15) { kept.add(b); } }
+        for (Box b : kept) { all += b.v; }
+        System.stdout.println(all);
+        return 0;
+    }
+}

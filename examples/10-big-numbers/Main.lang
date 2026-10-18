@@ -1,0 +1,68 @@
+// Arbitrary fixed-width integers, written in the language itself with
+// value parameters and operator overloading (BigUInt<<BITS>>, §54).
+struct Main
+{
+    static int digitSum(string s)
+    {
+        int sum = 0;
+        for (int i = 0; i < s.length(); i++) { sum += Char.digitValue(s.charAt(i)); }
+        return sum;
+    }
+
+    static int main()
+    {
+        System.stdout.println("== 100! ==");
+        BigUInt<<1024>> factorial;
+        factorial.set(1);
+        for (int i = 2; i <= 100; i++) {
+            BigUInt<<1024>> k;
+            k.set((uint<<64>>)i);
+            factorial = factorial * k;
+        }
+        string text = factorial.toString();
+        System.stdout.println(text);
+        System.stdout.print("digit sum: ");
+        System.stdout.println(digitSum(text));
+
+        System.stdout.println("== 2^1000 ==");
+        BigUInt<<1024>> one;
+        one.set(1);
+        BigUInt<<1024>> power = one <<< 1000;
+        string p = power.toString();
+        System.stdout.print(p.length());
+        System.stdout.print(" digits, digit sum ");
+        System.stdout.println(digitSum(p));
+
+        System.stdout.println("== Fibonacci(300) ==");
+        BigUInt<<256>> a;
+        BigUInt<<256>> b;
+        b.set(1);
+        for (int i = 0; i < 300; i++) {
+            BigUInt<<256>> next = a + b;
+            a = b;
+            b = next;
+        }
+        string fib = a.toString();
+        System.stdout.println(fib);
+
+        System.stdout.println("== widths are part of the type ==");
+        BigUInt<<70>> max70;
+        max70.parse("1180591620717411303423");     // 2^70 - 1
+        BigUInt<<70>> unit;
+        unit.set(1);
+        System.stdout.print("BigUInt<<70>> wraps: (2^70 - 1) + 1 = ");
+        string wrapped = (max70 + unit).toString();
+        System.stdout.println(wrapped);
+        System.stdout.print("sizeof(BigUInt<<70>>) = ");
+        System.stdout.print(sizeof(BigUInt<<70>>));
+        System.stdout.println(" bits (two 64-bit words)");
+
+        System.stdout.println("== exact products of ordinary integers ==");
+        uint big = 4294967295;
+        System.stdout.print("4294967295 * 4294967295 = ");
+        System.stdout.println(Integer.mulExact(big, big));
+        System.stdout.print("the same with * wraps to ");
+        System.stdout.println(big * big);
+        return 0;
+    }
+}

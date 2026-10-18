@@ -1,0 +1,162 @@
+// An array whose length is chosen when it is made (§21.3):
+//
+//   array<int> xs = new array<int>(n);
+//   xs[0] = 7;
+//   array<int> ys = [1, 2, 3];
+//   for (int y : ys) { ... }
+//
+// (array<T><<N>>, whose length is part of its type, is the compiler's own
+// fixed array, a value; its methods are in FixedArray.)
+//
+// An array is a unique: it can't be copied (use copy()), and passing one to a
+// method lends it, so the method works on the caller's array: fill(xs) fills
+// it. Returning one from a method moves it out. It is freed when it goes out
+// of scope. An index outside it throws an IndexOutOfBoundsException.
+//
+// Elements are copied in and out, so they can't be uniques themselves: no
+// array<array<int>>, but an array<array<int><<3>>> is fine, as fixed arrays
+// are values.
+unique array<T>
+{
+    addr<T> items;   // len elements on the heap
+    int len;
+
+    public new() { }
+
+    /** An array of n default elements (0, false, null, "", ...). */
+    public new(int n)
+    {
+        if (n < 0) { throw new IllegalArgumentException("an array can't have length " + n); }
+        items = new<T>(n > 0 ? n : 1);
+        len = n;
+        T blank; // a default T for each element
+        for (int i = 0; i < n; i++) { &(items + (int<<64>>)i * sizeof(T)) = blank; }
+    }
+
+    public int length() { return len; }
+
+    public bit isEmpty() { return length() == 0; }
+
+    @overload(Operator.INDEX)
+    public T get(int i)
+    {
+        check(i);
+        return &(items + (int<<64>>)i * sizeof(T));
+    }
+
+    @overload(Operator.INDEX_SET)
+    public void set(int i, T value)
+    {
+        check(i);
+        &(items + (int<<64>>)i * sizeof(T)) = value;
+    }
+
+    void check(int i)
+    {
+        if (i < 0 || i >= length()) {
+            throw new IndexOutOfBoundsException("index " + i + " out of range for an array of length " + length());
+        }
+    }
+
+    // ------------------------------------------------------------ whole arrays
+
+    /** Sets every element to value. */
+    public void fill(T value)
+    {
+        for (int i = 0; i < length(); i++) { set(i, value); }
+    }
+
+    /** A new array with the same elements. */
+    public array<T> copy()
+    {
+        array<T> out = new array<T>(length());
+        for (int i = 0; i < length(); i++) { out.set(i, get(i)); }
+        return out;
+    }
+
+    /** The elements from (inclusive) to to (exclusive), as a new array. */
+    public array<T> slice(int from, int to)
+    {
+        if (from < 0 || to > length() || from > to) {
+            throw new IndexOutOfBoundsException("slice(" + from + ", " + to + ") out of range for an array of length " + length());
+        }
+        array<T> out = new array<T>(to - from);
+        for (int i = from; i < to; i++) { out.set(i - from, get(i)); }
+        return out;
+    }
+
+    public List<T> toList()
+    {
+        List<T> out = new List();
+        out.reserve(length());
+        for (int i = 0; i < length(); i++) { out.add(get(i)); }
+        return out;
+    }
+
+    /** Index of the first element == value, or -1. */
+    public int indexOf(T value)
+    {
+        for (int i = 0; i < length(); i++) {
+            if (get(i) == value) { return i; }
+        }
+        return -1;
+    }
+
+    public bit contains(T value) { return indexOf(value) >= 0; }
+
+    public void swap(int i, int j)
+    {
+        T t = get(i);
+        set(i, get(j));
+        set(j, t);
+    }
+
+    public void reverse()
+    {
+        int i = 0;
+        int j = length() - 1;
+        while (i < j) {
+            swap(i, j);
+            i++;
+            j--;
+        }
+    }
+
+    /** Sorts ascending with <, in place (heapsort: O(n log n), not stable). */
+    public void sort()
+    {
+        int n = length();
+        for (int start = n / 2 - 1; start >= 0; start--) { siftDown(start, n); }
+        for (int end = n - 1; end > 0; end--) {
+            swap(0, end);
+            siftDown(0, end);
+        }
+    }
+
+    void siftDown(int start, int end)
+    {
+        int root = start;
+        while (root * 2 + 1 < end) {
+            int child = root * 2 + 1;
+            if (child + 1 < end && get(child) < get(child + 1)) { child++; }
+            if (!(get(root) < get(child))) { return; }
+            swap(root, child);
+            root = child;
+        }
+    }
+
+    /** Sorts in the order cmp gives, keeping equal elements in order (merge sort: O(n log n), stable). */
+    public void sort(Comparator<T> cmp)
+    {
+        List<T> sorted = toList();
+        sorted.sort(cmp);
+        for (int i = 0; i < length(); i++) { set(i, sorted.get(i)); }
+    }
+
+    delete()
+    {
+        T blank;
+        for (int i = 0; i < len; i++) { &(items + (int<<64>>)i * sizeof(T)) = blank; } // lets go of what they refer to
+        delete items;
+    }
+}

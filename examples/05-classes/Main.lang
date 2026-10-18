@@ -1,0 +1,37 @@
+struct Main
+{
+    static int main()
+    {
+        System.stdout.println("== virtual dispatch through handles ==");
+        List<Animal> zoo = new List();
+        zoo.add(new Dog("Rex"));
+        zoo.add(new Bird("Tweety"));
+        zoo.add(new Puppy("Bit"));
+        zoo.add(new Animal("Thing"));
+        for (int i = 0; i < zoo.size(); i++) {
+            zoo.get(i).describe();
+        }
+
+        System.stdout.println("== checked downcasts ==");
+        Dog rex = (Dog)zoo.get(0);     // fine: it is a Dog
+        rex.fetch();
+        // (Dog)zoo.get(1) would stop the program: Tweety is a Bird.
+
+        System.stdout.println("== the parent depends on the shape ==");
+        Vehicle<<2>> bike = new Vehicle();
+        Vehicle<<4>> car = new Vehicle();
+        Vehicle<<18>> truck = new Vehicle();
+        System.stdout.print(bike.wheels()); System.stdout.print(" wheels: "); System.stdout.println(bike.kind());
+        System.stdout.print(car.wheels()); System.stdout.print(" wheels: "); System.stdout.println(car.kind());
+        System.stdout.print(truck.wheels()); System.stdout.print(" wheels: "); System.stdout.println(truck.kind());
+        Car asCar = car;                         // a Vehicle<<4>> is a Car
+        System.stdout.println(asCar.kind());
+
+        System.stdout.println("== objects are freed when nothing refers to them ==");
+        zoo.clear();                 // frees every animal except Rex: `rex` still refers to him
+        System.stdout.println("rex still refers to Rex");
+        rex = null;                  // the last reference to Rex is gone
+        System.stdout.println("the vehicles are freed at the end of main");
+        return 0;
+    }
+}

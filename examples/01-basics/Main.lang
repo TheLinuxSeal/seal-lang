@@ -1,0 +1,74 @@
+// The basics: integers of any width, control flow, functions, and the
+// language's single shift operator.
+struct Main
+{
+    static int<<64>> factorial(int n)
+    {
+        if (n <= 1) { return 1; }
+        return (int<<64>>)n * factorial(n - 1);
+    }
+
+    static int gcd(int a, int b)
+    {
+        while (b != 0) {
+            int t = a % b;
+            a = b;
+            b = t;
+        }
+        return a;
+    }
+
+    static int main()
+    {
+        System.stdout.println("== integers of any width (they wrap) ==");
+        int<<8>> small = 127;
+        small++;
+        System.stdout.print("int<<8>> 127 + 1 = ");
+        System.stdout.println((int)small);
+        uint<<4>> nibble = 15;
+        nibble++;
+        System.stdout.print("uint<<4>> 15 + 1 = ");
+        System.stdout.println((uint)nibble);
+        System.stdout.print("20! = ");
+        System.stdout.println(factorial(20));
+        System.stdout.print("sizeof(int<<17>>) = ");
+        System.stdout.print(sizeof(int<<17>>));
+        System.stdout.println(" bits");
+
+        System.stdout.println("== control flow ==");
+        for (int i = 1; i <= 15; i++) {
+            if (i % 15 == 0) { System.stdout.print("FizzBuzz"); }
+            else if (i % 3 == 0) { System.stdout.print("Fizz"); }
+            else if (i % 5 == 0) { System.stdout.print("Buzz"); }
+            else { System.stdout.print(i); }
+            System.stdout.print(" ");
+        }
+        System.stdout.println();
+        System.stdout.print("gcd(1071, 462) = ");
+        System.stdout.println(gcd(1071, 462));
+
+        System.stdout.println("== one shift operator, both directions ==");
+        int x = 40;
+        System.stdout.print("40 <<< 2  = ");
+        System.stdout.println(x <<< 2);
+        System.stdout.print("40 <<< -2 = ");
+        System.stdout.println(x <<< -2);
+        int negative = -40;
+        System.stdout.print("-40 <<< -2 = ");
+        System.stdout.println(negative <<< -2);
+
+        System.stdout.println("== bit is its own type ==");
+        bit even = x % 2 == 0;
+        System.stdout.print("40 is even: ");
+        System.stdout.println(even);
+        // if (x) { }   would not compile: conditions must be a bit
+
+        System.stdout.println("== floating point ==");
+        double r = 2.0;
+        System.stdout.print("area of a circle with r = 2: ");
+        System.stdout.println(Math.PI * r * r);
+        System.stdout.print("(int)3.99 = ");
+        System.stdout.println((int)3.99);
+        return 0;
+    }
+}

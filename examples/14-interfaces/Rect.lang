@@ -1,0 +1,10 @@
+class Rect extends(Shape)
+{
+    int w;
+    int h;
+
+    public new(int width, int height) { w = width; h = height; }
+
+    public string name() { return "rect"; }
+    public int area() { return w * h; }
+}

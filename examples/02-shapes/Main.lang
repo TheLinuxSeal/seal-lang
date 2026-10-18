@@ -1,0 +1,53 @@
+struct Main
+{
+    static int main()
+    {
+        System.stdout.println("== one class, two shapes ==");
+        Matrix<int><<3>> row;
+        Matrix<int><<2, 3>> a;
+        Matrix<int><<3, 2>> b;
+        System.stdout.print("row has ");
+        System.stdout.print(row.size());
+        System.stdout.print(" cells, a has ");
+        System.stdout.print(a.size());
+        System.stdout.println(" cells");
+        for (int i = 0; i < 2; i++) {
+            for (int j = 0; j < 3; j++) {
+                a.set(i, j, i + j);
+                b.set(j, i, i * j + 1);
+            }
+        }
+        Matrix<int><<2, 2>> c = a.times(b);    // 2×3 times 3×2 gives 2×2
+        for (int i = 0; i < 2; i++) {
+            for (int j = 0; j < 2; j++) {
+                System.stdout.print(c.get(i, j));
+                System.stdout.print(" ");
+            }
+            System.stdout.println();
+        }
+        // Matrix<int><<2, 2>> bad = a.times(a);   // does not compile: 2×3 times 2×3
+        System.stdout.print("sizeof(Matrix<double><<3, 3>>) = ");
+        System.stdout.print(sizeof(Matrix<double><<3, 3>>));
+        System.stdout.println(" bits");
+
+        System.stdout.println("== units in types ==");
+        Quantity<<"m">> run = new Quantity(400.0);
+        Quantity<<"m">> walk = new Quantity(150.5);
+        (run + walk).print();
+        (run * 2.5).print();
+        Quantity<<"s">> time = new Quantity(62.0);
+        time.print();
+        // (run + time).print();   // does not compile: m and s are different types
+
+        System.stdout.println("== the bare shape ==");
+        Buffer small;
+        Buffer<<10>> large;
+        small.fill(3);
+        large.fill(3);
+        System.stdout.print("bare buffer total: ");
+        System.stdout.println(small.total());
+        System.stdout.print("Buffer<<10>> total: ");
+        System.stdout.println(large.total());
+        return 0;
+    }
+}

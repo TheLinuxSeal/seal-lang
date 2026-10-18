@@ -1,0 +1,33 @@
+// Fuzz input: HashMap with string, int and object keys under puts and removals; generic methods.
+struct Main
+{
+    static <K, V> int countWhere(HashMap<K, V> m, Predicate<V> test)
+    {
+        int n = 0;
+        for (V v : m.values()) { if (test.test(v)) { n += 1; } }
+        return n;
+    }
+
+    static <T> T firstOr(List<T> xs, T fallback) { return xs.isEmpty() ? fallback : xs.get(0); }
+
+    static int main()
+    {
+        HashMap<string, int> counts = new HashMap();
+        for (string w : "a b a c b a d".split(' ')) { counts.put(w, counts.getOrDefault(w, 0) + 1); }
+        System.stdout.println(counts.get("a") + " " + countWhere(counts, n -> n > 1));
+        HashMap<int, Box<string>> boxes = new HashMap();
+        for (int i = 0; i < 40; i += 1) { boxes.put(i % 13, new Box<string>("b" + i)); }
+        for (int i = 0; i < 13; i += 3) { boxes.remove(i); }
+        System.stdout.println(boxes.size() + " " + boxes.get(5).value + " " + firstOr(boxes.keys(), -1));
+        HashMap<Point, Box<int>> grid = new HashMap();
+        for (int x = 0; x < 4; x += 1) {
+            for (int y = 0; y < 4; y += 1) { grid.put(new Point(x, y), new Box<int>(x * y)); }
+        }
+        grid.remove(new Point(1, 1));
+        int total = 0;
+        grid.forEach((p, b) -> System.stdout.print(""));
+        for (HashMap.Entry<Point, Box<int>> e : grid.entries()) { total += e.getValue().map(v -> v + 1).value; }
+        System.stdout.println(grid.size() + " " + total + " " + firstOr(counts.keys(), "none"));
+        return 0;
+    }
+}

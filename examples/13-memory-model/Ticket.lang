@@ -1,0 +1,19 @@
+// A unique: a value that can't be copied, so it can safely own something
+// and clean it up in a destructor. Passing it to a function lends it.
+unique Ticket
+{
+    public int id;
+
+    public new(int i)
+    {
+        id = i;
+        System.stdout.print("  open ticket #");
+        System.stdout.println(id);
+    }
+
+    delete()
+    {
+        System.stdout.print("  close ticket #");
+        System.stdout.println(id);
+    }
+}

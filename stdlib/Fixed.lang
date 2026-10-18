@@ -1,0 +1,63 @@
+// Utilities for fixed-point numbers (§37.1).
+struct Fixed
+{
+    /** The exact value as decimal text, the same as print shows: 2.75, -0.125. */
+    public static string toString(fixed<<int N, int M>> x)
+    {
+        addr<char> buf = new<char>(96);
+        int n = text(x, buf);
+        string s = string.fromChars(buf, n);
+        delete buf;
+        return s;
+    }
+
+    public static string toString(ufixed<<int N, int M>> x)
+    {
+        addr<char> buf = new<char>(96);
+        int n = text(x, buf);
+        string s = string.fromChars(buf, n);
+        delete buf;
+        return s;
+    }
+
+    @native("text_fixed") static int text(fixed<<int N, int M>> x, addr<char> buf) { }
+    @native("text_ufixed") static int text(ufixed<<int N, int M>> x, addr<char> buf) { }
+
+    /**
+     * The exact product of two signed fixed-point values. The result has
+     * enough bits that it can neither round nor overflow:
+     * fixed<<N, M>> × fixed<<P, Q>> → fixed<<N + P, M + Q>>.
+     * Formats whose result would exceed 64 bits are rejected when used.
+     */
+    public static fixed<<N + P, M + Q>> mulExact(fixed<<int N, int M>> a, fixed<<int P, int Q>> b)
+    {
+        // Widening casts are exact, and the product of an M-bit and a Q-bit
+        // fraction fits exactly in M + Q fraction bits, so nothing rounds.
+        return (fixed<<N + P, M + Q>>)a * (fixed<<N + P, M + Q>>)b;
+    }
+
+    /** The exact product of two unsigned fixed-point values: ufixed<<N + P, M + Q>>. */
+    public static ufixed<<N + P, M + Q>> mulExact(ufixed<<int N, int M>> a, ufixed<<int P, int Q>> b)
+    {
+        return (ufixed<<N + P, M + Q>>)a * (ufixed<<N + P, M + Q>>)b;
+    }
+
+    // abs, min, max and floor are Math's (§42), which has them for every kind of number;
+    // these stay for code that calls them here.
+
+    /** The absolute value. Like integers, the most negative value has no positive counterpart and stays negative. */
+    public static fixed<<N, M>> abs(fixed<<int N, int M>> x) { return Math.abs(x); }
+    public static fixed<<N, M>> min(fixed<<int N, int M>> a, fixed<<N, M>> b) { return Math.min(a, b); }
+    public static fixed<<N, M>> max(fixed<<int N, int M>> a, fixed<<N, M>> b) { return Math.max(a, b); }
+    public static ufixed<<N, M>> min(ufixed<<int N, int M>> a, ufixed<<N, M>> b) { return Math.min(a, b); }
+    public static ufixed<<N, M>> max(ufixed<<int N, int M>> a, ufixed<<N, M>> b) { return Math.max(a, b); }
+
+    /** The largest whole number not above x (toward negative infinity), as a value of the same format. */
+    public static fixed<<N, M>> floor(fixed<<int N, int M>> x) { return Math.floor(x); }
+
+    /** The fractional part, x - floor(x), in [0, 1). */
+    public static fixed<<N, M>> fraction(fixed<<int N, int M>> x)
+    {
+        return x - floor(x);
+    }
+}

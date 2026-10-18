@@ -1,0 +1,9 @@
+class Node
+{
+    public int value;
+    public Node next;
+    public new(int value, Node next) { this.value = value; this.next = next; }
+    public Node prepend(int v) { return new Node(v, this); }
+    public bit same(Node other) { return this == other; }
+    public Supplier<int> getter() { return () -> this.value * 2; }
+}

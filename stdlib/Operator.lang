@@ -1,0 +1,40 @@
+// The operators a class, struct or unique can define for itself, named for
+// @overload (§46):
+//
+//   @overload(Operator.ADD)    public Vec2 plus(Vec2 other) { ... }     // a + b
+//   @overload(Operator.NEGATE) public Vec2 negated() { ... }             // -a
+//   @overload(Operator.INDEX)  public T get(int i) { ... }               // xs[i]
+//   @overload(Operator.CAST)   public double toDouble() { ... }          // (double)a
+//
+// !=, >, <= and >= come from == and < when a type doesn't define them (§48).
+enum Operator
+{
+    ADD("+"),
+    SUBTRACT("-"),
+    NEGATE("-"),
+    MULTIPLY("*"),
+    DIVIDE("/"),
+    REMAINDER("%"),
+    BIT_AND("&"),
+    BIT_OR("|"),
+    BIT_XOR("^"),
+    BIT_NOT("~"),
+    EQUALS("=="),
+    NOT_EQUALS("!="),
+    LESS("<"),
+    GREATER(">"),
+    LESS_EQUAL("<="),
+    GREATER_EQUAL(">="),
+    SHIFT("<<<"),
+    SHIFT_ASSIGN("<<="),
+    INDEX("[]"),
+    INDEX_SET("[]="),
+    CAST("(T)");
+
+    string sym;
+
+    new(string s) { sym = s; }
+
+    /** How the operator is written: "+" for ADD. */
+    public string symbol() { return sym; }
+}

@@ -1,0 +1,16 @@
+== shapes, sorted by area ==
+circle, area 3
+square, area 9
+circle, area 12
+rect, area 15
+shapes made: 4
+== anything Describable ==
+note: interfaces cross class trees
+circle, area 3
+square, area 1
+== checked casts ==
+1
+-2
+not a shape
+a shape of area 3
+a shape of area 1

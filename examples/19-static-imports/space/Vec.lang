@@ -1,0 +1,14 @@
+package space;
+
+/** A 2-D vector, with static helpers that Main imports one by one. */
+struct Vec
+{
+    public double x;
+    public double y;
+
+    public new(double x, double y) { this.x = x; this.y = y; }
+
+    public static double dot(Vec a, Vec b) { return a.x * b.x + a.y * b.y; }
+
+    public static double length(Vec v) { return Math.hypot(v.x, v.y); }
+}

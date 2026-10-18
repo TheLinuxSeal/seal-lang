@@ -1,0 +1,41 @@
+// Operator overloading with decorators (§44-48). The methods keep their
+// names and can also be called directly.
+struct Vec2
+{
+    public double x;
+    public double y;
+
+    public new() { }
+    public new(double a, double b) { x = a; y = b; }
+
+    @overload(Operator.ADD)
+    public Vec2 add(Vec2 o) { return new Vec2(x + o.x, y + o.y); }
+
+    @overload(Operator.SUBTRACT)
+    public Vec2 sub(Vec2 o) { return new Vec2(x - o.x, y - o.y); }
+
+    // Unary minus is an operator of its own: NEGATE, -v, with no parameter.
+    @overload(Operator.NEGATE)
+    public Vec2 negate() { return new Vec2(-x, -y); }
+
+    @overload(Operator.MULTIPLY)
+    public Vec2 scale(double k) { return new Vec2(x * k, y * k); }
+
+    @overload(Operator.EQUALS)
+    public bit same(Vec2 o) { return x == o.x && y == o.y; }
+
+    // Only < is defined; >, <= and >= are derived from it, and != from == (§48).
+    @overload(Operator.LESS)
+    public bit shorter(Vec2 o) { return length() < o.length(); }
+
+    public double length() { return Math.sqrt(x * x + y * y); }
+
+    public void print()
+    {
+        System.stdout.print("(");
+        System.stdout.print(x);
+        System.stdout.print(", ");
+        System.stdout.print(y);
+        System.stdout.println(")");
+    }
+}

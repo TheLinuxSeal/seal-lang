@@ -1,0 +1,35 @@
+// Fuzz input: lambdas capturing numbers, strings, handles and their enclosing object.
+struct Main
+{
+    static int applyTwice(Function<int, int> f, int x) { return f.apply(f.apply(x)); }
+
+    static int main()
+    {
+        int base = 100;
+        Function<int, int> addBase = x -> x + base;
+        System.stdout.println(applyTwice(addBase, 1));
+        string tag = "item";
+        List<string> words = new List();
+        for (int i = 0; i < 5; i += 1) { words.add(tag + i); }
+        words.sort((a, b) -> b.compare(a));
+        words.forEach(w -> System.stdout.print(w + " "));
+        System.stdout.println();
+        words.removeIf(w -> w == "item2");
+        System.stdout.println(words.size());
+        Counter c = new Counter();
+        List<Runnable> tasks = new List();
+        for (int i = 0; i < 4; i += 1) { tasks.add(c.incrementer()); }
+        for (Runnable t : tasks) { t.run(); }
+        Supplier<int> peek = c.peek();
+        System.stdout.println(peek.get());
+        Supplier<Function<int, int>> maker = () -> y -> y * base + c.get();
+        System.stdout.println(maker.get().apply(2));
+        BiFunction<string, int, string> repeat = (s, n) -> {
+            string out = "";
+            for (int i = 0; i < n; i += 1) { out = out + s; }
+            return out;
+        };
+        System.stdout.println(repeat.apply("ab", 3));
+        return 0;
+    }
+}

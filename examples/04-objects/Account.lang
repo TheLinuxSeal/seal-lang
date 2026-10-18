@@ -1,0 +1,30 @@
+// A unique: a value that can't be copied, so it may have a destructor.
+// It also has a constructor, a static counter, a const, and a field that
+// only one other type may touch.
+unique Account
+{
+    public static int open = 0;
+    public const int<<64>> LIMIT = 1000000;
+
+    // private<Bank>: only Account and Bank can access the balance (§17).
+    private<Bank> int<<64>> balance;
+    int number;
+
+    public new(int n)
+    {
+        number = n;
+        open++;
+        System.stdout.print("  open account #");
+        System.stdout.println(number);
+    }
+
+    // Runs automatically when an inline Account goes out of scope.
+    delete()
+    {
+        open--;
+        System.stdout.print("  close account #");
+        System.stdout.println(number);
+    }
+
+    public int<<64>> getBalance() { return balance; }
+}

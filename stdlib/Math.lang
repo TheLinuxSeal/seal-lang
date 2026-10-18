@@ -1,0 +1,175 @@
+// Math for every kind of number: signed and unsigned integers of any width, float, double,
+// and fixed point of any format (§42).
+//
+// abs, min, max, clamp, floor, ceil and round give the type they are given. The other
+// functions compute in double: they give a double for integers (as Java's do), a float
+// for floats, and the same format for fixed point. Two-argument functions take two values
+// of the same type, like min and max; a constant takes the other argument's type.
+// The transcendental functions are implemented by the VM.
+struct Math
+{
+    public const double PI = 3.141592653589793;
+    public const double E = 2.718281828459045;
+
+    // ------------------------------------------------------------ double
+
+    @native("sqrt") public static double sqrt(double x) { }
+    @native("sin") public static double sin(double x) { }
+    @native("cos") public static double cos(double x) { }
+    @native("tan") public static double tan(double x) { }
+    /** The angle of the point (x, y), in radians. */
+    @native("atan2") public static double atan2(double y, double x) { }
+    @native("exp") public static double exp(double x) { }
+    /** Natural logarithm. */
+    @native("log") public static double log(double x) { }
+    @native("pow") public static double pow(double x, double y) { }
+    @native("floor") public static double floor(double x) { }
+    @native("ceil") public static double ceil(double x) { }
+
+    /** Rounds half up. */
+    public static double round(double x) { return floor(x + 0.5); }
+
+    public static double abs(double x) { if (x < 0) { return -x; } return x; }
+    public static double min(double a, double b) { if (a < b) { return a; } return b; }
+    public static double max(double a, double b) { if (a > b) { return a; } return b; }
+    public static double clamp(double x, double lo, double hi) { return max(lo, min(hi, x)); }
+    public static double hypot(double x, double y) { return sqrt(x * x + y * y); }
+
+    // ------------------------------------------------------------ float: computed in double
+
+    public static float sqrt(float x) { return (float)sqrt((double)x); }
+    public static float sin(float x) { return (float)sin((double)x); }
+    public static float cos(float x) { return (float)cos((double)x); }
+    public static float tan(float x) { return (float)tan((double)x); }
+    public static float atan2(float y, float x) { return (float)atan2((double)y, (double)x); }
+    public static float exp(float x) { return (float)exp((double)x); }
+    public static float log(float x) { return (float)log((double)x); }
+    public static float pow(float x, float y) { return (float)pow((double)x, (double)y); }
+    public static float hypot(float x, float y) { return (float)hypot((double)x, (double)y); }
+    public static float floor(float x) { return (float)floor((double)x); }
+    public static float ceil(float x) { return (float)ceil((double)x); }
+    public static float round(float x) { return (float)round((double)x); }
+
+    public static float abs(float x) { if (x < 0) { return -x; } return x; }
+    public static float min(float a, float b) { if (a < b) { return a; } return b; }
+    public static float max(float a, float b) { if (a > b) { return a; } return b; }
+    public static float clamp(float x, float lo, float hi) { return max(lo, min(hi, x)); }
+
+    // ------------------------------------------------------------ signed integers: int, int<<64>>, int<<8>>, ...
+
+    /** Like Java's, the most negative value has no positive counterpart and stays negative. */
+    public static int<<W>> abs(int<<int W>> x) { if (x < 0) { return -x; } return x; }
+    public static int<<W>> min(int<<int W>> a, int<<W>> b) { if (a < b) { return a; } return b; }
+    public static int<<W>> max(int<<int W>> a, int<<W>> b) { if (a > b) { return a; } return b; }
+    public static int<<W>> clamp(int<<int W>> x, int<<W>> lo, int<<W>> hi) { return max(lo, min(hi, x)); }
+    /** Integers are whole already: floor, ceil and round give x, which lets generic code use them on any number. */
+    public static int<<W>> floor(int<<int W>> x) { return x; }
+    public static int<<W>> ceil(int<<int W>> x) { return x; }
+    public static int<<W>> round(int<<int W>> x) { return x; }
+
+    public static double sqrt(int<<int W>> x) { return sqrt((double)x); }
+    public static double sin(int<<int W>> x) { return sin((double)x); }
+    public static double cos(int<<int W>> x) { return cos((double)x); }
+    public static double tan(int<<int W>> x) { return tan((double)x); }
+    public static double atan2(int<<int W>> y, int<<W>> x) { return atan2((double)y, (double)x); }
+    public static double exp(int<<int W>> x) { return exp((double)x); }
+    public static double log(int<<int W>> x) { return log((double)x); }
+    public static double pow(int<<int W>> x, int<<W>> y) { return pow((double)x, (double)y); }
+    public static double hypot(int<<int W>> x, int<<W>> y) { return hypot((double)x, (double)y); }
+
+    // ------------------------------------------------------------ unsigned integers: uint, uint<<64>>, ...
+
+    public static uint<<W>> abs(uint<<int W>> x) { return x; }
+    public static uint<<W>> min(uint<<int W>> a, uint<<W>> b) { if (a < b) { return a; } return b; }
+    public static uint<<W>> max(uint<<int W>> a, uint<<W>> b) { if (a > b) { return a; } return b; }
+    public static uint<<W>> clamp(uint<<int W>> x, uint<<W>> lo, uint<<W>> hi) { return max(lo, min(hi, x)); }
+    public static uint<<W>> floor(uint<<int W>> x) { return x; }
+    public static uint<<W>> ceil(uint<<int W>> x) { return x; }
+    public static uint<<W>> round(uint<<int W>> x) { return x; }
+
+    public static double sqrt(uint<<int W>> x) { return sqrt((double)x); }
+    public static double sin(uint<<int W>> x) { return sin((double)x); }
+    public static double cos(uint<<int W>> x) { return cos((double)x); }
+    public static double tan(uint<<int W>> x) { return tan((double)x); }
+    public static double atan2(uint<<int W>> y, uint<<W>> x) { return atan2((double)y, (double)x); }
+    public static double exp(uint<<int W>> x) { return exp((double)x); }
+    public static double log(uint<<int W>> x) { return log((double)x); }
+    public static double pow(uint<<int W>> x, uint<<W>> y) { return pow((double)x, (double)y); }
+    public static double hypot(uint<<int W>> x, uint<<W>> y) { return hypot((double)x, (double)y); }
+
+    // ------------------------------------------------------------ signed fixed point: fixed<<N, M>>
+
+    /** Like integers, the most negative value has no positive counterpart and stays negative. */
+    public static fixed<<N, M>> abs(fixed<<int N, int M>> x) { if (x < 0) { return -x; } return x; }
+    public static fixed<<N, M>> min(fixed<<int N, int M>> a, fixed<<N, M>> b) { if (a < b) { return a; } return b; }
+    public static fixed<<N, M>> max(fixed<<int N, int M>> a, fixed<<N, M>> b) { if (a > b) { return a; } return b; }
+    public static fixed<<N, M>> clamp(fixed<<int N, int M>> x, fixed<<N, M>> lo, fixed<<N, M>> hi) { return max(lo, min(hi, x)); }
+
+    /** The largest whole number not above x (toward negative infinity), computed exactly. */
+    public static fixed<<N, M>> floor(fixed<<int N, int M>> x)
+    {
+        fixed<<N, M>> t = (fixed<<N, M>>)(int<<64>>)x;   // toward zero
+        // `+ -1` rather than `- 1`: -1 fits every signed format, even fixed<<1, M>>.
+        if (t > x) { return t + -1; }
+        return t;
+    }
+
+    /** The smallest whole number not below x. Wraps if that is past the format's largest value. */
+    public static fixed<<N, M>> ceil(fixed<<int N, int M>> x)
+    {
+        fixed<<N, M>> f = floor(x);
+        if (f < x) { return f - -1; }
+        return f;
+    }
+
+    /** Rounds half up, exactly. */
+    public static fixed<<N, M>> round(fixed<<int N, int M>> x)
+    {
+        fixed<<N, M>> f = floor(x);
+        if (x - f >= 0.5) { return f - -1; }
+        return f;
+    }
+
+    public static fixed<<N, M>> sqrt(fixed<<int N, int M>> x) { return (fixed<<N, M>>)sqrt((double)x); }
+    public static fixed<<N, M>> sin(fixed<<int N, int M>> x) { return (fixed<<N, M>>)sin((double)x); }
+    public static fixed<<N, M>> cos(fixed<<int N, int M>> x) { return (fixed<<N, M>>)cos((double)x); }
+    public static fixed<<N, M>> tan(fixed<<int N, int M>> x) { return (fixed<<N, M>>)tan((double)x); }
+    public static fixed<<N, M>> atan2(fixed<<int N, int M>> y, fixed<<N, M>> x) { return (fixed<<N, M>>)atan2((double)y, (double)x); }
+    public static fixed<<N, M>> exp(fixed<<int N, int M>> x) { return (fixed<<N, M>>)exp((double)x); }
+    public static fixed<<N, M>> log(fixed<<int N, int M>> x) { return (fixed<<N, M>>)log((double)x); }
+    public static fixed<<N, M>> pow(fixed<<int N, int M>> x, fixed<<N, M>> y) { return (fixed<<N, M>>)pow((double)x, (double)y); }
+    public static fixed<<N, M>> hypot(fixed<<int N, int M>> x, fixed<<N, M>> y) { return (fixed<<N, M>>)hypot((double)x, (double)y); }
+
+    // ------------------------------------------------------------ unsigned fixed point: ufixed<<N, M>>
+
+    public static ufixed<<N, M>> abs(ufixed<<int N, int M>> x) { return x; }
+    public static ufixed<<N, M>> min(ufixed<<int N, int M>> a, ufixed<<N, M>> b) { if (a < b) { return a; } return b; }
+    public static ufixed<<N, M>> max(ufixed<<int N, int M>> a, ufixed<<N, M>> b) { if (a > b) { return a; } return b; }
+    public static ufixed<<N, M>> clamp(ufixed<<int N, int M>> x, ufixed<<N, M>> lo, ufixed<<N, M>> hi) { return max(lo, min(hi, x)); }
+
+    public static ufixed<<N, M>> floor(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)(uint<<64>>)x; }
+
+    public static ufixed<<N, M>> ceil(ufixed<<int N, int M>> x)
+    {
+        ufixed<<N, M>> f = floor(x);
+        if (f < x) { return f + 1; }
+        return f;
+    }
+
+    public static ufixed<<N, M>> round(ufixed<<int N, int M>> x)
+    {
+        ufixed<<N, M>> f = floor(x);
+        if (x - f >= 0.5) { return f + 1; }
+        return f;
+    }
+
+    public static ufixed<<N, M>> sqrt(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)sqrt((double)x); }
+    public static ufixed<<N, M>> sin(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)sin((double)x); }
+    public static ufixed<<N, M>> cos(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)cos((double)x); }
+    public static ufixed<<N, M>> tan(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)tan((double)x); }
+    public static ufixed<<N, M>> atan2(ufixed<<int N, int M>> y, ufixed<<N, M>> x) { return (ufixed<<N, M>>)atan2((double)y, (double)x); }
+    public static ufixed<<N, M>> exp(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)exp((double)x); }
+    public static ufixed<<N, M>> log(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)log((double)x); }
+    public static ufixed<<N, M>> pow(ufixed<<int N, int M>> x, ufixed<<N, M>> y) { return (ufixed<<N, M>>)pow((double)x, (double)y); }
+    public static ufixed<<N, M>> hypot(ufixed<<int N, int M>> x, ufixed<<N, M>> y) { return (ufixed<<N, M>>)hypot((double)x, (double)y); }
+}

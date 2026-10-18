@@ -1,0 +1,43 @@
+struct Main
+{
+    static int main()
+    {
+        Vec2 a = new Vec2(3.0, 4.0);
+        Vec2 b = new Vec2(1.0, 2.0);
+        System.stdout.println("== arithmetic ==");
+        (a + b).print();
+        (a - b).print();
+        (-a).print();
+        (a * 0.5).print();
+        (a + b * 2.0).print();
+        System.stdout.print("|a| = ");
+        System.stdout.println(a.length());
+
+        System.stdout.println("== comparisons (four of them derived) ==");
+        System.stdout.print("a == b: "); System.stdout.println(a == b);
+        System.stdout.print("a != b: "); System.stdout.println(a != b);
+        System.stdout.print("a < b:  "); System.stdout.println(a < b);
+        System.stdout.print("a > b:  "); System.stdout.println(a > b);
+        System.stdout.print("a <= a: "); System.stdout.println(a <= a);
+        System.stdout.print("b >= a: "); System.stdout.println(b >= a);
+
+        System.stdout.println("== compound assignment uses the operator ==");
+        Vec2 pos = new Vec2(0.0, 0.0);
+        Vec2 step = new Vec2(0.5, 0.25);
+        for (int i = 0; i < 4; i++) { pos += step; }
+        pos.print();
+
+        System.stdout.println("== the operators on built-in types ==");
+        uint flags = 0;
+        flags[3] = true;                   // set one bit
+        flags[8..12] = 9;                  // write a 4-bit field
+        System.stdout.print("flags = ");
+        System.stdout.println(flags);
+        System.stdout.print("bits 8-11 = ");
+        System.stdout.println((uint)flags[8..12]);
+        int<<64>> wide = 1;
+        System.stdout.print("1 <<< 62 = ");
+        System.stdout.println(wide <<< 62);
+        return 0;
+    }
+}

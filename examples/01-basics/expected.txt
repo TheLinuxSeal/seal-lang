@@ -1,0 +1,17 @@
+== integers of any width (they wrap) ==
+int<<8>> 127 + 1 = -128
+uint<<4>> 15 + 1 = 0
+20! = 2432902008176640000
+sizeof(int<<17>>) = 17 bits
+== control flow ==
+1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz 
+gcd(1071, 462) = 21
+== one shift operator, both directions ==
+40 <<< 2  = 160
+40 <<< -2 = 10
+-40 <<< -2 = -10
+== bit is its own type ==
+40 is even: true
+== floating point ==
+area of a circle with r = 2: 12.566370614359172
+(int)3.99 = 3

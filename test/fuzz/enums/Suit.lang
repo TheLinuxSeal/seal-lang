@@ -1,0 +1,10 @@
+enum Suit
+{
+    CLUBS("c"),
+    HEARTS("h"),
+    SPADES("s");
+
+    string letter;
+    new(string l) { letter = l; }
+    public string short() { return letter; }
+}

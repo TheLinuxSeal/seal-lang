@@ -1,0 +1,16 @@
+== *x takes an address, &p follows it ==
+x = 42
+x = 43
+== addresses count bits ==
+the last element is 128 bits after the first and holds 16
+sum of squares = 30
+== a linked list ==
+50 40 30 20 10 
+== bit-packed classes ==
+sizeof(Color) = 16 bits, sizeof(array<Color><<4>>) = 64
+yellow as RGB565: ffe0
+== the same with bit slices ==
+yellow as RGB565: ffe0
+its green channel: 63
+== 3-bit values packed end to end ==
+8 values in 24 bits: 76543210

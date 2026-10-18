@@ -1,0 +1,9 @@
+class Circle extends(Shape)
+{
+    int r;
+
+    public new(int radius) { r = radius; }
+
+    public string name() { return "circle"; }
+    public int area() { return r * r * 314 / 100; }
+}

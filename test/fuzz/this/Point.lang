@@ -1,0 +1,10 @@
+struct Point
+{
+    public int x;
+    public int y;
+    public new() { }
+    public new(int x, int y) { this.x = x; this.y = y; }
+    public Point moved(int dx) { Point p = this; p.x += dx; return p; }
+    public void shift(int d) { this.x += d; shift2(d); }
+    void shift2(int d) { this.y += d; }
+}

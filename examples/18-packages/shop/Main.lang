@@ -1,0 +1,34 @@
+// Packages and imports (§2.4): each file says its package, which is also its
+// folder (shop/model/Item.lang is in package shop.model), and imports what it
+// uses from other packages. The standard library needs no import.
+package shop;
+
+import shop.model.*;            // every type of shop.model
+import shop.pricing.Discount;   // single types, by name
+import shop.pricing.PercentOff;
+import shop.pricing.BulkDeal;
+import shop.report.Receipt;
+
+class Main
+{
+    static void main()
+    {
+        Item notebook = new Item("Notebook", Category.PAPER, 3.50);
+        Item pen = new Item("Pen", Category.PENS, 1.20);
+        Item novel = new Item("Novel", Category.BOOKS, 14.99);
+
+        Cart cart = new Cart();
+        cart.add(notebook, 4);
+        cart.add(pen, 7);
+        cart.add(novel, 1);
+
+        List<Discount> deals = new List();
+        deals.add(new PercentOff(Category.PAPER, 10));
+        deals.add(new BulkDeal("Pen", 3));
+
+        new Receipt(cart, deals).print();
+
+        // Any type can be named in full instead of imported: Money isn't imported here.
+        System.stdout.println("A thousand notebooks: " + shop.pricing.Money.text(1000 * notebook.price));
+    }
+}

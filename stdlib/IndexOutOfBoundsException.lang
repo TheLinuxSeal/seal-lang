@@ -1,0 +1,6 @@
+// An index outside a list or string.
+class IndexOutOfBoundsException extends(RuntimeException)
+{
+    public new() { }
+    public new(string m) { super(m); }
+}

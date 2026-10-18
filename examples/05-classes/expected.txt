@@ -1,0 +1,19 @@
+== virtual dispatch through handles ==
+Rex has 4 legs and says woof
+Tweety has 2 legs and says tweet
+Bit has 4 legs and says yip-woof
+Thing has 4 legs and says ...
+== checked downcasts ==
+Rex fetches the ball
+== the parent depends on the shape ==
+2 wheels: bike
+4 wheels: car
+18 wheels: machine
+car
+== objects are freed when nothing refers to them ==
+  goodbye, Tweety
+  goodbye, Bit
+  goodbye, Thing
+rex still refers to Rex
+  goodbye, Rex
+the vehicles are freed at the end of main

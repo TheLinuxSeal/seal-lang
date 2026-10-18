@@ -1,0 +1,9 @@
+everything:
+  [ ] water the plants (LOW)
+  [ ] fix the build (URGENT)
+  [ ] write the spec (NORMAL)
+  [x] answer mail (NORMAL)
+open, normal or above:
+  [ ] fix the build (URGENT)
+  [ ] write the spec (NORMAL)
+3 open, 1 done

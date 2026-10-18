@@ -1,0 +1,49 @@
+// Fuzz input: string literals, character literals and copy-on-write strings.
+struct Main
+{
+    static int vowels(string s)
+    {
+        int n = 0;
+        for (int i = 0; i < s.length(); i += 1) {
+            char c = Char.toLower(s.charAt(i));
+            if (c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u') { n += 1; }
+        }
+        return n;
+    }
+
+    static int main()
+    {
+        string greeting = "Hello" + ", " + "World";
+        string copy = greeting;
+        copy.append('!');
+        System.stdout.println(copy);
+        System.stdout.println(vowels(greeting));
+        System.stdout.println("abc".length() + "de".length());
+        string<<8>> small = "ab";
+        small.append("cd");
+        string<<11>> both = small + "xyz";
+        System.stdout.println(both);
+        List<string> words = new List<string>();
+        words.add("one");
+        words.add(greeting);
+        words.add(copy);
+        int total = 0;
+        for (int i = 0; i < words.size(); i += 1) { total += words.get(i).length(); }
+        System.stdout.println(total);
+        string built;
+        for (int i = 0; i < 5; i += 1) { built.append((char)('a' + i)); }
+        System.stdout.println(built);
+        System.stdout.println(built == "abcde");
+        string report = "total " + total + ", vowels " + vowels(greeting) + ", ratio " + 0.25;
+        report += "!";
+        string fromFixed = both;
+        string mixed = both + fromFixed + report;
+        System.stdout.println(mixed);
+        System.stdout.println(mixed.length());
+        for (int i = 0; i < 4; i += 1) {
+            string pick = i % 2 == 0 ? report + i : (i > 2 ? "big" : fromFixed);
+            System.stdout.println(pick.length() > 5 ? pick.substring(0, 5) : pick);
+        }
+        return 0;
+    }
+}

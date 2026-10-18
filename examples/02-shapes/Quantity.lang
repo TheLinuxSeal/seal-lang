@@ -1,0 +1,23 @@
+// Compile-time strings are values too, so units can be part of a type.
+// Quantity<<"m">> and Quantity<<"s">> are different types: adding them
+// does not compile.
+struct Quantity<<string UNIT>>
+{
+    public double amount;
+
+    public new() { }
+    public new(double a) { amount = a; }
+
+    @overload(Operator.ADD)
+    public Quantity<<UNIT>> add(Quantity<<UNIT>> other) { return new Quantity(amount + other.amount); }
+
+    @overload(Operator.MULTIPLY)
+    public Quantity<<UNIT>> scale(double k) { return new Quantity(amount * k); }
+
+    public void print()
+    {
+        System.stdout.print(amount);
+        System.stdout.print(" ");
+        System.stdout.println(UNIT);
+    }
+}

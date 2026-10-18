@@ -1,0 +1,8 @@
+unique Ticket
+{
+    public int id;
+    public Res owner;
+    public new() { id = -1; }
+    public new(int i) { id = i; owner = new Res(i); }
+    delete() { System.stdout.print("~"); System.stdout.print(id); System.stdout.print(" "); }
+}

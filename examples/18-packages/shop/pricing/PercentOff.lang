@@ -1,0 +1,20 @@
+package shop.pricing;
+
+import shop.model.*;        // every type of shop.model: Cart, Category, Item
+
+/** A percentage off everything in a category. */
+class PercentOff implements(Discount)
+{
+    Category category;
+    int percent;
+
+    public new(Category category, int percent) { this.category = category; this.percent = percent; }
+
+    public double saving(Cart.Entry e)
+    {
+        if (e.item.category != category) { return 0; }
+        return e.total() * percent / 100;
+    }
+
+    public string describe() { return percent + "% off " + category.name(); }
+}

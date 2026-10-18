@@ -1,0 +1,73 @@
+// The memory model (§2.1, §16.1, §26.1): the same operations on a struct,
+// a unique and a class, then strings and lists. No pointers anywhere.
+struct Main
+{
+    static void bumpCopy(Counter c) { c.bump(); }        // gets its own copy
+    static void punch(Ticket t) { t.id += 100; }         // lent: changes the caller's ticket
+    static Ticket issue(int id)
+    {
+        Ticket t = new Ticket(id);
+        return t;                                        // moved out to the caller, not closed
+    }
+    static void bumpNote(Note n) { n.n++; }           // the same object as the caller's
+
+    static int main()
+    {
+        System.stdout.println("== struct: a value that is copied ==");
+        Counter a;
+        a.n = 1;
+        Counter b = a;               // b is a copy
+        b.bump();
+        bumpCopy(a);                 // bumps a copy; a is unchanged
+        System.stdout.print("a.n = ");
+        System.stdout.print(a.n);
+        System.stdout.print(", b.n = ");
+        System.stdout.println(b.n);
+        a.bump();                    // a method changes a itself
+        System.stdout.print("after a.bump(), a.n = ");
+        System.stdout.println(a.n);
+
+        System.stdout.println("== unique: a value that can't be copied ==");
+        {
+            Ticket t = new Ticket(1);
+            punch(t);                // lent, so punch changes t itself
+            System.stdout.print("  after punch(t), t.id = ");
+            System.stdout.println(t.id);
+            // Ticket copy = t;      would not compile: Ticket is unique
+            t = new Ticket(2);       // the old ticket is closed first
+            Ticket u = issue(3);     // returned by moving
+            System.stdout.println("  end of block");
+        }                            // destroyed in reverse order: u, then t
+
+        System.stdout.println("== class: a shared object ==");
+        Note x = new Note(10);
+        Note y = x;                  // the same note
+        bumpNote(y);
+        System.stdout.print("  x.n = ");
+        System.stdout.print(x.n);
+        System.stdout.print(", references: ");
+        System.stdout.println(System.refCount(x));
+        x = null;
+        System.stdout.println("  x = null: y still refers to the note");
+        y = null;                    // the last reference: the note is freed now
+        System.stdout.println("  y = null");
+
+        System.stdout.println("== string: a value, copied cheaply ==");
+        string greeting = "hello";
+        string copy = greeting;      // shares the characters until one changes
+        copy.append(", world");
+        System.stdout.print("  greeting = ");
+        System.stdout.print(greeting);
+        System.stdout.print(", copy = ");
+        System.stdout.println(copy);
+
+        System.stdout.println("== List: a shared object ==");
+        List<int> first = new List();
+        List<int> second = first;    // the same list
+        second.add(5);
+        second.add(6);
+        System.stdout.print("  first.size() = ");
+        System.stdout.println(first.size());
+        return 0;
+    }
+}

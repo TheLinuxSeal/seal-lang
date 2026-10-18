@@ -1,0 +1,9 @@
+class Point
+{
+    public int x;
+    public int y;
+    public new(int x, int y) { this.x = x; this.y = y; }
+    @overload(Operator.EQUALS)
+    public bit same(Point o) { return o != null && x == o.x && y == o.y; }
+    public uint<<64>> hash() { return Hash.of(x * 31 + y); }
+}

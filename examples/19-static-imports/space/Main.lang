@@ -1,0 +1,47 @@
+// Static imports (§2.4): a static member of another type, used without the
+// type's name. `import static Math.*;` brings all of Math (sqrt, sin, PI, ...),
+// `import static space.Vec.dot;` brings one method. The type's own members, and
+// local variables, still come first.
+package space;
+
+import static Math.*;               // every static member of Math
+import static Integer.MAX_INT;      // one constant of the standard library
+import static space.Units.*;        // every constant of Units
+import static space.Vec.dot;        // one method
+import static space.Vec.length;
+
+class Main
+{
+    /** Main's own round() is used below, not Math.round: a type's members come before imported ones. */
+    static string round(double x) { return string.format("%.2f", x); }
+
+    static void main()
+    {
+        // A circular orbit 400 km up, as the space station's: v = sqrt(G M / r)
+        double r = EARTH_RADIUS + 400 * KM;
+        double speed = sqrt(G * EARTH_MASS / r);
+        double minutes = 2 * PI * r / speed / 60;
+        System.stdout.printf("orbit at 400 km: %.0f m/s, once around in %.1f minutes%n", speed, minutes);
+
+        // A ball thrown at 20 m/s: how far and how high, by angle
+        double v = 20;
+        for (int degrees = 15; degrees <= 75; degrees += 15) {
+            double a = toRadians(degrees);
+            double range = v * v * sin(2 * a) / GRAVITY;
+            double height = pow(v * sin(a), 2) / (2 * GRAVITY);
+            System.stdout.printf("%2d degrees: %5.1f m far, %4.1f m high%n", degrees, range, height);
+        }
+
+        Vec east = new Vec(3, 4);
+        Vec north = new Vec(-4, 3);
+        System.stdout.println("dot " + dot(east, north) + ", lengths " + length(east) + " and " + length(north)
+                + ", angle " + round(atan2(east.y, east.x) * 180 / PI) + " degrees");
+        System.stdout.println("max " + max(3, 9) + ", abs " + abs(-2.5) + ", largest int " + MAX_INT);
+
+        // A local variable named like an import hides it, as in Java.
+        double PI = 3;
+        System.stdout.println("local PI " + PI + ", Math.PI " + Math.PI);
+    }
+
+    static double toRadians(int degrees) { return degrees * PI / 180; }
+}

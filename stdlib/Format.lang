@@ -1,0 +1,388 @@
+// Java-style formatting (§42.6): string.format("%-8s %6.2f", name, price) and
+// System.stdout.printf(...). A specifier is %[flags][width][.precision]conversion:
+//
+//   flags       -  left-justify            0  pad a number with zeros
+//               +  always give a sign      (space)  a space where a plus sign would go
+//               ,  group thousands         #  0x before hex, 0 before octal
+//   conversions d      decimal integer     x X  hex          o  octal
+//               f      decimal, with precision places (6 if not given)
+//               e E    scientific, as 1.500000e+03
+//               s S    any value as text (S in capitals); precision cuts it short
+//               c C    a character         b B  a bit, true or false
+//               %%     a percent sign      %n   a line break
+//
+// A value the conversion can't show, a bad specifier, or too few values throws an
+// IllegalArgumentException; extra values are ignored, as in Java. The methods are
+// public so that string.format and Writer.printf can call them; programs use those.
+struct Format
+{
+    string fmt;
+    int pos;
+    string out;
+
+    // The specifier being filled: its text, flags, width and precision (-1 when not given).
+    string spec;
+    bit left;
+    bit zero;
+    bit plus;
+    bit space;
+    bit group;
+    bit alt;
+    int width;
+    int precision;
+    char conv;
+
+    public new(string fmt) { this.fmt = fmt; }
+
+    /** The text, once every value is in. Throws if the format has a specifier left over. */
+    public string finish()
+    {
+        if (next()) {
+            throw bad("no value for " + spec);
+        }
+        return out;
+    }
+
+    // ------------------------------------------------------------ values
+
+    public void arg(int<<int W>> x)
+    {
+        if (next()) {
+            // The magnitude for %d; the bits at x's own width for %x and %o, as Java's -1 is ffffffff.
+            uint<<64>> magnitude = (uint<<64>>)x;
+            if (x < 0) { magnitude = 0 - (uint<<64>>)(int<<64>>)x; }
+            integer(x < 0, magnitude, (uint<<64>>)(uint<<W>>)x);
+        }
+    }
+
+    public void arg(uint<<int W>> x)
+    {
+        if (next()) { integer(false, (uint<<64>>)x, (uint<<64>>)x); }
+    }
+
+    /** A char is a character for %c and %s, and its code for %d and %x. */
+    public void arg(char c)
+    {
+        if (next()) {
+            if (conv == 'c' || conv == 'C' || conv == 's' || conv == 'S') {
+                string s;
+                s.append(c);
+                text(s);
+            } else {
+                integer(false, (uint<<64>>)c, (uint<<64>>)c);
+            }
+        }
+    }
+
+    public void arg(double x)
+    {
+        if (next()) {
+            if (conv == 's' || conv == 'S') { text(Double.toString(x)); } else { real(x); }
+        }
+    }
+
+    public void arg(float x)
+    {
+        if (next()) {
+            if (conv == 's' || conv == 'S') { text(Float.toString(x)); } else { real((double)x); }
+        }
+    }
+
+    public void arg(fixed<<int N, int M>> x)
+    {
+        if (next()) {
+            if (conv == 's' || conv == 'S') {
+                text(Fixed.toString(x));
+            } else if (conv == 'f') {
+                addr<char> buf = new<char>(places() + 100);
+                int n = places(x, buf, places());
+                decimal(string.fromChars(buf, n));
+                delete buf;
+            } else {
+                real((double)x);
+            }
+        }
+    }
+
+    public void arg(ufixed<<int N, int M>> x)
+    {
+        if (next()) {
+            if (conv == 's' || conv == 'S') {
+                text(Fixed.toString(x));
+            } else if (conv == 'f') {
+                addr<char> buf = new<char>(places() + 100);
+                int n = places(x, buf, places());
+                decimal(string.fromChars(buf, n));
+                delete buf;
+            } else {
+                real((double)x);
+            }
+        }
+    }
+
+    public void arg(bit b)
+    {
+        if (next()) {
+            if (conv != 'b' && conv != 'B' && conv != 's' && conv != 'S') { throw mismatch("a bit"); }
+            if (b) { text("true"); } else { text("false"); }
+        }
+    }
+
+    public void arg(string s)
+    {
+        if (next()) {
+            if (conv != 's' && conv != 'S') { throw mismatch("a string"); }
+            text(s);
+        }
+    }
+
+    public void arg(string<<int K>> s)
+    {
+        string bare = s;
+        arg(bare);
+    }
+
+    /** Any other value, for %s: its type's cast to string (§46), as Java's %s calls toString(). */
+    public <T> void arg(T x)
+    {
+        if (next()) {
+            if (conv != 's' && conv != 'S') { throw mismatch("an object"); }
+            text((string)x);
+        }
+    }
+
+    // ------------------------------------------------------------ conversions
+
+    void integer(bit negative, uint<<64>> magnitude, uint<<64>> bits)
+    {
+        if (conv == 's' || conv == 'S') {
+            string s;
+            if (negative) { s.append('-'); }
+            s.append(Integer.toString(magnitude));
+            text(s);
+            return;
+        }
+        if (conv == 'f' || conv == 'e' || conv == 'E') {
+            double d = (double)magnitude;
+            if (negative) { d = -d; }
+            real(d);
+            return;
+        }
+        if (precision >= 0) { throw bad(spec + " takes no precision"); }
+        switch (conv) {
+            case 'd' -> {
+                if (alt) { throw bad(spec + ": # applies to %x and %o"); }
+                string digits = Integer.toString(magnitude);
+                if (group) { digits = grouped(digits); }
+                pad(signed(negative, digits), true);
+            }
+            case 'x', 'X', 'o' -> {
+                if (group || plus || space) { throw bad(spec + ": , + and space apply to %d, %f and %e"); }
+                string digits;
+                if (conv == 'o') {
+                    if (alt) { digits.append('0'); }
+                    digits.append(Integer.toString(bits, 8));
+                } else {
+                    if (alt) { digits.append("0x"); }
+                    digits.append(Integer.toString(bits, 16));
+                }
+                if (conv == 'X') { digits.toUpper(); }
+                pad(digits, true);
+            }
+            case 'c', 'C' -> {
+                string s;
+                s.append((char)magnitude);
+                text(s);
+            }
+            default -> { throw mismatch("an integer"); }
+        }
+    }
+
+    /** %f, %e and %E of a double, as Java prints them; %f rounds half up. */
+    void real(double x)
+    {
+        if (conv != 'f' && conv != 'e' && conv != 'E') { throw mismatch("a floating-point number"); }
+        if (group && conv != 'f') { throw bad(spec + ": , applies to %d and %f"); }
+        addr<char> buf = new<char>(places() + 340);
+        int n = places(x, conv, places(), buf);
+        decimal(string.fromChars(buf, n));
+        delete buf;
+    }
+
+    /** The places %f and %e show: the precision, or 6. */
+    int places()
+    {
+        if (precision < 0) { return 6; }
+        return precision;
+    }
+
+    /** Signs, groups and pads number text ("-1234.50", "1.5e+03", "NaN", "-Infinity"). */
+    void decimal(string text)
+    {
+        bit negative = text.length() > 0 && text.charAt(0) == '-';
+        string digits = text;
+        if (negative) { digits = text.substring(1, text.length()); }
+        bit finite = digits.length() > 0 && Char.isDigit(digits.charAt(0));
+        if (group && finite) { digits = grouped(digits); }
+        if (conv == 'E') { digits.toUpper(); }
+        if (digits == "NaN") {
+            pad(digits, false); // no sign, and padded with spaces, as in Java
+        } else {
+            pad(signed(negative, digits), finite);
+        }
+    }
+
+    /** Text for %s, %c and %b: cut to the precision, in capitals for %S, %C and %B, then padded. */
+    void text(string s)
+    {
+        if (zero || plus || space || group || alt) { throw bad(spec + ": only the - flag applies to text"); }
+        if (conv != 's' && conv != 'S' && conv != 'c' && conv != 'C' && conv != 'b' && conv != 'B') {
+            throw mismatch("text");
+        }
+        if (precision >= 0 && conv != 's' && conv != 'S') { throw bad(spec + " takes no precision"); }
+        string shown = s;
+        if (precision >= 0 && precision < s.length()) { shown = s.substring(0, precision); }
+        if (conv == 'S' || conv == 'C' || conv == 'B') { shown.toUpper(); }
+        pad(shown, false);
+    }
+
+    /** Number digits with the sign the flags ask for: "-", "+", " " or none. */
+    string signed(bit negative, string digits)
+    {
+        string s;
+        if (negative) {
+            s.append('-');
+        } else if (plus) {
+            s.append('+');
+        } else if (space) {
+            s.append(' ');
+        }
+        s.append(digits);
+        return s;
+    }
+
+    /** A comma between each group of three digits of the whole part: 1234567.5 is 1,234,567.5. */
+    static string grouped(string digits)
+    {
+        int end = digits.indexOf('.');
+        if (end < 0) { end = digits.length(); }
+        string s;
+        for (int i = 0; i < digits.length(); i++) {
+            if (i > 0 && i < end && (end - i) % 3 == 0) { s.append(','); }
+            s.append(digits.charAt(i));
+        }
+        return s;
+    }
+
+    /** Puts text out at the width: spaces before it, after it with -, or zeros after a number's sign with 0. */
+    void pad(string s, bit number)
+    {
+        int n = width - s.length();
+        if (n <= 0) {
+            out.append(s);
+        } else if (left) {
+            out.append(s);
+            for (int i = 0; i < n; i++) { out.append(' '); }
+        } else if (zero && number) {
+            int i = 0;
+            if (s.charAt(0) == '-' || s.charAt(0) == '+' || s.charAt(0) == ' ') { i = 1; }
+            if (s.length() > i + 1 && s.charAt(i) == '0' && (s.charAt(i + 1) == 'x' || s.charAt(i + 1) == 'X')) { i += 2; }
+            out.append(s.substring(0, i));
+            for (int k = 0; k < n; k++) { out.append('0'); }
+            out.append(s.substring(i, s.length()));
+        } else {
+            for (int i = 0; i < n; i++) { out.append(' '); }
+            out.append(s);
+        }
+    }
+
+    // ------------------------------------------------------------ reading the format
+
+    /** Copies text up to the next specifier and reads it; false at the end of the format. */
+    bit next()
+    {
+        while (pos < fmt.length()) {
+            char c = fmt.charAt(pos);
+            if (c != '%') {
+                out.append(c);
+                pos++;
+                continue;
+            }
+            int start = pos;
+            pos++;
+            if (pos < fmt.length() && fmt.charAt(pos) == '%') {
+                out.append('%');
+                pos++;
+                continue;
+            }
+            if (pos < fmt.length() && fmt.charAt(pos) == 'n') {
+                out.append('\n');
+                pos++;
+                continue;
+            }
+            left = false;
+            zero = false;
+            plus = false;
+            space = false;
+            group = false;
+            alt = false;
+            flags:
+            while (pos < fmt.length()) {
+                switch (fmt.charAt(pos)) {
+                    case '-' -> left = true;
+                    case '0' -> zero = true;
+                    case '+' -> plus = true;
+                    case ' ' -> space = true;
+                    case ',' -> group = true;
+                    case '#' -> alt = true;
+                    default -> { break flags; }
+                }
+                pos++;
+            }
+            width = digits();
+            precision = -1;
+            if (pos < fmt.length() && fmt.charAt(pos) == '.') {
+                pos++;
+                precision = digits();
+                if (precision < 0) { throw bad("a . needs the precision after it, as in %.2f"); }
+            }
+            if (pos >= fmt.length()) { throw bad("the format ends inside the specifier " + fmt.substring(start, pos)); }
+            conv = fmt.charAt(pos);
+            pos++;
+            spec = fmt.substring(start, pos);
+            if ("dxXofeEsScCbB".indexOf(conv) < 0) {
+                throw bad("unknown conversion " + spec + "; the conversions are d x X o f e E s S c C b B, %% and %n");
+            }
+            if ((left || zero) && width < 0) { throw bad(spec + ": the - and 0 flags need a width, as in %-8s"); }
+            if (left && zero) { throw bad(spec + ": - and 0 can't go together"); }
+            return true;
+        }
+        return false;
+    }
+
+    /** A number written at pos, or -1 if there is none. */
+    int digits()
+    {
+        int n = -1;
+        while (pos < fmt.length() && Char.isDigit(fmt.charAt(pos))) {
+            if (n < 0) { n = 0; }
+            n = n * 10 + (fmt.charAt(pos) - '0');
+            pos++;
+        }
+        return n;
+    }
+
+    IllegalArgumentException bad(string why)
+    {
+        return new IllegalArgumentException(why + ", in the format \"" + fmt + "\"");
+    }
+
+    IllegalArgumentException mismatch(string what)
+    {
+        return bad(spec + " can't show " + what);
+    }
+
+    @native("text_places") static int places(double x, char conv, int places, addr<char> buf) { }
+    @native("text_fixed_places") static int places(fixed<<int N, int M>> x, addr<char> buf, int places) { }
+    @native("text_ufixed_places") static int places(ufixed<<int N, int M>> x, addr<char> buf, int places) { }
+}

@@ -1,0 +1,9 @@
+class Animal
+{
+    public int legs;
+    public string name;
+    public new(string n) { name = n; legs = 4; }
+    public string describe() { string s = name; s.append(" has legs"); return s; }
+    public Animal self() { return makeTwin(); }
+    Animal makeTwin() { Animal a = new Animal(name); a.legs = legs; return a; }
+}

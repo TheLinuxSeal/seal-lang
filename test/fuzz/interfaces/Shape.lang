@@ -1,0 +1,6 @@
+abstract class Shape implements(Drawable)
+{
+    public Shape next;
+    public abstract int area();
+    public int draw() { return area() + 1; }
+}

@@ -1,0 +1,70 @@
+// Fixed-point numbers (§37.1): exact, deterministic arithmetic on integer
+// instructions. Here the Mandelbrot set is drawn entirely in fixed<<10, 22>>:
+// 10 bits before the binary point (range ±512) and 22 after (steps of 2^-22).
+struct Main
+{
+    static int escapeTime(fixed<<10, 22>> cr, fixed<<10, 22>> ci, int limit)
+    {
+        fixed<<10, 22>> zr = 0;
+        fixed<<10, 22>> zi = 0;
+        for (int i = 0; i < limit; i++) {
+            fixed<<10, 22>> zr2 = zr * zr;
+            fixed<<10, 22>> zi2 = zi * zi;
+            if (zr2 + zi2 > 4) { return i; }
+            zi = zr * zi * 2 + ci;
+            zr = zr2 - zi2 + cr;
+        }
+        return limit;
+    }
+
+    static int main()
+    {
+        System.stdout.println("== the Mandelbrot set in fixed point ==");
+        string<<10>> shades = " .:-=+*#%@";
+        int width = 64;
+        int height = 24;
+        fixed<<10, 22>> stepX = 0.046875;     // 3 / 64
+        fixed<<10, 22>> stepY = 0.1;
+        int inside = 0;
+        for (int row = 0; row < height; row++) {
+            fixed<<10, 22>> ci = (fixed<<10, 22>>)row * stepY - 1.15;
+            for (int col = 0; col < width; col++) {
+                fixed<<10, 22>> cr = (fixed<<10, 22>>)col * stepX - 2.1;
+                int n = escapeTime(cr, ci, 40);
+                if (n == 40) { inside++; }
+                System.stdout.print(shades.charAt(n * 9 / 40));
+            }
+            System.stdout.println();
+        }
+        System.stdout.print(inside);
+        System.stdout.println(" points inside the set");
+
+        System.stdout.println("== exact values ==");
+        fixed<<8, 8>> tenth = 0.1;
+        System.stdout.print("0.1 in fixed<<8, 8>> is really ");
+        System.stdout.println(tenth);
+        System.stdout.print("as a double: ");
+        System.stdout.println((double)tenth);
+
+        System.stdout.println("== * keeps the format; Fixed.mulExact widens it ==");
+        fixed<<4, 4>> a = 7.9375;
+        System.stdout.print("7.9375 * 7.9375 in fixed<<4, 4>> wraps to ");
+        System.stdout.println(a * a);
+        fixed<<8, 8>> exact = Fixed.mulExact(a, a);
+        System.stdout.print("Fixed.mulExact gives fixed<<8, 8>> ");
+        System.stdout.println(exact);
+
+        System.stdout.println("== helpers and conversions ==");
+        fixed<<16, 16>> x = -3.25;
+        System.stdout.print("floor(-3.25) = ");
+        System.stdout.println(Fixed.floor(x));
+        System.stdout.print("fraction(-3.25) = ");
+        System.stdout.println(Fixed.fraction(x));
+        System.stdout.print("(int)-3.25 = ");
+        System.stdout.println((int)x);
+        ufixed<<0, 8>> half = 0.5;
+        System.stdout.print("ufixed<<0, 8>> holds pure fractions: ");
+        System.stdout.println(half);
+        return 0;
+    }
+}

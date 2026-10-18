@@ -1,0 +1,14 @@
+// Not a shape at all, but Describable too.
+class Note implements(Describable)
+{
+    string text;
+
+    public new(string t) { text = t; }
+
+    public string describe()
+    {
+        string s = "note: ";
+        s.append(text);
+        return s;
+    }
+}

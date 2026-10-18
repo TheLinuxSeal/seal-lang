@@ -1,0 +1,23 @@
+== making a project ==
+[dir]  .
+[file] LICENSE
+[dir]  docs
+[file] docs/notes.md
+[dir]  src
+[file] src/Main.lang
+[dir]  src/util
+[file] src/util/Strings.lang
+== lines by kind ==
+(none): 1
+md: 3
+lang: 7
+== the biggest file ==
+Main.lang in src, 52 bytes
+== a report, written and read a line at a time ==
+1: Main.lang 52
+2: Strings.lang 19
+== renaming, copying, and what can go wrong ==
+2 files in docs
+LICENSE is gone (renamed)
+can't delete docs: it isn't empty
+cleaned up: true

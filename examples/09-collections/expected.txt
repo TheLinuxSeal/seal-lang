@@ -1,0 +1,14 @@
+== breadth-first search with a Queue ==
+distance to 0: 0
+distance to 1: 1
+distance to 2: 1
+distance to 3: 2
+distance to 4: 2
+distance to 5: 3
+distance to 6: 4
+== memoization with an IntMap ==
+longest Collatz chain below 1000 starts at 871 (179 numbers)
+values remembered: 2227
+== sorting and searching a List ==
+0.0 4.3 39.8 40.7 41.4 43.7 63.3 67.1 67.5 97.2 
+median: 42.55

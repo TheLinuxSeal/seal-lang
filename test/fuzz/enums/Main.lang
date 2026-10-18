@@ -1,0 +1,44 @@
+// Fuzz input: enums holding strings, switch in both styles, and loops around them.
+struct Main
+{
+    static int score(Suit s)
+    {
+        switch (s) {
+            case CLUBS -> { return 1; }
+            case HEARTS -> { return 2; }
+            default -> { return 3; }
+        }
+    }
+
+    static int main()
+    {
+        List<Suit> hand = new List();
+        for (Suit s : Suit.values()) { hand.add(s); hand.add(s); }
+        int total = 0;
+        string seen = "";
+        for (Suit s : hand) {
+            total += score(s);
+            seen = seen + s.short();
+        }
+        System.stdout.println(seen + " " + total);
+        int n = 0;
+        for (int i = 0; i < 8; i += 1) {
+            switch (i % 4) {
+                case 0:
+                    n += 1;
+                case 1:
+                    n += 2;
+                    break;
+                case 2:
+                    continue;
+                default:
+                    n += 7;
+            }
+            n += 100;
+        }
+        System.stdout.println(n);
+        Suit best = Suit.valueOf("SPADES");
+        System.stdout.println(best.name() + best.ordinal() + (best == Suit.SPADES));
+        return 0;
+    }
+}

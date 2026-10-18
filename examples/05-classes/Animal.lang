@@ -1,0 +1,32 @@
+// A class is a shared reference type, like a Java class: a variable of type
+// Animal refers to an object (§25-27). Only classes can inherit (§30); methods are
+// virtual by default (§35).
+class Animal
+{
+    public string<<12>> name;
+    // private<Bird>: visible to Animal and to Bird, which changes it.
+    private<Bird> int legs;
+
+    public new(string<<12>> n)
+    {
+        name = n;
+        legs = 4;
+    }
+
+    public void describe()
+    {
+        System.stdout.print(name);
+        System.stdout.print(" has ");
+        System.stdout.print(legs);
+        System.stdout.print(" legs and says ");
+        System.stdout.println(sound());       // virtual: runs the subclass's version
+    }
+
+    public string<<8>> sound() { return "..."; }
+
+    delete()
+    {
+        System.stdout.print("  goodbye, ");
+        System.stdout.println(name);
+    }
+}

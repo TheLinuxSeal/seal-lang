@@ -1,0 +1,10 @@
+class Bird extends(Animal)
+{
+    public new(string<<12>> n)
+    {
+        super(n);
+        legs = 2;
+    }
+
+    public string<<8>> sound() { return "tweet"; }
+}

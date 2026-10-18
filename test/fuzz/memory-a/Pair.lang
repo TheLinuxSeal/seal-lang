@@ -1,0 +1,6 @@
+struct Pair
+{
+    public Res left;
+    public Res right;
+    public int sum() { return left.id + right.id; }
+}

@@ -1,0 +1,40 @@
+// One class, two shapes (§5): a row vector Matrix<T><<N>> and a matrix
+// Matrix<T><<N, M>>. Each instantiation is its own concrete type.
+struct Matrix<T><<int N>>
+struct Matrix<T><<int N, int M>>
+{
+    // Guarded fields: the same name has a different type in each shape (§9.2).
+    public array<T><<N>> data<<int N>>;
+    public array<T><<N, M>> data<<int N, int M>>;
+
+    public int rows<<int N>>() { return 1; }
+    public int rows<<int N, int M>>() { return N; }
+    public int cols<<int N>>() { return N; }
+    public int cols<<int N, int M>>() { return M; }
+
+    // Unguarded: written once, checked against every shape (the coverage rule).
+    public int size() { return rows() * cols(); }
+
+    public T get<<int N>>(int r, int c) { return data[c]; }
+    public T get<<int N, int M>>(int r, int c) { return data[r][c]; }
+    public void set<<int N>>(int r, int c, T v) { data[c] = v; }
+    public void set<<int N, int M>>(int r, int c, T v) { data[r][c] = v; }
+
+    /**
+     * (N × M) times (M × K) is (N × K). K is a value binder (§9.3): it is read
+     * from the argument's type, and the result's type is computed from it.
+     * Multiplying matrices of mismatched sizes does not compile.
+     */
+    public Matrix<T><<N, K>> times<<int N, int M>>(Matrix<T><<M, int K>> other)
+    {
+        Matrix<T><<N, K>> result;
+        for (int i = 0; i < N; i++) {
+            for (int j = 0; j < K; j++) {
+                T sum = data[i][0] * other.data[0][j];
+                for (int k = 1; k < M; k++) { sum += data[i][k] * other.data[k][j]; }
+                result.data[i][j] = sum;
+            }
+        }
+        return result;
+    }
+}

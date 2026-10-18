@@ -1,0 +1,16 @@
+// Reads a text file a line at a time, like Java's BufferedReader (§42.1).
+//
+//   FileReader in = new FileReader("data.txt");
+//   while (in.hasNextLine()) { string line = in.readLine(); ... }
+//   in.close();
+//
+// or, closing it when the loop's reference goes:
+//
+//   for (string line : new FileReader("data.txt")) { ... }
+//
+// See Reader for its methods.
+class FileReader extends(Reader)
+{
+    /** Opens the file; throws a FileNotFoundException if it isn't there. */
+    public new(string path) { super(Files.check(Files.nOpen(path, 0))); }
+}

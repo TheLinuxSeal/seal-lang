@@ -1,0 +1,109 @@
+// The methods of fixed arrays (§21.1). An array<T><<N>> is the compiler's own
+// type, N elements inline; calling xs.sort() on one calls this struct's sort,
+// whose only field has the array's layout. Programs don't name FixedArray.
+struct FixedArray<T><<int N>>
+{
+    array<T><<N>> items;
+
+    public int length() { return N; }
+
+    public bit isEmpty() { return N == 0; }
+
+    /** Sets every element to value. */
+    public void fill(T value)
+    {
+        for (int i = 0; i < N; i++) { items[i] = value; }
+    }
+
+    /** Index of the first element == value, or -1. */
+    public int indexOf(T value)
+    {
+        for (int i = 0; i < N; i++) {
+            if (items[i] == value) { return i; }
+        }
+        return -1;
+    }
+
+    public bit contains(T value) { return indexOf(value) >= 0; }
+
+    public void swap(int i, int j)
+    {
+        T t = items[i];
+        items[i] = items[j];
+        items[j] = t;
+    }
+
+    public void reverse()
+    {
+        int i = 0;
+        int j = N - 1;
+        while (i < j) {
+            swap(i, j);
+            i++;
+            j--;
+        }
+    }
+
+    /** Sorts ascending with <, in place (heapsort: O(n log n), not stable). */
+    public void sort()
+    {
+        for (int start = N / 2 - 1; start >= 0; start--) { siftDown(start, N); }
+        for (int end = N - 1; end > 0; end--) {
+            swap(0, end);
+            siftDown(0, end);
+        }
+    }
+
+    void siftDown(int start, int end)
+    {
+        int root = start;
+        while (root * 2 + 1 < end) {
+            int child = root * 2 + 1;
+            if (child + 1 < end && items[child] < items[child + 1]) { child++; }
+            if (!(items[root] < items[child])) { return; }
+            swap(root, child);
+            root = child;
+        }
+    }
+
+    /** Sorts in the order cmp gives, keeping equal elements in order (stable). */
+    public void sort(Comparator<T> cmp)
+    {
+        List<T> sorted = toList();
+        sorted.sort(cmp);
+        for (int i = 0; i < N; i++) { items[i] = sorted.get(i); }
+    }
+
+    public List<T> toList()
+    {
+        List<T> out = new List();
+        out.reserve(N);
+        for (int i = 0; i < N; i++) { out.add(items[i]); }
+        return out;
+    }
+
+    /** The elements, as a new run-time-sized array. */
+    public array<T> toArray()
+    {
+        array<T> out = new array<T>(N);
+        for (int i = 0; i < N; i++) { out[i] = items[i]; }
+        return out;
+    }
+
+    /** The elements from (inclusive) to to (exclusive), as a new array. */
+    public array<T> slice(int from, int to)
+    {
+        if (from < 0 || to > N || from > to) {
+            throw new IndexOutOfBoundsException("slice(" + from + ", " + to + ") out of range for an array of length " + N);
+        }
+        array<T> out = new array<T>(to - from);
+        for (int i = from; i < to; i++) { out[i - from] = items[i]; }
+        return out;
+    }
+
+    /** Thrown for an index outside a fixed array; the compiler calls it. */
+    public static void outOfBounds(int i, int n)
+    {
+        throw new IndexOutOfBoundsException("index " + i + " out of range for an array of length " + n);
+    }
+}

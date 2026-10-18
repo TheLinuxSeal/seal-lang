@@ -1,0 +1,5 @@
+// Takes a value and returns nothing: list.forEach(x -> System.stdout.println(x));
+interface Consumer<T>
+{
+    void accept(T x);
+}

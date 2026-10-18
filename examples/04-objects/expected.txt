@@ -1,0 +1,15 @@
+== constructors and destructors ==
+  open account #1
+  open account #2
+  accounts open: 2
+  close account #2
+  balance of #1: 250
+  close account #1
+accounts open after the block: 0
+== early return still runs destructors ==
+  open account #99
+  close account #99
+deposit number 4 went over the limit
+== objects are values ==
+p.x = 1, q.x = 50
+after p.moveRight(99), p.x = 100

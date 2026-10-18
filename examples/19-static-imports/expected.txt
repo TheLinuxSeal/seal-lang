@@ -1,0 +1,9 @@
+orbit at 400 km: 7672 m/s, once around in 92.4 minutes
+15 degrees:  20.4 m far,  1.4 m high
+30 degrees:  35.3 m far,  5.1 m high
+45 degrees:  40.8 m far, 10.2 m high
+60 degrees:  35.3 m far, 15.3 m high
+75 degrees:  20.4 m far, 19.0 m high
+dot 0.0, lengths 5.0 and 5.0, angle 53.13 degrees
+max 9, abs 2.5, largest int 2147483647
+local PI 3.0, Math.PI 3.141592653589793

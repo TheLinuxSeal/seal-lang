@@ -1,0 +1,62 @@
+struct Main
+{
+    static int main()
+    {
+        System.stdout.println("== one generic class, many element types ==");
+        Stack<int><<5>> ints;
+        ints.push(3); ints.push(41); ints.push(7);
+        System.stdout.print("largest int: ");
+        System.stdout.println(ints.largest());
+
+        Stack<double><<5>> doubles;
+        doubles.push(2.5); doubles.push(-1.0); doubles.push(9.75);
+        System.stdout.print("largest double: ");
+        System.stdout.println(doubles.largest());
+
+        Stack<fixed<<8, 8>>><<5>> fixeds;
+        fixeds.push(1.5); fixeds.push(3.25); fixeds.push(-4.0);
+        System.stdout.print("largest fixed: ");
+        System.stdout.println(fixeds.largest());
+
+        Stack<string<<8>>><<5>> words;
+        words.push("kiwi"); words.push("plum"); words.push("apple");
+        System.stdout.print("last word alphabetically: ");
+        System.stdout.println(words.largest());
+
+        Stack<BigUInt<<128>>><<3>> bigs;
+        BigUInt<<128>> x;
+        x.parse("99999999999999999999999");
+        bigs.push(x);
+        x.parse("123");
+        bigs.push(x);
+        System.stdout.print("largest BigUInt: ");
+        string s = bigs.largest().toString();
+        System.stdout.println(s);
+
+        System.stdout.println("== sizes depend on the instantiation ==");
+        System.stdout.print("Stack<int><<5>>:            ");
+        System.stdout.println(sizeof(Stack<int><<5>>));
+        System.stdout.print("Stack<bit><<64>>:           ");
+        System.stdout.println(sizeof(Stack<bit><<64>>));
+        System.stdout.print("Stack<fixed<<4, 4>>><<10>>: ");
+        System.stdout.println(sizeof(Stack<fixed<<4, 4>>><<10>>));
+
+        System.stdout.println("== nesting ==");
+        Pair<Stack<int><<4>>, double> nested;
+        nested.first.push(10);
+        nested.first.push(20);
+        nested.second = 0.5;
+        System.stdout.print("nested.first.pop() * nested.second = ");
+        System.stdout.println((double)nested.first.pop() * nested.second);
+
+        System.stdout.println("== emptying a stack ==");
+        while (!ints.isEmpty()) {
+            System.stdout.print(ints.pop());
+            System.stdout.print(" ");
+        }
+        System.stdout.println();
+        // Stack<Thing> for a class Thing would work too, until largest() is called:
+        // handles have no <, and that error is reported where it is used.
+        return 0;
+    }
+}

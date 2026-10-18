@@ -1,0 +1,75 @@
+// Strings (§39): string<<N>> holds up to N characters inline; the bare
+// string grows on the heap. Strings are values: copies are independent, and
+// memory is freed automatically.
+struct Main
+{
+    /** ROT13. A string<<int N>> parameter accepts a fixed string of any capacity, and N is reused in the result. */
+    static string<<N>> rot13(string<<int N>> s)
+    {
+        // s is this function's own copy, so change it and return it.
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            // Arithmetic on a char gives an int, so the result is cast back to a char.
+            if (Char.isLower(c)) { s.set(i, (char)((c - 'a' + 13) % 26 + 'a')); }
+            if (Char.isUpper(c)) { s.set(i, (char)((c - 'A' + 13) % 26 + 'A')); }
+        }
+        return s;
+    }
+
+    static int main()
+    {
+        System.stdout.println("== fixed-capacity strings ==");
+        string<<5>> hello = "Hello";
+        string<<7>> world = ", world";
+        string<<12>> both = hello + world;     // the capacity is computed: 5 + 7
+        System.stdout.println(both);
+        System.stdout.print("length ");
+        System.stdout.print(both.length());
+        System.stdout.print(" of at most ");
+        System.stdout.println(both.maxLength());
+
+        System.stdout.println("== growable strings ==");
+        string built;
+        built.append("counting:");
+        for (int i = 1; i <= 5; i++) {
+            built.append(32);
+            string n = Integer.toString(i * i);
+            built.append(n);
+        }
+        System.stdout.println(built);
+        string upper = built;      // a copy: changing it leaves `built` alone
+        upper.toUpper();
+        System.stdout.println(upper);
+        System.stdout.println(built.substring(0, 8));
+
+        System.stdout.println("== comparing and sorting ==");
+        List<string<<10>>> fruit = new List();
+        fruit.add("pear");
+        fruit.add("apple");
+        fruit.add("fig");
+        fruit.add("kiwi");
+        fruit.add("banana");
+        fruit.sort();
+        for (int i = 0; i < fruit.size(); i++) {
+            System.stdout.print(fruit.get(i));
+            System.stdout.print(" ");
+        }
+        System.stdout.println();
+        string<<10>> apple = "apple";
+        System.stdout.print("index of apple: ");
+        System.stdout.println(fruit.indexOf(apple));
+
+        System.stdout.println("== characters and numbers ==");
+        string<<24>> secret = "Attack at Dawn";
+        secret = rot13(secret);
+        System.stdout.println(secret);
+        secret = rot13(secret);
+        System.stdout.println(secret);
+        System.stdout.print("\"-12345\" parses to ");
+        System.stdout.println(Integer.parse("-12345"));
+        System.stdout.print("255 in base 2: ");
+        string binary = Integer.toString(255, 2);
+        System.stdout.println(binary);
+        return 0;
+    }
+}

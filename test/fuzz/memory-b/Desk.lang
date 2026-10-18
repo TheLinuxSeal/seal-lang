@@ -1,0 +1,7 @@
+class Desk
+{
+    public Ticket current = new Ticket(0);
+    public array<Ticket><<2>> spare;
+    public void swapIn(int i) { current = new Ticket(i); }
+    delete() { System.stdout.print("~desk "); }
+}

@@ -1,0 +1,6 @@
+struct Cell
+{
+    public int v;
+    public Tag tag;
+    public new() { v = 1; }
+}

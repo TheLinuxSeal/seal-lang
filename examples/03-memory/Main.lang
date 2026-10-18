@@ -1,0 +1,94 @@
+// Optional low-level memory access with addr<T> (§18-24). Addresses count bits, and the
+// address operators are the reverse of C: *x takes an address, &p follows one.
+struct Main
+{
+    static int main()
+    {
+        System.stdout.println("== *x takes an address, &p follows it ==");
+        int x = 10;
+        addr<int> p = *x;
+        &p = 42;
+        System.stdout.print("x = ");
+        System.stdout.println(x);
+        addr<addr<int>> pp = *p;
+        &(&pp) += 1;                       // nested dereferences need parentheses
+        System.stdout.print("x = ");
+        System.stdout.println(x);
+
+        System.stdout.println("== addresses count bits ==");
+        addr<int> nums = new<int>(5);
+        for (int i = 0; i < 5; i++) {
+            &(nums + i * sizeof(int)) = i * i;
+        }
+        addr<int> last = nums + 4 * sizeof(int);
+        System.stdout.print("the last element is ");
+        System.stdout.print(last - nums);
+        System.stdout.print(" bits after the first and holds ");
+        System.stdout.println(&last);
+        int total = 0;
+        for (int i = 0; i < 5; i++) { total += &(nums + i * sizeof(int)); }
+        System.stdout.print("sum of squares = ");
+        System.stdout.println(total);
+        delete nums;
+
+        System.stdout.println("== a linked list ==");
+        addr<Node> head = null;
+        for (int i = 1; i <= 5; i++) {
+            addr<Node> n = new Node();
+            (&n).value = i * 10;
+            (&n).next = head;
+            head = n;
+        }
+        for (addr<Node> n = head; n != null; n = (&n).next) {
+            System.stdout.print((&n).value);
+            System.stdout.print(" ");
+        }
+        System.stdout.println();
+        while (head != null) {
+            addr<Node> next = (&head).next;
+            delete head;
+            head = next;
+        }
+
+        System.stdout.println("== bit-packed classes ==");
+        System.stdout.print("sizeof(Color) = ");
+        System.stdout.print(sizeof(Color));
+        System.stdout.print(" bits, sizeof(array<Color><<4>>) = ");
+        System.stdout.println(sizeof(array<Color><<4>>));
+        Color c;
+        c.red = 31;
+        c.green = 63;
+        c.blue = 0;
+        // Reinterpret the same 16 bits as one number.
+        addr<uint<<16>>> raw = (addr<uint<<16>>>)(addr<void>)*c;
+        System.stdout.print("yellow as RGB565: ");
+        string hex = Integer.toString((uint<<64>>)&raw, 16);
+        System.stdout.println(hex);
+
+        System.stdout.println("== the same with bit slices ==");
+        // A plain integer can be sliced into fields too.
+        uint<<16>> rgb565 = 0;
+        rgb565[11..16] = 31;   // red
+        rgb565[5..11] = 63;    // green
+        System.stdout.print("yellow as RGB565: ");
+        string hex2 = Integer.toString((uint<<64>>)rgb565, 16);
+        System.stdout.println(hex2);
+        System.stdout.print("its green channel: ");
+        System.stdout.println((uint)rgb565[5..11]);
+
+        System.stdout.println("== 3-bit values packed end to end ==");
+        addr<uint<<3>>> tiny = new<uint<<3>>>(8);
+        for (int i = 0; i < 8; i++) {
+            &(tiny + i * sizeof(uint<<3>>)) = (uint<<3>>)i;
+        }
+        System.stdout.print("8 values in ");
+        System.stdout.print(8 * sizeof(uint<<3>>));
+        System.stdout.print(" bits: ");
+        for (int i = 7; i >= 0; i--) {
+            System.stdout.print((uint)&(tiny + i * sizeof(uint<<3>>)));
+        }
+        System.stdout.println();
+        delete tiny;
+        return 0;
+    }
+}
