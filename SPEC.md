@@ -1346,6 +1346,7 @@ Rules:
 * A class that isn't abstract must implement every abstract method it inherits, with the same parameter types and return type, or it is an error naming the missing method.
 * An abstract method must be public, can't be static, and can't have value binders (`<<int K>>` in a parameter type).
 * Only an abstract class can declare abstract methods. A method without `abstract` needs a body.
+* An abstract class can also have abstract and default fields, which the classes below it hold (§30.4).
 * `super.area()` is an error when the parent's `area` is abstract.
 * Every header of an abstract class says `abstract`.
 
@@ -1423,8 +1424,6 @@ The standard library defines the common functional interfaces:
 
 and `List<T>` takes them in `sort(Comparator<T>)` (stable), `forEach(Consumer<T>)` and `removeIf(Predicate<T>)`.
 
----
-
 ## 30.4 Abstract and default fields, and default methods
 
 An interface or abstract class can name fields that the classes below it hold, as it names methods they implement. An **abstract field** has no value: every class that isn't abstract must hold it and give it one. A **default field** has a value, which a class gets unless it declares the field itself. An interface's **default methods** have a body its classes get, unless they implement the method themselves; like an abstract class's methods, they can use the fields:
@@ -1465,6 +1464,8 @@ n.name = "crate";                         // the Square's own name changes
 * The field keeps its access: `public abstract int sides;` can be read from outside, `abstract int sides;` only by the class's own code, as other fields.
 * A default field's value is computed in the class that gets it, as if written there, and its type can't use the declaring type's type parameters. A field reached through a getter can't be a unique, which the getter would copy.
 * A default method is compiled once, for the interface: its `this` is the object, whatever its class, and calling another of its methods calls the object's.
+
+---
 
 # 31. Root Object
 
