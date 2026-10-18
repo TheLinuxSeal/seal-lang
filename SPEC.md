@@ -1,14 +1,14 @@
-# Language Design Specification
+# Seal Language Specification
 
 > **Status:** Draft
-> **Language name:** Undecided
-> **Current candidates:** Chevron, Nibble, Dig, Mold
+> **Source files:** `.seal`
+> **Repository:** https://github.com/TheLinuxSeal/seal-lang
 
 ---
 
 ## 1. Overview
 
-The language combines:
+Seal combines:
 
 * **Java-style object-oriented programming** with shared, reference-typed classes
 * **Value types with exact layouts** (`struct` and `unique`)
