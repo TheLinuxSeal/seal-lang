@@ -104,7 +104,7 @@ says what each one shows.
 
 Seal is young and still changing. Programs compile to bytecode for Seal's own virtual machine,
 which is written in Java. A backend that compiles to JVM bytecode is planned next, with Minecraft
-modding as one of its goals.
+modding as one of its goals; [`docs/JVM.md`](docs/JVM.md) is its design.
 
 ## Layout
 
