@@ -1351,7 +1351,7 @@ Rules:
 
 ## 30.2 Interfaces
 
-An interface is a list of method signatures, which classes promise to implement:
+An interface is a list of method signatures, which classes promise to implement, and of fields they promise to hold (§30.4):
 
 ```text
 interface Describable
@@ -1375,7 +1375,7 @@ class Circle extends(Shape) implements(Describable, Comparable<Circle>)
 }
 ```
 
-* An interface contains only method signatures: no fields, constructors, destructors, static members, decorators or method bodies. Its methods are public, and the methods implementing them must be public too.
+* An interface contains method signatures, `default` methods with the body its classes get, and abstract and `default` fields (§30.4); no constructors, destructors, static members or decorators. Its methods are public, and the methods implementing them must be public too.
 * An interface can have type parameters, but no value parameters or shapes.
 * A class lists its interfaces after `extends`, as `implements(A, B)`. It implements them for every header that lists them, and its subclasses implement them too. A class that isn't abstract must implement all their methods, including those of interfaces they extend. An abstract class may leave them to its subclasses.
 * An interface name used as a type is a handle, like a class name: `Describable d = new Circle(1);`. Calling a method through it calls the object's own method (dispatch uses the same vtable slots as class methods: a slot is a method name and parameter types).
@@ -1385,7 +1385,7 @@ class Circle extends(Shape) implements(Describable, Comparable<Circle>)
 
 ## 30.3 Lambdas
 
-A lambda is a function written where a value is expected. Its type is a functional interface: an interface with exactly one method, which the lambda implements.
+A lambda is a function written where a value is expected. Its type is a functional interface: an interface with exactly one method without a body, which the lambda implements. Its default methods (§30.4) come with it, and an interface with fields can't be one, since a lambda holds none.
 
 ```text
 Function<int, int> twice = x -> x * 2;
@@ -1424,6 +1424,47 @@ The standard library defines the common functional interfaces:
 and `List<T>` takes them in `sort(Comparator<T>)` (stable), `forEach(Consumer<T>)` and `removeIf(Predicate<T>)`.
 
 ---
+
+## 30.4 Abstract and default fields, and default methods
+
+An interface or abstract class can name fields that the classes below it hold, as it names methods they implement. An **abstract field** has no value: every class that isn't abstract must hold it and give it one. A **default field** has a value, which a class gets unless it declares the field itself. An interface's **default methods** have a body its classes get, unless they implement the method themselves; like an abstract class's methods, they can use the fields:
+
+```text
+interface Named
+{
+    string name;                         // every class implementing Named holds a name
+    default string greeting = "Hello";   // and a greeting, "Hello" unless it says otherwise
+
+    default string greet() { return greeting + ", " + name + "!"; }
+    default void rename(string to) { name = to; }
+}
+
+abstract class Shape implements(Named)
+{
+    public abstract int sides;            // each kind of shape gives its own
+    public default string color = "red";
+
+    public string describe() { return color + " " + name + " with " + sides + " sides"; }
+}
+
+class Square extends(Shape)
+{
+    public int sides = 4;                 // fills in Shape's sides
+    public string name;                   // fills in Named's name, given in the constructor
+    public new(string n) { name = n; }
+}                                         // and gets greeting = "Hello" and color = "red"
+
+Named n = new Square("box");
+n.greet()                                 // "Hello, box!"
+n.name = "crate";                         // the Square's own name changes
+```
+
+* In an interface, a field without `default` is abstract; in an abstract class it is written `abstract`. Only interfaces and abstract classes have them. They can't be static or const.
+* **Filling one in.** A class holds a field by declaring it, with the same type: `public int sides = 4;`. A class filling in an abstract or default field gives it a value, where it declares it or by assigning it in every constructor. A class that isn't abstract and doesn't hold an abstract field, and no class above it does, is an error naming the field; for a default one it gets the field, with the default value. Its subclasses share the field it holds, as any inherited field.
+* **Reaching it.** Through the class that holds it (`square.sides`), a field is the class's own. Through the interface or abstract class (`shape.sides`, `n.name`, or `name` in a default method), it is reached through accessor methods the compiler writes, `get name()` and `set name(value)`, which every holding class implements: so it is the object's own field, whichever class that is. `x.f = v` assigns it, and `x.f += v;` and `x.f++;` work as statements (read, change, write back, with `x` evaluated once).
+* The field keeps its access: `public abstract int sides;` can be read from outside, `abstract int sides;` only by the class's own code, as other fields.
+* A default field's value is computed in the class that gets it, as if written there, and its type can't use the declaring type's type parameters. A field reached through a getter can't be a unique, which the getter would copy.
+* A default method is compiled once, for the interface: its `this` is the object, whatever its class, and calling another of its methods calls the object's.
 
 # 31. Root Object
 

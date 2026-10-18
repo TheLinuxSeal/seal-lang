@@ -126,9 +126,15 @@ public final class Ast {
 
     /**
      * @param friends classes listed in `private<A, B>`; empty otherwise
+     * @param isDefault a `default` method of an interface, with a body the classes implementing it
+     *     get; or a `default` field of an interface or abstract class, with a value they get (§30.4)
      */
     public record Modifiers(List<Decorator> decorators, Access access, List<TypeRef> friends,
-                            boolean isStatic, boolean isConst, boolean isAbstract) {
+                            boolean isStatic, boolean isConst, boolean isAbstract, boolean isDefault) {
+        public Modifiers(List<Decorator> decorators, Access access, List<TypeRef> friends,
+                         boolean isStatic, boolean isConst, boolean isAbstract) {
+            this(decorators, access, friends, isStatic, isConst, isAbstract, false);
+        }
     }
 
     /** `@name` or `@name(args)`. */

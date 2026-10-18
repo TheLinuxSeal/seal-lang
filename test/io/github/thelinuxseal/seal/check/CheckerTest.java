@@ -670,7 +670,8 @@ public final class CheckerTest {
                     public double area() { return super.area(); }
                 }
                 """), "area is abstract in Shape; there is no implementation to call");
-        error("interface with a field", "interface Main { int x; }", "interfaces can't have fields; only method signatures");
+        error("a static interface field", files("Main", "interface Main { static int x; }"),
+                "an interface's fields belong to the classes implementing it, so they can't be static or const");
         error("interface with a body", "interface Main { void f() { } }",
                 "interface methods have no body; end f(...) with ';' and implement it in the classes");
         error("interface with a constructor", "interface Main { new() { } }", "interfaces can't have constructors");
@@ -691,7 +692,70 @@ public final class CheckerTest {
                 "only classes can implement interfaces; a unique uses composition and generics instead");
         error("abstract method in a struct", "struct Main { public abstract void f(); }",
                 "only classes can have abstract methods, not a struct");
-        error("abstract on a field", "abstract class Main { public abstract int x; }", "only methods can be abstract");
+        error("an abstract field in a class that isn't abstract", "class Main { abstract int x; }",
+                "abstract fields belong in interfaces and abstract classes, for the classes below them to hold; Main isn't one");
+        Map<String, String> named = files(
+                "Named", """
+                        interface Named
+                        {
+                            int id;
+                            default int level = 1;
+                            default int score() { return id * 10 + level; }
+                            default void bump() { level++; id += 1; }
+                        }
+                        """,
+                "Shape", """
+                        abstract class Shape implements(Named)
+                        {
+                            public abstract int sides;
+                            public default int weight = 2;
+                            public int total() { return sides * weight + score(); }
+                        }
+                        """);
+        Map<String, String> filled = new LinkedHashMap<>(named);
+        filled.putAll(files("Square", """
+                class Square extends(Shape)
+                {
+                    public int sides = 4;
+                    public int id;
+                    public new(int i) { id = i; }
+                }
+                """, "Main", """
+                struct Main
+                {
+                    void run()
+                    {
+                        Shape s = new Square(7);
+                        int t = s.total() + s.sides + s.weight;
+                        s.sides = 5;
+                        s.bump();
+                        Named n = s;
+                        n.id = 3;
+                        n.level += 1;
+                        s.sides++;
+                    }
+                }
+                """));
+        ok("abstract and default fields, and default methods using them (§30.4)", filled);
+        Map<String, String> unfilled = new LinkedHashMap<>(named);
+        unfilled.putAll(files("Box", "class Box extends(Shape) { public int id = 1; }"));
+        error("a class must hold an abstract field", unfilled,
+                "Box must hold the field sides of Shape: declare it, as in int sides = ...;");
+        Map<String, String> valueless = new LinkedHashMap<>(named);
+        valueless.putAll(files("Box", "class Box extends(Shape) { public int sides; public int id = 1; public new() { } }"));
+        error("a field filling in an abstract one needs a value", valueless,
+                "sides fills in the abstract field of Shape, so it needs a value");
+        Map<String, String> mistyped = new LinkedHashMap<>(named);
+        mistyped.putAll(files("Box", "class Box extends(Shape) { public bit sides = true; public int id = 1; }"));
+        error("a field filling in another has its type", mistyped, "Box.sides is bit, but the field of Shape it fills in is int");
+        Map<String, String> inExpression = new LinkedHashMap<>(filled);
+        inExpression.put("Main.seal", "struct Main { void run() { Shape s = new Square(1); int k = s.sides++; } }");
+        error("++ on a field reached through accessors is a statement", inExpression,
+                "this field is reached through its accessors here, so ++ on it is a statement of its own");
+        error("an interface method's body needs default", files("Main", "interface Main { int f() { return 1; } }"),
+                "interface methods have no body; end f(...) with ';' and implement it in the classes, or write `default`");
+        error("a default field needs its value", files("Main", "interface Main { default int x; }"),
+                "a default field has the value the classes get: default int x = ...;");
         error("interface cycle", files("A", "interface A extends(B) { }", "B", "interface B extends(A) { }"),
                 "class A inherits from itself");
         ok("instanceof bindings are visible where the test passed", files("Drawable", "interface Drawable { void draw(); }", "Shape", "abstract class Shape { public abstract double area(); }", "Circle",

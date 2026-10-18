@@ -935,6 +935,7 @@ public final class Parser {
         boolean isStatic = false;
         boolean isConst = false;
         boolean isAbstract = false;
+        boolean isDefault = false;
 
         while (true) {
             if (check(AT)) {
@@ -972,11 +973,18 @@ public final class Parser {
                 }
                 advance();
                 isConst = true;
+            } else if (check(DEFAULT)) {
+                if (isDefault) {
+                    error("duplicate 'default'");
+                }
+                advance();
+                isDefault = true;
             } else {
                 break;
             }
         }
-        return new Modifiers(decorators, access == null ? Access.PRIVATE : access, friends, isStatic, isConst, isAbstract);
+        return new Modifiers(decorators, access == null ? Access.PRIVATE : access, friends, isStatic, isConst, isAbstract,
+                isDefault);
     }
 
     private List<Param> parseParams() {

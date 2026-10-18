@@ -389,11 +389,28 @@ public final class CodeGen {
                 slotMethod.put(slot, m);
             }
         }
+        defaultMethods(vtable, ck.allInterfacesOf(t));
         vtable.put(slotId(DESTROY_SLOT), fnId(new FnKey("destroy", t.cls(), t, null, Map.of())));
         ClassT parent = ck.parentType(t);
         List<Integer> interfaces = ck.allInterfacesOf(t).stream().map(this::rtInterfaceId).toList();
         prog.classes.set(rtClassIds.get(t), new RtClass(qualified(t), parent == null ? -1 : rtClassIds.get(parent),
                 vtable, interfaces));
+    }
+
+    /**
+     * The default methods of these interfaces, in the slots the class (or lambda) doesn't fill
+     * itself (§30.4). A default method is compiled once, for the interface: its `this` is any
+     * object implementing it, reached through the vtable like any interface call.
+     */
+    private void defaultMethods(Map<Integer, Integer> vtable, List<ClassT> interfaces) {
+        for (ClassT i : interfaces) {
+            for (MemberInfo m : i.cls().all) {
+                if (m.member instanceof Method md && md.modifiers().isDefault() && md.body() != null
+                        && !md.modifiers().isStatic() && !hasBinders(md)) {
+                    vtable.putIfAbsent(slotId(slotKey(i, m)), vtableFnId(new FnKey("method", i.cls(), i, m, Map.of())));
+                }
+            }
+        }
     }
 
     /** An interface's id among the runtime classes, for casts to it; it has no vtable and no objects. */
@@ -2533,6 +2550,7 @@ public final class CodeGen {
             List<ClassT> ifaces = new ArrayList<>();
             ifaces.add(li.iface());
             ifaces.addAll(ck.allInterfacesOf(li.iface()));
+            defaultMethods(vtable, ifaces);
             String name = "lambda (" + java.nio.file.Path.of(tb.file).getFileName() + ":" + lam.pos().line() + ")";
             prog.classes.set(id, new RtClass(name, -1, vtable, ifaces.stream().map(CodeGen.this::rtInterfaceId).toList()));
             return id;

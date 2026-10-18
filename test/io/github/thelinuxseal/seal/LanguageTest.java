@@ -540,6 +540,76 @@ public final class LanguageTest {
                             }
                         }
                         """), "dog says woof 7 5\ncaught escaped\n");
+        output("abstract and default fields, default methods (§30.4)", files(
+                "Named", """
+                        interface Named
+                        {
+                            string name;                         // every class implementing Named holds one
+                            default string greeting = "Hello";   // the value a class gets, unless it gives its own
+
+                            default string greet() { return greeting + ", " + name + "!"; }
+                            default void rename(string to) { name = to; }
+                        }
+                        """,
+                "Shape", """
+                        abstract class Shape implements(Named)
+                        {
+                            public abstract int sides;
+                            public default string color = "red";
+
+                            public string describe() { return color + " " + name + " with " + sides + " sides"; }
+                            public void grow() { sides++; }
+                        }
+                        """,
+                "Square", """
+                        class Square extends(Shape)
+                        {
+                            public int sides = 4;
+                            public string name;
+                            public new(string n) { name = n; }
+                        }
+                        """,
+                "Triangle", """
+                        class Triangle extends(Shape)
+                        {
+                            public int sides = 3;
+                            public string name = "triangle";
+                            public string color = "blue";
+                            string greeting = "Hi";
+                        }
+                        """,
+                "Op", """
+                        interface Op
+                        {
+                            int apply(int x);
+                            default int twice(int x) { return apply(apply(x)); }
+                        }
+                        """,
+                "Main", """
+                        class Main
+                        {
+                            static void main()
+                            {
+                                Square sq = new Square("square");
+                                Shape t = new Triangle();
+                                System.stdout.println(sq.describe() + " | " + t.describe());
+                                Named n = sq;
+                                System.stdout.println(n.greet() + " " + t.greet() + " " + n.name + " " + n.greeting);
+                                n.name = "box";
+                                n.rename(n.name + "!");
+                                t.sides += 2;
+                                t.grow();
+                                System.stdout.println(sq.name + " " + sq.greet() + " " + t.sides + " " + t.color + " " + sq.sides);
+                                Op inc = x -> x + 1;
+                                System.stdout.println(inc.twice(5));
+                            }
+                        }
+                        """), """
+                red square with 4 sides | blue triangle with 3 sides
+                Hello, square! Hi, triangle! square Hello
+                box! Hello, box!! 6 blue 4
+                7
+                """);
         output("records (§2.5)", files(
                 "Point", """
                         record Point(int x, int y)

@@ -118,6 +118,11 @@ public final class ClassInfo {
     Pos pkgPos;
     /** The imports of the type's file, which nested types share. */
     public List<Import> imports = List.of();
+    /**
+     * Members the checker writes (§30.4): the accessors of abstract and default fields, and in a
+     * class that holds such a field, the field (for a default one it doesn't declare) and accessors.
+     */
+    public final List<Member> synthesized = new ArrayList<>();
 
     ClassInfo(String file, ClassDecl decl, boolean builtin) {
         this(file, decl, builtin, null, true);
@@ -164,14 +169,25 @@ public final class ClassInfo {
     }
 
     /**
+     * Whether a field is one the type only names, for the classes below it to hold (§30.4): every
+     * field of an interface, and an abstract or default field of an abstract class. Code reads
+     * and writes it through accessor methods the checker writes.
+     */
+    public boolean isVirtual(Field f) {
+        // In a type that can't have them (reported), abstract and default fields are plain ones.
+        return !f.modifiers().isStatic() && (isInterface
+                || (isAbstract && dynamic && (f.modifiers().isAbstract() || f.modifiers().isDefault())));
+    }
+
+    /**
      * Fields stored in each instance of the given shape, in declaration order.
-     * Static fields live in static data, and const fields are compile-time
-     * values that take no space.
+     * Static fields live in static data, const fields are compile-time values
+     * that take no space, and abstract and default fields live in the classes below.
      */
     public List<MemberInfo> storedFields(int shape) {
         List<MemberInfo> out = new ArrayList<>();
         for (MemberInfo m : all) {
-            if (m.member instanceof Field f && !f.modifiers().isStatic() && !f.modifiers().isConst()
+            if (m.member instanceof Field f && !f.modifiers().isStatic() && !f.modifiers().isConst() && !isVirtual(f)
                     && m.existsIn(shape)) {
                 out.add(m);
             }

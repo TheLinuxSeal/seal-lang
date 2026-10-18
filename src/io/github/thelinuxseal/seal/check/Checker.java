@@ -712,6 +712,7 @@ public final class Checker {
             file = c.file;
             declareHeaders(c);
         }
+        synthesizeVirtualFields();
         for (ClassInfo c : classes.values()) {
             file = c.file;
             declareMembers(c);
@@ -741,6 +742,7 @@ public final class Checker {
             file = c.file;
             checkAbstractMembers(c);
             checkImplements(c);
+            checkVirtualFieldTypes(c);
         }
         checkInlineCycles(order);
         for (ClassInfo c : order) {
@@ -1163,7 +1165,9 @@ public final class Checker {
     // ================================================================ declarations: members
 
     private void declareMembers(ClassInfo c) {
-        for (Member m : c.decl.members()) {
+        List<Member> members = new ArrayList<>(c.decl.members());
+        members.addAll(c.synthesized);
+        for (Member m : members) {
             MemberInfo info = new MemberInfo(m);
             c.all.add(info);
             ValueList guard = info.guard();
@@ -2647,24 +2651,53 @@ public final class Checker {
             boolean isAbstract = member.modifiers().isAbstract();
             if (c.isInterface) {
                 switch (member) {
-                    case Method md when md.body() != null -> report(md.pos(), "interface methods have no body;"
-                            + " end " + md.name() + "(...) with ';' and implement it in the classes");
+                    case Method md when md.name().contains(" ") -> { } // a field's accessors, written by the checker
+                    case Method md when md.modifiers().isDefault() && md.body() == null -> report(md.pos(),
+                            "a default method has the body the classes get: default ... " + md.name() + "(...) { ... }");
+                    case Method md when md.modifiers().isDefault() && md.modifiers().isStatic() -> report(md.pos(),
+                            "a default method belongs to each object, so it can't be static");
+                    case Method md when md.body() != null && !md.modifiers().isDefault() -> report(md.pos(),
+                            "interface methods have no body; end " + md.name() + "(...) with ';' and implement it in the"
+                                    + " classes, or write `default` before it to give them this body");
                     case Method md when md.modifiers().isStatic() -> report(md.pos(), "interfaces can't have static methods");
                     case Method md when !md.modifiers().decorators().isEmpty() -> report(md.pos(),
                             "interface methods can't have decorators");
                     case Method md when isAbstract -> report(md.pos(), "interface methods are always abstract; leave out `abstract`");
                     case Method md -> { }
-                    case Field f -> report(f.pos(), "interfaces can't have fields; only method signatures");
+                    case Field f when f.modifiers().isStatic() || f.modifiers().isConst() -> report(f.pos(),
+                            "an interface's fields belong to the classes implementing it, so they can't be static or const");
+                    case Field f when f.modifiers().isAbstract() -> report(f.pos(),
+                            "interface fields are abstract already; leave out `abstract`");
+                    case Field f -> checkVirtualField(c, f);
                     case Constructor k -> report(k.pos(), "interfaces can't have constructors");
                     case Destructor d -> report(d.pos(), "interfaces can't have destructors");
                 }
                 continue;
             }
-            if (!(member instanceof Method md)) {
-                if (isAbstract) {
-                    report(member.pos(), "only methods can be abstract");
+            if (member instanceof Field f && (f.modifiers().isAbstract() || f.modifiers().isDefault())) {
+                String kind = f.modifiers().isAbstract() ? "abstract" : "default";
+                if (f.modifiers().isAbstract() && f.modifiers().isDefault()) {
+                    report(f.pos(), "a field is abstract (the classes below give it a value) or default (they get"
+                            + " this one), not both");
+                } else if (c.kind != Kind.CLASS || !c.isAbstract) {
+                    report(f.pos(), kind + " fields belong in interfaces and abstract classes, for the classes below them"
+                            + " to hold; " + c.name + " isn't one");
+                } else if (f.modifiers().isStatic() || f.modifiers().isConst()) {
+                    report(f.pos(), "a " + kind + " field belongs to each object, so it can't be static or const");
+                } else {
+                    checkVirtualField(c, f);
                 }
                 continue;
+            }
+            if (!(member instanceof Method md)) {
+                if (isAbstract) {
+                    report(member.pos(), "only methods and fields can be abstract");
+                }
+                continue;
+            }
+            if (md.modifiers().isDefault() && !md.name().contains(" ")) {
+                report(md.pos(), "default is for an interface's methods, which have no body otherwise; a class's methods"
+                        + " have one anyway");
             }
             if (isAbstract) {
                 if (c.kind != Kind.CLASS) {
@@ -2695,6 +2728,217 @@ public final class Checker {
                     Type t = quietly(() -> resolveType(r, shapeEnv(c, s.index, null), new Opts(false, true, false, null)));
                     if (!(t instanceof ClassT ic && ic.cls().isInterface) && !t.isError()) {
                         report(r.pos(), "an interface can only extend interfaces, not " + t);
+                    }
+                }
+            }
+        }
+    }
+
+    /** An abstract field has no value, and a default one has the value the classes get (§30.4). */
+    private void checkVirtualField(ClassInfo c, Field f) {
+        if (f.modifiers().isDefault() && f.init() == null) {
+            report(f.pos(), "a default field has the value the classes get: default " + typeText(f.type()) + " " + f.name()
+                    + " = ...;");
+        } else if (!f.modifiers().isDefault() && f.init() != null) {
+            report(f.pos(), "an abstract field has no value of its own: each class below gives it one; for a value they"
+                    + " all get, write default " + typeText(f.type()) + " " + f.name() + " = ...;");
+        } else if (f.modifiers().isDefault() && mentions(f.type(), c.typeParams)) {
+            report(f.type().pos(), "a default field's type can't use " + String.join(", ", c.typeParams) + ", the type"
+                    + " parameters of " + c.name + ": the classes get the field as it is written");
+        }
+    }
+
+    private static boolean mentions(TypeRef t, List<String> names) {
+        return names.contains(t.name()) || t.typeArgs().stream().anyMatch(a -> mentions(a, names));
+    }
+
+    private static String typeText(TypeRef t) {
+        return io.github.thelinuxseal.seal.ast.AstPrinter.print(t);
+    }
+
+    // ================================================================ abstract and default fields (§30.4)
+
+    /** An abstract or default field, and the interface or abstract class that names it. */
+    private record VirtualField(ClassInfo owner, Field field) {
+    }
+
+    /**
+     * Abstract and default fields (§30.4). The type declaring one gets abstract accessors,
+     * `get name()` and `set name(value)`. Each class that holds it gets accessors reading and
+     * writing its own field: a class holds it when it declares the field, or, for a default
+     * one, when no class above it holds it and it isn't abstract, in which case it gets the
+     * field with the default value. Code reaching the field through the declaring type calls
+     * the accessors; code reaching it through the class reads the field itself.
+     */
+    private void synthesizeVirtualFields() {
+        for (ClassInfo x : classes.values()) {
+            if (!x.dynamic) {
+                continue;
+            }
+            for (Member m : x.decl.members()) {
+                if (m instanceof Field f && x.isVirtual(f) && !f.modifiers().isConst()) {
+                    Modifiers mods = new Modifiers(List.of(), Access.PUBLIC, List.of(), false, false, !x.isInterface);
+                    x.synthesized.add(getter(f.pos(), f.name(), f.type(), mods, false));
+                    x.synthesized.add(setter(f.pos(), f.name(), f.type(), mods, false));
+                }
+            }
+        }
+        Set<ClassInfo> done = new HashSet<>();
+        for (ClassInfo c : new ArrayList<>(classes.values())) {
+            if (c.dynamic && !c.isInterface) {
+                fillVirtualFields(c, done);
+            }
+        }
+    }
+
+    private static Method getter(Pos p, String name, TypeRef type, Modifiers mods, boolean withBody) {
+        Block body = withBody ? new Block(p, List.of(new Return(p, new Select(p, new This(p), name)))) : null;
+        return new Method(p, mods, List.of(), type, "get " + name, null, List.of(), body);
+    }
+
+    private static Method setter(Pos p, String name, TypeRef type, Modifiers mods, boolean withBody) {
+        Block body = withBody ? new Block(p, List.of(new ExprStmt(p, new Assign(p, null, new Select(p, new This(p), name),
+                new Name(p, "value"))))) : null;
+        return new Method(p, mods, List.of(), new TypeRef(p, "void", List.of(), null, List.of()), "set " + name, null,
+                List.of(new Param(p, type, "value")), body);
+    }
+
+    /** The abstract and default fields a class's interfaces and the classes above it name, by name. */
+    private Map<String, VirtualField> wantedFields(ClassInfo c) {
+        Map<String, VirtualField> wanted = new LinkedHashMap<>();
+        if (c.shapes.isEmpty()) {
+            return wanted;
+        }
+        ClassT self = selfType(c, 0);
+        List<ClassInfo> owners = new ArrayList<>();
+        for (ClassT p = self; p != null && owners.size() < MAX_INSTANTIATION_DEPTH; p = parentOf(p)) {
+            owners.add(p.cls());
+        }
+        allInterfacesOf(self).forEach(i -> owners.add(i.cls()));
+        for (ClassInfo x : owners) {
+            for (Member m : x.decl.members()) {
+                if (m instanceof Field f && x.isVirtual(f) && !f.modifiers().isConst()) {
+                    VirtualField had = wanted.get(f.name());
+                    if (had == null || (!had.field().modifiers().isDefault() && f.modifiers().isDefault())) {
+                        wanted.put(f.name(), new VirtualField(x, f)); // a default one supplies the value
+                    }
+                }
+            }
+        }
+        return wanted;
+    }
+
+    /** The field a class itself holds by this name (declared, or given it by the checker), or null. */
+    private static Field heldField(ClassInfo c, String name) {
+        List<Member> members = new ArrayList<>(c.decl.members());
+        members.addAll(c.synthesized);
+        for (Member m : members) {
+            if (m instanceof Field f && f.name().equals(name) && !f.modifiers().isStatic() && !c.isVirtual(f)) {
+                return f;
+            }
+        }
+        return null;
+    }
+
+    private void fillVirtualFields(ClassInfo c, Set<ClassInfo> done) {
+        if (!done.add(c) || c.shapes.isEmpty()) {
+            return;
+        }
+        ClassT parent = parentOf(selfType(c, 0));
+        if (parent != null && !parent.cls().isInterface) {
+            fillVirtualFields(parent.cls(), done); // what the classes above hold first
+        }
+        file = c.file;
+        Modifiers concrete = new Modifiers(List.of(), Access.PUBLIC, List.of(), false, false, false);
+        for (VirtualField v : wantedFields(c).values()) {
+            String name = v.field().name();
+            Field own = heldField(c, name);
+            boolean above = false;
+            for (ClassT p = parent; p != null && !above; p = parentOf(p)) {
+                above = heldField(p.cls(), name) != null;
+            }
+            if (own != null) {
+                if (!c.synthesized.contains(own)) {
+                    requireValue(c, own, v);
+                }
+                c.synthesized.add(getter(own.pos(), name, own.type(), concrete, true));
+                c.synthesized.add(setter(own.pos(), name, own.type(), concrete, true));
+            } else if (above || c.isAbstract) {
+                // held by a class above, or left to the classes below
+            } else if (v.field().modifiers().isDefault()) {
+                Field f = v.field();
+                TypeRef type = qualifiedRef(f.type(), v.owner());
+                Access access = v.owner().isInterface ? Access.PUBLIC : f.modifiers().access();
+                Field held = new Field(f.pos(), new Modifiers(List.of(), access, f.modifiers().friends(), false, false, false),
+                        type, name, null, f.init());
+                c.synthesized.add(held);
+                c.synthesized.add(getter(f.pos(), name, type, concrete, true));
+                c.synthesized.add(setter(f.pos(), name, type, concrete, true));
+            } else {
+                report(c.decl.pos(), c.name + " must hold the field " + name + " of " + v.owner().name + ": declare it, as in "
+                        + typeText(v.field().type()) + " " + name + " = ...;");
+            }
+        }
+    }
+
+    /**
+     * A class filling in an abstract or default field gives it a value (§30.4): where it declares
+     * it, or by assigning it in every constructor it has.
+     */
+    private void requireValue(ClassInfo c, Field own, VirtualField v) {
+        if (own.init() != null) {
+            return;
+        }
+        List<Constructor> ctors = c.decl.members().stream().filter(m -> m instanceof Constructor)
+                .map(m -> (Constructor) m).toList();
+        boolean everyOne = !ctors.isEmpty() && ctors.stream().allMatch(k -> k.body().stmts().stream().anyMatch(st ->
+                st instanceof ExprStmt es && es.expr() instanceof Assign a && a.op() == null
+                        && ((a.target() instanceof Name n && n.name().equals(own.name()))
+                            || (a.target() instanceof Select sel && sel.target() instanceof This && sel.name().equals(own.name())))));
+        if (!everyOne) {
+            report(own.pos(), own.name() + " fills in the " + (v.field().modifiers().isDefault() ? "default" : "abstract")
+                    + " field of " + v.owner().name + ", so it needs a value: give it one here (" + typeText(own.type()) + " "
+                    + own.name() + " = ...), or assign it in every constructor");
+        }
+    }
+
+    /** A type as written in one type's file, with its classes named in full, to use in another's (§2.4). */
+    private TypeRef qualifiedRef(TypeRef t, ClassInfo context) {
+        ClassInfo named = lookupClass(t.name(), context);
+        String name = named != null ? named.qualifiedName() : t.name();
+        List<TypeRef> args = t.typeArgs().stream().map(a -> qualifiedRef(a, context)).toList();
+        return new TypeRef(t.pos(), name, args, t.valueArgs(), t.arrayDims());
+    }
+
+    /** A field filling in another's must have its type (§30.4), and can't be a unique, which its getter would copy. */
+    private void checkVirtualFieldTypes(ClassInfo c) {
+        if (!c.dynamic || c.shapes.isEmpty()) {
+            return;
+        }
+        ClassT self = selfType(c, 0);
+        List<ClassT> owners = new ArrayList<>(allInterfacesOf(self));
+        for (ClassT p = self; p != null && owners.size() < MAX_INSTANTIATION_DEPTH; p = parentOf(p)) {
+            owners.add(p);
+        }
+        for (MemberInfo m : c.all) {
+            if (!(m.member instanceof Field own) || own.modifiers().isStatic() || c.isVirtual(own)) {
+                continue;
+            }
+            for (ClassT x : owners) {
+                if (x.cls() == c && !c.isVirtual(own)) {
+                    continue;
+                }
+                for (MemberInfo xm : x.cls().all) {
+                    if (xm.member instanceof Field xf && xf.name().equals(own.name()) && x.cls().isVirtual(xf)) {
+                        Type want = quietly(() -> fieldType(x, xm));
+                        Type got = quietly(() -> fieldType(self, m));
+                        if (!want.isError() && !got.isError() && !want.equals(got)) {
+                            report(own.pos(), c.name + "." + own.name() + " is " + got + ", but the field of " + x.cls().name
+                                    + " it fills in is " + want);
+                        } else if (isUnique(got)) {
+                            report(own.pos(), own.name() + " fills in " + x.cls().name + "'s field, which is read through a"
+                                    + " getter that would copy it, so it can't be a unique (" + got + ")");
+                        }
                     }
                 }
             }
@@ -2743,8 +2987,8 @@ public final class Checker {
             for (ClassT owner : owners) {
                 for (MemberInfo m : owner.cls().all) {
                     if (!(m.member instanceof Method md) || md.body() != null || !m.existsIn(owner.header())
-                            || md.modifiers().isStatic()) {
-                        continue;
+                            || md.modifiers().isStatic() || md.name().contains(" ")) {
+                        continue; // a field's accessors: its holder is checked by fillVirtualFields
                     }
                     List<Type> params = paramTypes(owner, m, Map.of());
                     String sig = md.name() + params.stream()
@@ -3413,6 +3657,11 @@ public final class Checker {
                     requireDefaultConstructible(t, v.pos(), "variable " + v.name());
                 }
                 b.scopes.peek().put(v.name(), t);
+            }
+            case ExprStmt e when virtualCompound(b, e) != null -> {
+                Block steps = virtualCompound(b, e);
+                b.statementSteps.put(e, steps);
+                checkStmt(b, steps);
             }
             case ExprStmt e when elementCompound(b, e) != null -> {
                 Block steps = elementCompound(b, e);
@@ -4294,6 +4543,12 @@ public final class Checker {
                 return Type.ERROR;
             }
             Field f = (Field) m.member;
+            if (found.owner != null && found.owner.cls().isVirtual(f)) {
+                // name in an interface's default method, or an abstract class's: the class's own, through its getter (§30.4)
+                Call get = new Call(n.pos(), new Select(n.pos(), new This(n.pos()), "get " + n.name()), List.of(), List.of());
+                b.rewritten.put(n, get);
+                return checkExpr(b, get, null);
+            }
             if (!f.modifiers().isStatic() && !f.modifiers().isConst()) {
                 noteUsesThis(b);
             }
@@ -4570,6 +4825,12 @@ public final class Checker {
         if (m.member instanceof Method) {
             report(s.pos(), "method " + s.name() + " must be called: " + s.name() + "(...)");
             return Type.ERROR;
+        }
+        if (found.owner != null && found.owner.cls().isVirtual((Field) m.member) && !viaSuper) {
+            // shape.name through an interface or abstract class: the object's own, through its getter (§30.4)
+            Call get = new Call(s.pos(), new Select(s.pos(), s.target(), "get " + s.name()), List.of(), List.of());
+            b.rewritten.put(s, get);
+            return checkExpr(b, get, null);
         }
         b.selected.put(s, m);
         b.owners.put(s, found.owner);
@@ -6123,6 +6384,68 @@ public final class Checker {
     }
 
     /**
+     * The object whose abstract or default field {@code e} names, when the code reaches it through
+     * the type that declares it (an interface, an abstract class), and so through accessors
+     * (§30.4): `shape` for shape.name, `this` for name in a default method. Null otherwise.
+     */
+    private Expr virtualReceiver(Body b, Expr e) {
+        if (e instanceof Name n && lookupLocal(b, n.name()) == null && !b.env.values.containsKey(n.name())) {
+            Found f = quietly(() -> findMembers(b, b.self, b.cls, n.name(), n.pos(), b.isStatic));
+            if (f != null && !f.error && f.owner != null && f.members.get(0).member instanceof Field fd && f.owner.cls().isVirtual(fd)) {
+                return new This(n.pos());
+            }
+        }
+        if (e instanceof Select s && !(s.target() instanceof SuperRef)) {
+            Type t = quietly(() -> checkExpr(b, s.target(), null));
+            ClassT ct = objectType(t);
+            if (ct != null && ct.cls().dynamic) {
+                Found f = quietly(() -> findMembers(b, ct, ct.cls(), s.name(), s.pos(), false));
+                if (f != null && !f.error && f.owner != null && f.members.get(0).member instanceof Field fd
+                        && f.owner.cls().isVirtual(fd)) {
+                    return s.target();
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * `shape.count += 1;` or `count++;` on a field reached through its accessors: read it, change
+     * the copy, write it back, with the object evaluated once (§30.4). Null for other statements.
+     */
+    private Block virtualCompound(Body b, ExprStmt s) {
+        Expr target = switch (s.expr()) {
+            case Assign a when a.op() != null -> a.target();
+            case IncDec i -> i.target();
+            default -> null;
+        };
+        Expr owner = target == null ? null : virtualReceiver(b, target);
+        if (owner == null) {
+            return null;
+        }
+        Pos p = s.pos();
+        String name = target instanceof Name n ? n.name() : ((Select) target).name();
+        String obj = "$object" + (++hiddenNames);
+        String held = "$field" + (++hiddenNames);
+        List<Stmt> steps = new ArrayList<>();
+        Expr access;
+        if (owner instanceof This) {
+            access = new Name(p, name);
+        } else {
+            steps.add(new VarDecl(p, null, obj, owner));
+            access = new Select(p, new Name(p, obj), name);
+        }
+        steps.add(new VarDecl(p, null, held, access));
+        steps.add(new ExprStmt(p, switch (s.expr()) {
+            case Assign a -> new Assign(a.pos(), a.op(), new Name(p, held), a.value());
+            case IncDec i -> new IncDec(i.pos(), i.op(), i.prefix(), new Name(p, held));
+            default -> throw new IllegalStateException();
+        }));
+        steps.add(new ExprStmt(p, new Assign(p, null, access, new Name(p, held))));
+        return new Block(p, steps);
+    }
+
+    /**
      * `xs[i] += v;` through [] and []= on an element that is an object (a struct, a class object,
      * a string): the element's own +=, which changes the copy [] gives, then stored back, with i
      * evaluated once (§46): { var e = xs[i]; e += v; xs[i] = e; }. Null for any other statement.
@@ -6207,6 +6530,19 @@ public final class Checker {
     }
 
     private Type checkAssign(Body b, Assign a) {
+        Expr owner = virtualReceiver(b, a.target());
+        if (owner != null) {
+            String name = a.target() instanceof Name n ? n.name() : ((Select) a.target()).name();
+            if (a.op() != null) {
+                report(a.pos(), name + " is reached through its accessors here, so " + compoundSymbol(a.op())
+                        + " on it is a statement of its own (§30.4)");
+                return Type.ERROR;
+            }
+            Call set = new Call(a.pos(), new Select(a.pos(), owner, "set " + name), List.of(a.value()), List.of());
+            b.rewritten.put(a, set);
+            checkExpr(b, set, null);
+            return Type.VOID;
+        }
         if (a.target() instanceof Index ix) {
             Type indexed = quietly(() -> checkExpr(b, ix.target(), null)); // errors come from the normal path below
             ClassT ct = operandClass(indexed) != null ? operandClass(indexed) : indexed instanceof ClassT c ? c : null;
@@ -6360,6 +6696,11 @@ public final class Checker {
      * it runs xs[i] = xs[i] + 1, with the index evaluated once.
      */
     private Type checkIncDec(Body b, IncDec e) {
+        if (virtualReceiver(b, e.target()) != null) {
+            report(e.pos(), "this field is reached through its accessors here, so " + e.symbol()
+                    + " on it is a statement of its own (§30.4)");
+            return Type.ERROR;
+        }
         if (e.target() instanceof Index ix) {
             Type indexed = quietly(() -> checkExpr(b, ix.target(), null)); // errors come from the normal path below
             ClassT ct = operandClass(indexed) != null ? operandClass(indexed) : indexed instanceof ClassT c ? c : null;
