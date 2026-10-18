@@ -40,9 +40,9 @@ desugared (`rewritten`, `desugared` for-each loops, `switches`, `switchExprs`, `
   it generates the StackMapTable frames the verifier needs. For that it must know the class
   hierarchy of Seal's own classes, which `JvmGen` supplies from the checker through a
   `ClassHierarchyResolver`.
-- **Proposed: the target class-file version is a setting.** The compiler runs on JDK 25, but a mod
-  must run on the Java version its Minecraft requires (Java 21 for Minecraft 1.20.5 to 1.21), so
-  the default should be the oldest version the targeted Minecraft versions run on.
+- **Decided: class files target Java 25** (class-file version 69), the Java the project already
+  uses. A mod built this way runs on Minecraft versions that run on Java 25; the target stays a
+  setting, so Java 21 (version 65, for Minecraft 1.20.5 to 1.21) can be added later.
 - Output: a folder of class files, and later a jar. `seal run` compiles to a temporary folder, or
   straight into a class loader, and runs it; `seal build` writes them.
 - The runtime support (§9) is a small library of Java classes in
@@ -62,7 +62,7 @@ desugared (`rewritten`, `desugared` for-each loops, `switches`, `switchExprs`, `
 | struct, unique, record, enum, `array<T><<N>>` | a storage reference (§4) | values in `long[]` storage |
 | `addr<T>` | a pointer object (§4.4) | |
 | `array<T>` (sized at run time) | a JVM array (§8.1) | |
-| `string` | a struct (§8.2) | |
+| `string` | `java.lang.String` (proposed, §8.2) | immutable |
 
 ### 3.1 Integers of any width
 
@@ -131,11 +131,18 @@ final class Block {
 | another struct, a fixed array | its container's block, inline, as today |
 | `new<T>(n)` | a block of its own |
 
-- **Proposed: a frame block per method call** that has struct locals: `new long[n]` (and
-  `Object[]` if needed) when the method starts. JVM allocation is a pointer bump in the thread's
-  own buffer, the block dies young, and every thread has its own, so Minecraft's many threads need
-  nothing extra. A shared per-thread stack would avoid the allocation but needs a hidden parameter
-  or a thread-local lookup in every method, which would also show in Java-visible signatures.
+- **Proposed: a frame block per method call** that has struct locals. When such a method starts,
+  it makes its own small block (`new long[n]`, and an `Object[]` if its values hold references)
+  for the struct locals and temporaries it needs, uses it while it runs, and leaves it to the
+  garbage collector when it returns. JVM allocation is a pointer bump in the thread's own buffer,
+  short-lived blocks are the cheapest kind of garbage, and every call has its own, so Minecraft's
+  many threads need nothing extra.
+
+  The alternative is a stack per thread, as C has: one big block per thread, from which each call
+  takes a slice on entry and gives it back on return. That saves the allocations, but every
+  method then has to find its thread's stack: through a hidden extra parameter, which would show
+  in every Java-visible signature and get in the way of interop, or through a thread-local lookup
+  on every call. §4.5's optimization removes most frame blocks anyway.
 - A struct value is passed to a method as `(Block, int offset)`: two JVM parameters, the way the
   VM passes an address today. Copying a value is copying its words (`System.arraycopy`) and its
   references.
@@ -167,9 +174,12 @@ version.
 - **A Seal class becomes a JVM class**, a subclass of a runtime root `SealObject` (Seal's `Object`,
   with `hash()`), or of its Seal parent. Methods are JVM instance methods; overriding is the JVM's,
   so virtual calls are `invokevirtual` and interface calls `invokeinterface`.
-- **Fields:** numbers, bits and handles become JVM fields of the matching type. Struct, unique and
-  fixed-array fields go into the object's `$values` block (§4.2), so a field's address can still be
-  taken and struct methods work on it.
+- **Decided: struct fields of a class object live in a block of the object's own.** Numbers of
+  every width, bits and handles become JVM fields of the matching type: an `int<<17>>` or a
+  `uint<<32>>` field is a JVM `int`, normalized when it is computed (§3.1), like a local. Struct,
+  unique, record, enum and fixed-array fields go into the object's `$values` block (§4.2): a
+  struct's methods work on storage, `*player.pos` can take a field's address, and every struct
+  value has one representation wherever it lives.
 - **Operators** stay what they are in Seal, ordinary methods called directly (they aren't virtual).
 - **Interfaces become JVM interfaces.** Default methods are the JVM's own default methods. Abstract
   and default fields already compile to `get name()`/`set name(value)` accessor methods (§30.4 of the
@@ -185,12 +195,29 @@ Seal compiles generic code once per instantiation, and so will the JVM backend: 
 `List<Point>` are separate JVM classes, `Box<T>.map<R>` is a separate method per `R`. Every value
 type then has its own exact layout, and no boxing ever happens, as Seal intends.
 
-- **Proposed naming:** a class with no type or value parameters keeps its name (`Main`,
-  `com.example.Vec2`), which Java code and Minecraft see. An instantiation gets a readable mangled
-  name: `List$int`, `Matrix$double$3$3`, `HashMap$string$Point`, with a short escape for characters
-  JVM names can't hold. Method instantiations do the same (`largest$int`).
+- **Decided naming:** a class with no type or value parameters keeps its name (`Main`,
+  `com.example.Vec2`), which Java code and Minecraft see. An instantiation gets a readable name made
+  of its arguments: `List$int`, `HashMap$string$Point`, `Matrix$double$3$3`. Method instantiations do
+  the same (`largest$int`).
 - The cost is more classes for heavily generic programs; only instantiations reachable from `main`
   are generated (as today), which keeps it in check.
+
+### 5.2 Shapes and value parameters
+
+The values in `<<...>>` are compile-time values, so each set of them is an instantiation of its own,
+compiled with the values in place:
+
+- `Matrix<double><<3, 3>>` is the class `Matrix$double$3$3`. In its code `N` and `M` are the
+  constants 3 and 3, its fields are laid out for 3 × 3, and `array<double><<N, M>>` is nine doubles at
+  a fixed place in a block. A field whose type differs per shape simply has that shape's type.
+- A member that exists only in some shapes (a shape guard) is generated only in those shapes'
+  instantiations, as the checker already decides.
+- A method with value binders, as `Math.abs(int<<int W>> x)`, gets one JVM method per value used:
+  `abs$8` for an `int<<8>>`, `abs$32` for an `int`. Binders bound to the same values share one.
+- The bare shape `<<>>` adds nothing to a name: a bare `string` is `string`.
+- Values that JVM names can't hold are spelled out: a negative number `-1` is `n1`; a string value,
+  as in `Quantity<<"m">>`, keeps its letters and digits and writes others as `_` and their hex code.
+  A name longer than a few hundred characters keeps its start and adds a hash of the rest.
 
 ## 6. Memory management
 
@@ -201,10 +228,10 @@ objects that refer to each other in a cycle.
 Changes this makes to the language, to be done before or with the backend (§13, M0):
 
 1. **`delete()` is for uniques only.** A class with a destructor is an error.
-2. **Resources close explicitly.** `Writer`, `FileWriter` and `Reader` close themselves today when
-   the last reference goes. They get Java's way instead: `close()`, and try-with-resources,
-   `try (FileWriter w = new FileWriter(path)) { ... }`, closing at the end of the block. (The other
-   option, making them uniques, would stop them being shared, which `System.stdout` needs.)
+2. **Decided: resources close explicitly.** `Writer`, `FileWriter` and `Reader` close themselves
+   today when the last reference goes. They get Java's way instead: `close()`, and
+   try-with-resources, `try (FileWriter w = new FileWriter(path)) { ... }`, closing at the end of the
+   block however it is left.
 3. **A class can't hold a unique that has a destructor**: its owner is freed whenever the
    collector decides, so the destructor would never run at a known time.
 4. **`delete h` on a handle goes away.** It frees an object at once and leaves other handles stale,
@@ -238,15 +265,24 @@ holding the elements back to back). `List`, `Queue`, `IntMap`, `HashMap` and `St
 rebuilt on `array<T>` instead of `addr<T>`, so the library needs no pointers and nothing to free.
 This step is independent of the JVM and can be done first, on the VM, with the existing tests.
 
-### 8.2 Strings without reference counts
+### 8.2 Strings are immutable
 
-`string` is a value with copy-on-write: today it asks the VM how many references its buffer has
-before changing it in place. Without reference counts it needs another way. **Proposed:** the way
-Go shares slices. A string is a buffer (a `char[]` through `array<char>`), a length, and the buffer
-records how far it is used. Appending writes in place when this string's end is the buffer's used
-end (nobody else has written past it), and copies otherwise; `set(i, c)` copies unless the string
-was just made. Appends in a loop stay amortized O(1), copies stay cheap, and two copies can never
-see each other's changes.
+**Decided: strings are immutable, as Java's.** Today `string` is a value with copy-on-write, which
+asks the VM how many references its buffer has before changing it in place; without reference
+counts that can't work, and immutable strings need nothing of the kind. What changes in the
+language (part of M0):
+
+- `s += "x"` and `s = s + x` keep working: they make a new string and store it in `s`. Strings are
+  values, so no program could tell the difference.
+- Methods that change a string in place return a new one instead, as in Java: `s.toUpper()`
+  becomes `s = s.toUpper();`. Methods that only exist to change a string, `set` and `append`, go.
+- Building text in a loop uses a builder, as Java's `StringBuilder` (each `+=` copies the text so
+  far). The library's `StringBuffer`, the buffer behind growable strings today, becomes that public
+  `StringBuilder`.
+- **Proposed:** on the JVM a bare `string` then *is* a `java.lang.String`: no wrapper, and passing
+  text to Java code or Minecraft costs nothing.
+- **Open:** fixed strings, `string<<N>>`, are values of at most N characters stored inline. They
+  can stay that, immutable too, in storage blocks; or become bare strings with a checked length.
 
 ### 8.3 Natives
 
@@ -254,7 +290,7 @@ The 55 `@native` methods (printing, files and folders, math, number text, time, 
 become static methods of the runtime library, written in Java with the JDK: `System.out`,
 `java.nio.file`, `Math`, `String.format` for `%f`. The VM's implementations show what each must do.
 
-**Proposed:** the standard library moves into a package of its own on the JVM,
+**Decided:** the standard library moves into a package of its own on the JVM,
 `io.github.thelinuxseal.seal.lang`, still visible everywhere without imports, as `java.lang` is. In
 the default package it would clash between programs and mods, and Java code can't refer to classes
 in the default package at all.
@@ -306,7 +342,7 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 
 | Milestone | Contents | Done when |
 | --------- | -------- | --------- |
-| **M0** (on the VM) | §6's language changes: no class destructors, `close()` and try-with-resources, `delete` only on `addr`; `array<T>` built in, and the collections on it (§8.1); strings without reference counts (§8.2) | all suites pass on the VM |
+| **M0** (on the VM) | §6's language changes: no class destructors, `close()` and try-with-resources, `delete` only on `addr`; `array<T>` built in, and the collections on it (§8.1); immutable strings and `StringBuilder` (§8.2) | all suites pass on the VM |
 | **M1** | `JvmGen` skeleton: static methods, `int`/`int<<64>>`/`double`/`bit`/`char`, control flow, calls, recursion, printing; `seal run --jvm` | `examples/01-basics` runs |
 | **M2** | classes, interfaces, virtual and interface calls, fields, exceptions, lambdas, strings, the runtime's natives | most of `LanguageTest` |
 | **M3** | storage blocks: structs, uniques and their destructors, records, enums, fixed arrays, operators | `RunTest`, `RefCountTest`'s unique cases |
@@ -328,14 +364,13 @@ Not designed here, but the design keeps the door open:
 
 ## 15. Open questions
 
+Decided on review: struct fields of class objects in a block per object (§5), resources with
+`close()` and try-with-resources (§6), immutable strings (§8.2), the library in
+`io.github.thelinuxseal.seal.lang` (§8.3), Java 25 class files (§2), and the instantiation names
+(§5.1, §5.2). Still open:
+
 1. **Storage per method call** (§4.2): a new frame block per call that has struct locals
-   (proposed), or a per-thread stack with a hidden parameter or thread-local lookup?
-2. **Struct fields of class objects** (§5): in a `$values` block per object (proposed: addressable,
-   one design for all values), or flattened into JVM fields (faster to read, not addressable, and
-   struct methods would work on a copy)?
-3. **Resources** (§6): `close()` with try-with-resources (proposed), or uniques?
-4. **Strings** (§8.2): Go-style shared buffers (proposed), or immutable strings with a builder, as
-   Java?
-5. **The library's package** (§8.3): `io.github.thelinuxseal.seal.lang` (proposed)?
-6. **The default target class-file version** (§2): which Minecraft versions to support first?
-7. **Instantiation names** (§5.1): the `List$int` scheme, or another?
+   (proposed), or a per-thread stack?
+2. **Fixed strings** (§8.2): `string<<N>>` as immutable inline values, or bare strings with a
+   checked length?
+3. **Bare strings as `java.lang.String`** (§8.2): proposed; confirm.
