@@ -58,6 +58,46 @@ public final class CliTest {
         r = run("dump", ok.getParent().toString());
         check(r.code() == 0 && r.out().contains(" Main.main  (registers") && r.out().contains("NATIVE"), "dump: lists functions " + r);
 
+        // The JVM backend (docs/JVM.md): run --jvm, and build, whose classes java runs.
+        r = run("run", "--jvm", ok.getParent().toString());
+        check(r.code() == 7 && r.out().equals("hi\n") && r.err().isEmpty(), "run --jvm: exit code is main's result " + r);
+        Path classes = dir.resolve("classes");
+        r = run("build", "-d", classes.toString(), ok.getParent().toString());
+        check(r.code() == 0 && Files.isRegularFile(classes.resolve("Main.class"))
+                        && Files.isRegularFile(classes.resolve("io/github/thelinuxseal/seal/runtime/Natives.class")),
+                "build: writes the program's classes and the runtime's " + r);
+        if (Files.isRegularFile(classes.resolve("Main.class"))) {
+            Process java = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                    "-cp", classes.toString(), "Main").redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            String printed = new String(java.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int code;
+            try {
+                code = java.waitFor();
+            } catch (InterruptedException e) {
+                throw new IOException(e);
+            }
+            check(code == 7 && printed.equals("hi\n"), "java runs what build wrote: exit " + code + ", " + printed);
+        }
+        Path divide = write(dir, "divide/Main.seal", """
+                struct Main
+                {
+                    static int main() { int zero = 0; System.stdout.print("x"); return 1 / zero; }
+                }
+                """);
+        r = run("run", "--jvm", divide.getParent().toString());
+        check(r.code() == 70 && r.out().equals("x") && r.err().startsWith("trap: division by zero")
+                        && r.err().contains("at Main.main (Main.seal:3)"),
+                "run --jvm: a fault is a trap, with the Seal lines " + r);
+        Path notYet = write(dir, "notyet/Main.seal", """
+                struct Main
+                {
+                    static int main() { List<int> xs = new List(); return 0; }
+                }
+                """);
+        r = run("run", "--jvm", notYet.getParent().toString());
+        check(r.code() == 1 && r.err().contains("Main.seal:3:") && r.err().contains("not available on the JVM yet"),
+                "run --jvm: what the JVM backend can't do yet is an error " + r);
+
         Path bad = write(dir, "bad/Main.seal", """
                 struct Main
                 {

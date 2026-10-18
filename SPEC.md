@@ -2943,6 +2943,7 @@ The compiler (`src/io/github/thelinuxseal/seal/codegen`) and VM (`.../seal/vm`),
 
 * `main` may be inherited, as in Java: `class Main extends(App)` runs the `main()` that `App` declares (which can call methods `Main` overrides).
 * `seal run DIR` compiles every `.seal` file under `DIR` and runs it (the `seal` script builds the compiler and runs `io.github.thelinuxseal.seal.Main`); `check` only reports errors; `dump` prints the bytecode.
+* `seal run --jvm DIR` compiles to JVM class files instead and runs them in the compiler's JVM, and `seal build -d OUT DIR` writes them, with the runtime classes they use, so that `java -cp OUT Main` runs the program (docs/JVM.md). The JVM backend covers part of the language so far, and reports what it doesn't cover as an error at its line.
 * The standard library (§42) is loaded from `stdlib/` next to the compiler; `--stdlib DIR` chooses another directory and `--no-stdlib` turns it off. Without it, a minimal built-in `System.stdout` and `System.stderr` (printing numbers, characters and bits) are available.
 * Warnings are off unless asked for: each kind has a `-W` flag that turns it on, and `-Wall` turns on every kind. They go to standard error, before any errors, tagged with their flag (`File.seal:6:9: warning: [-WautoCast] ...`), and don't stop a program from running or make `check` fail. Code in the standard library gives none. The kinds:
 
@@ -3013,13 +3014,11 @@ A precompiled generic class cannot simply assume that every possible `<<...>>` i
 
 # 58. Future Backends
 
-Possible future compilation targets include:
+Seal is becoming JVM-only: a backend that compiles to JVM class files is being built, and the VM will be retired once it passes everything (docs/JVM.md). Other possible targets, later:
 
 * ahead-of-time native code
 * C interoperability
 * WebAssembly
-
-These are not part of the initial execution model.
 
 ---
 

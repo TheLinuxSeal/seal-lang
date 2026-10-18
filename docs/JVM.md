@@ -1,7 +1,8 @@
 # Seal on the JVM: design
 
-**Status:** design agreed. M0, the language changes the backend needs, is done on the VM (§13); the
-backend itself is not started. Choices made on review are marked **Decided**; the rest were
+**Status:** design agreed. M0, the language changes the backend needs, is done on the VM, and M1, the
+backend's first milestone, is done (§13): `seal run --jvm` and `seal build` compile static methods,
+numbers of every width, control flow and printing. Choices made on review are marked **Decided**; the rest were
 **Proposed** and accepted with the design, and stand unless revisited.
 
 Seal today compiles to bytecode for its own register VM (`vm/`), written in Java. This document
@@ -44,8 +45,13 @@ desugared (`rewritten`, `desugared` for-each loops, `switches`, `switchExprs`, `
 - **Decided: class files target Java 25** (class-file version 69), the Java the project already
   uses. A mod built this way runs on Minecraft versions that run on Java 25; the target stays a
   setting, so Java 21 (version 65, for Minecraft 1.20.5 to 1.21) can be added later.
-- Output: a folder of class files, and later a jar. `seal run` compiles to a temporary folder, or
-  straight into a class loader, and runs it; `seal build` writes them.
+- Output: a folder of class files, and later a jar. `seal run --jvm` compiles straight into a class
+  loader of its own and runs the program in the compiler's JVM; `seal build -d DIR` writes the
+  class files, and the runtime's (§9) beside them, so that `java -cp DIR Main` runs it.
+- `JvmGen` (`src/.../seal/jvm/`) works as CodeGen does: from `main`, it reaches the methods the
+  program calls, one per instantiation, generating each once to find what it calls (and whether it
+  can); then it builds each class with all of its methods. Code it can't generate yet is reported
+  as an error at its line, never generated wrong.
 - The runtime support (§9) is a small library of Java classes in
   `io.github.thelinuxseal.seal.runtime`, shipped with compiled programs.
 
@@ -217,6 +223,8 @@ compiled with the values in place:
 - A method with value binders, as `Math.abs(int<<int W>> x)`, gets one JVM method per value used:
   `abs$8` for an `int<<8>>`, `abs$32` for an `int`. Binders bound to the same values share one.
 - The bare shape `<<>>` adds nothing to a name: a bare `string` is `string`.
+- Seal overloads can share a JVM descriptor (`f(int<<8>>)` and `f(int)` are both `(I)I`): the
+  first one reached keeps the name, and the others get a number, `f$2`.
 - Values that JVM names can't hold are spelled out: a negative number `-1` is `n1`; a string value,
   as in `Quantity<<"m">>`, keeps its letters and digits and writes others as `_` and their hex code.
   A name longer than a few hundred characters keeps its start and adds a hash of the rest.
@@ -312,6 +320,9 @@ language (part of M0):
 The 55 `@native` methods (printing, files and folders, math, number text, time, hashing, exit)
 become static methods of the runtime library, written in Java with the JDK: `System.out`,
 `java.nio.file`, `Math`, `String.format` for `%f`. The VM's implementations show what each must do.
+Each is a static method of the runtime's `Natives` named as the native is (`io_write_int`, `sqrt`),
+so a call to a native method compiles to a call to it; M1 has those for the standard streams,
+math, time and exiting.
 
 **Decided:** the standard library moves into a package of its own on the JVM,
 `io.github.thelinuxseal.seal.lang`, still visible everywhere without imports, as `java.lang` is. In
@@ -334,7 +345,11 @@ A small Java package, `io.github.thelinuxseal.seal.runtime`, shipped with every 
 
 - `main` becomes a JVM `public static void main(String[] args)` that calls Seal's `main()` and,
   for an `int main()`, exits with its result. An instance `main()` creates the main class first,
-  as today.
+  as today (from M2).
+- Done in M1: the main class gets `static int $run()`, which calls `main()` and gives the exit code,
+  and a `main(String[])` that hands `$run` to the runtime's `Natives.start`, which runs it, flushes
+  the streams and exits. `System.exit` throws the runtime's `Exit`, which both catch, so the
+  compiler's own JVM, running a program with `seal run --jvm`, isn't ended by it.
 - Static initialization: Seal initializes static fields before `main` runs, in a defined order;
   the JVM initializes a class when it is first used. The generated `main` initializes Seal's
   classes in Seal's order first, so programs behave the same.
@@ -361,13 +376,18 @@ frames correctly for every control-flow shape (the class-file API does this, giv
   unique-destructor cases move to `LanguageTest`.
 - New tests for what only the JVM has: every generated class passes the JVM's bytecode verifier,
   stack traces show Seal lines, classes are callable from Java, the target class-file version holds.
+- Done in M1: `JvmTest` runs every program on both backends and compares output and exit codes,
+  verifies every class it generates, checks that what isn't covered yet is reported, and runs 150
+  random programs over random integer widths, chars and floating point (casts, arithmetic, shifts,
+  comparisons, compound assignments, `++`); `java -cp out io.github.thelinuxseal.seal.JvmTest 1000 7`
+  runs more, with another seed. `CliTest` runs what `seal build` writes with `java`.
 
 ## 13. Order of work
 
 | Milestone | Contents | Done when |
 | --------- | -------- | --------- |
 | **M0** (on the VM), **done** | §6's language changes: no class destructors, `close()` and try-with-resources, `delete` only on `addr`; `array<T>` built in, and the collections on it (§8.1); immutable strings and `StringBuilder` (§8.2) | all suites pass on the VM |
-| **M1** | `JvmGen` skeleton: static methods, `int`/`int<<64>>`/`double`/`bit`/`char`, control flow, calls, recursion, printing; `seal run --jvm` | `examples/01-basics` runs |
+| **M1**, **done** | `JvmGen` skeleton: static methods, `int`/`int<<64>>`/`double`/`bit`/`char`, control flow, calls, recursion, printing; `seal run --jvm` | `examples/01-basics` runs |
 | **M2** | classes, interfaces, virtual and interface calls, fields, exceptions, lambdas, strings, the runtime's natives | most of `LanguageTest` |
 | **M3** | storage blocks: structs, uniques and their destructors, records, enums, fixed arrays, operators | `RunTest`, `RefCountTest`'s unique cases |
 | **M4** | generics and shapes with naming, all integer widths, fixed point, packages | `FixedPointTest`, all examples but pointers |
@@ -397,4 +417,9 @@ Not designed here, but the design keeps the door open:
 - Instantiations are named from their arguments, `List$int`, `Matrix$double$3$3` (§5.1, §5.2).
 - Each method call that has struct locals gets a frame block of its own (§4.2).
 
-No questions are open. M0 is done (§13); the next step is M1, the first JVM code.
+No questions are open. M0 and M1 are done (§13); the next step is M2, classes.
+
+M1 went further than its row: every integer width already works (§3.1, planned for M4), and so do
+switch statements and labeled loops. It also left one stopgap for M2 to remove: until `Writer` can
+be compiled as the class it is, `System.stdout.print(x)` and its kin (on `stdout` and `stderr`, for
+numbers, chars, bits and string literals) become direct calls to the runtime's natives.

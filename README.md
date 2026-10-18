@@ -87,8 +87,11 @@ entry point is `main()` in the class `Main`.
 seal run   [options] PATH...   compile and run
 seal check [options] PATH...   only report errors
 seal dump  [options] PATH...   print the bytecode
+seal build [options] PATH...   write JVM class files (see Status)
 
   --main Class       the class whose main() runs (default Main; com.example.Main in a package)
+  --jvm              run on the JVM instead of Seal's VM
+  -d DIR             where build writes class files (default classes)
   -WautoCast         warn about every number converted without a cast
   -WautoCastLossy    warn only about those that may lose data
   -Wassert           run assert statements
@@ -104,9 +107,20 @@ says what each one shows.
 ## Status
 
 Seal is young and still changing. Programs compile to bytecode for Seal's own virtual machine,
-which is written in Java. A backend that compiles to JVM bytecode is planned next, with Minecraft
+which is written in Java. A backend that compiles to JVM class files is under way, with Minecraft
 modding as one of its goals; [`docs/JVM.md`](docs/JVM.md) is its design. The language changes it
-needs (no class destructors, try-with-resources, immutable strings) are done.
+needs (no class destructors, try-with-resources, immutable strings) are done, and so is its first
+milestone: static methods, numbers of every width, control flow and printing, which is enough for
+[`examples/01-basics`](examples/01-basics/Main.seal):
+
+```sh
+./seal run --jvm examples/01-basics          # compile to class files and run them in this JVM
+./seal build -d classes examples/01-basics   # write them, with the runtime they need
+java -cp classes Main                        # and run them with plain java
+```
+
+What the JVM backend can't compile yet (classes, strings built at run time, arrays) is reported as
+an error, with its line.
 
 ## Layout
 
@@ -119,6 +133,8 @@ The compiler is in the Java package `io.github.thelinuxseal.seal`, under
 | `check/` | the type checker, which resolves everything a backend needs |
 | `codegen/` | code generation for the VM |
 | `vm/` | the virtual machine |
+| `jvm/` | code generation for the JVM: class files, and running them |
+| `runtime/` | the Java classes compiled programs use on the JVM |
 | `Main.java` | the command line, which the `seal` script runs |
 
 And at the top of the repository:

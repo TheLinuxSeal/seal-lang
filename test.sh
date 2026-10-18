@@ -22,6 +22,7 @@ suites=(
     io.github.thelinuxseal.seal.CliTest
     io.github.thelinuxseal.seal.ExamplesTest
     io.github.thelinuxseal.seal.FuzzTest
+    io.github.thelinuxseal.seal.JvmTest
 )
 
 failed=0
