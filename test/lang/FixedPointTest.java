@@ -96,7 +96,7 @@ public final class FixedPointTest {
 
         String program = "struct Main\n{\n    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n";
         Map<String, String> files = new LinkedHashMap<>();
-        files.put("Main.lang", program);
+        files.put("Main.seal", program);
         Checker checker = Checker.analyze(files, library);
         if (!checker.diagnostics().isEmpty()) {
             System.out.println("0 passed, 1 failed");

@@ -4,18 +4,18 @@
 [dir]  docs
 [file] docs/notes.md
 [dir]  src
-[file] src/Main.lang
+[file] src/Main.seal
 [dir]  src/util
-[file] src/util/Strings.lang
+[file] src/util/Strings.seal
 == lines by kind ==
 (none): 1
 md: 3
-lang: 7
+seal: 7
 == the biggest file ==
-Main.lang in src, 52 bytes
+Main.seal in src, 52 bytes
 == a report, written and read a line at a time ==
-1: Main.lang 52
-2: Strings.lang 19
+1: Main.seal 52
+2: Strings.seal 19
 == renaming, copying, and what can go wrong ==
 2 files in docs
 LICENSE is gone (renamed)

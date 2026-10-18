@@ -1,5 +1,5 @@
 // Packages and imports (§2.4): each file says its package, which is also its
-// folder (shop/model/Item.lang is in package shop.model), and imports what it
+// folder (shop/model/Item.seal is in package shop.model), and imports what it
 // uses from other packages. The standard library needs no import.
 package shop;
 

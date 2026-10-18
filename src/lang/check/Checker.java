@@ -1039,7 +1039,7 @@ public final class Checker {
         return info;
     }
 
-    /** The folders a path is in, outermost first: a/b/C.lang is [a, b]. */
+    /** The folders a path is in, outermost first: a/b/C.seal is [a, b]. */
     private static List<String> folders(String path) {
         List<String> parts = new ArrayList<>(List.of(path.split("[/\\\\]")));
         parts.remove(parts.size() - 1);

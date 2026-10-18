@@ -3120,7 +3120,7 @@ struct Main
     private static Map<String, String> files(String... pairs) {
         Map<String, String> m = new LinkedHashMap<>();
         for (int i = 0; i < pairs.length; i += 2) {
-            m.put(pairs[i] + ".lang", pairs[i + 1]);
+            m.put(pairs[i] + ".seal", pairs[i + 1]);
         }
         return m;
     }

@@ -26,8 +26,8 @@ struct Main
         System.stdout.println("== making a project ==");
         Files.createDirectories(root + "/src/util");
         Files.createDirectories(root + "/docs");
-        Files.writeString(root + "/src/Main.lang", "struct Main\n{\n    static int main() { return 0; }\n}\n");
-        Files.writeString(root + "/src/util/Strings.lang", "struct Strings\n{\n}\n");
+        Files.writeString(root + "/src/Main.seal", "struct Main\n{\n    static int main() { return 0; }\n}\n");
+        Files.writeString(root + "/src/util/Strings.seal", "struct Strings\n{\n}\n");
         List<string> notes = new List();
         notes.add("# Notes");
         notes.add("");
@@ -59,7 +59,7 @@ struct Main
         string report = root + "/report.txt";
         FileWriter out = new FileWriter(report);
         for (File f : new File(root + "/src").walk()) {
-            if (f.getExtension() == "lang") { out.writeLine(f.getName() + " " + f.length()); }
+            if (f.getExtension() == "seal") { out.writeLine(f.getName() + " " + f.length()); }
         }
         out.close();
         int n = 1;

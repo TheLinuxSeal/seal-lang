@@ -61,7 +61,7 @@ public final class FuzzTest {
                 for (Path dir : dirs.filter(Files::isDirectory).sorted().toList()) {
                     Map<String, String> files = new LinkedHashMap<>();
                     Main.readSources(dir, files);
-                    List<String> mutable = files.keySet().stream().filter(f -> f.endsWith("Main.lang")).toList();
+                    List<String> mutable = files.keySet().stream().filter(f -> f.endsWith("Main.seal")).toList();
                     programs.add(new Program(dir.toString(), files, mutable));
                 }
             }

@@ -3,7 +3,7 @@
 //   string text = Files.readString("notes.txt");
 //   Files.writeString("out.txt", "total: " + n + "\n");
 //   for (string line : Files.readAllLines("data.csv")) { ... }
-//   for (string path : Files.walk("src")) { if (path.endsWith(".lang")) { ... } }
+//   for (string path : Files.walk("src")) { if (path.endsWith(".seal")) { ... } }
 //
 // Paths are strings, absolute or relative to the folder the program runs in,
 // with / between names. Text files are read and written as UTF-8. A failure

@@ -38,7 +38,7 @@ import lang.vm.VM;
  *   -Wall             turn on every -W flag
  * </pre>
  *
- * A PATH is a `.lang` file or a directory searched recursively for them.
+ * A PATH is a `.seal` file or a directory searched recursively for them.
  */
 public final class Main {
 
@@ -126,11 +126,11 @@ public final class Main {
         }
     }
 
-    /** Reads a `.lang` file, or every `.lang` file under a directory. */
+    /** Reads a `.seal` file, or every `.seal` file under a directory. */
     static void readSources(Path p, Map<String, String> into) throws IOException {
         if (Files.isDirectory(p)) {
             try (Stream<Path> files = Files.walk(p)) {
-                for (Path f : files.filter(f -> f.toString().endsWith(".lang")).sorted().toList()) {
+                for (Path f : files.filter(f -> f.toString().endsWith(".seal")).sorted().toList()) {
                     into.put(f.toString(), Files.readString(f));
                 }
             }

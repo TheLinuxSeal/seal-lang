@@ -1885,15 +1885,15 @@ public final class CheckerTest {
 
     private static void files() {
         Map<String, String> m = new LinkedHashMap<>();
-        m.put("src/Wrong.lang", "struct Right { }");
+        m.put("src/Wrong.seal", "struct Right { }");
         List<Diagnostic> d = Checker.check(m);
         check(d.stream().anyMatch(x -> x.message().contains("struct Right must be in a file named Right")),
                 "file name must match: " + d);
 
         m = new LinkedHashMap<>();
-        m.put("Foo.lang", "struct Foo { int x = ; }");
+        m.put("Foo.seal", "struct Foo { int x = ; }");
         d = Checker.check(m);
-        check(d.size() == 1 && d.get(0).file().equals("Foo.lang") && d.get(0).line() == 1,
+        check(d.size() == 1 && d.get(0).file().equals("Foo.seal") && d.get(0).line() == 1,
                 "parse errors come through with file names: " + d);
     }
 
@@ -1937,7 +1937,7 @@ public final class CheckerTest {
         String doc = "class Doc { }";
         genError("instantiating with a type that lacks the operator", files("Pair", pair, "Doc", doc, "Main", """
                 struct Main { static int main() { Pair<handle<Doc>> p; bit x = p.less(); return 0; } }
-                """), "Pair.lang:5:32: in Pair<handle<Doc>>.less");
+                """), "Pair.seal:5:32: in Pair<handle<Doc>>.less");
         genError("the instantiation error names the operator", files("Pair", pair, "Doc", doc, "Main", """
                 struct Main { static int main() { Pair<handle<Doc>> p; bit x = p.less(); return 0; } }
                 """), "Doc does not define operator <");
@@ -2236,7 +2236,7 @@ public final class CheckerTest {
     private static Map<String, String> files(String... pairs) {
         Map<String, String> m = new LinkedHashMap<>();
         for (int i = 0; i < pairs.length; i += 2) {
-            m.put(pairs[i] + ".lang", pairs[i + 1]);
+            m.put(pairs[i] + ".seal", pairs[i + 1]);
         }
         return m;
     }

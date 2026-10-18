@@ -39,7 +39,7 @@ public final class CliTest {
     }
 
     private static void tests(Path dir) throws IOException {
-        Path ok = write(dir, "ok/Main.lang", """
+        Path ok = write(dir, "ok/Main.seal", """
                 struct Main
                 {
                     static int main()
@@ -58,19 +58,19 @@ public final class CliTest {
         r = run("dump", ok.getParent().toString());
         check(r.code() == 0 && r.out().contains(" Main.main  (registers") && r.out().contains("NATIVE"), "dump: lists functions " + r);
 
-        Path bad = write(dir, "bad/Main.lang", """
+        Path bad = write(dir, "bad/Main.seal", """
                 struct Main
                 {
                     static int main() { int x = y; return 0; }
                 }
                 """);
         r = run("run", bad.getParent().toString());
-        check(r.code() == 1 && r.err().contains("Main.lang:3:33: unknown name y") && r.out().isEmpty(),
+        check(r.code() == 1 && r.err().contains("Main.seal:3:33: unknown name y") && r.out().isEmpty(),
                 "run: compile errors exit 1 and go to stderr " + r);
         r = run("check", bad.toString());
         check(r.code() == 1 && r.err().contains("unknown name y"), "check: a single file " + r);
 
-        Path lossy = write(dir, "lossy/Main.lang", """
+        Path lossy = write(dir, "lossy/Main.seal", """
                 struct Main
                 {
                     static int main()
@@ -81,8 +81,8 @@ public final class CliTest {
                     }
                 }
                 """);
-        String widen = "lossy/Main.lang:6:9: warning: [-WautoCast] implicit cast from int to double in operand of +=";
-        String narrow = "lossy/Main.lang:6:9: warning: [%s] implicit cast from double to int in compound assignment may lose data";
+        String widen = "lossy/Main.seal:6:9: warning: [-WautoCast] implicit cast from int to double in operand of +=";
+        String narrow = "lossy/Main.seal:6:9: warning: [%s] implicit cast from double to int in compound assignment may lose data";
         r = run("run", lossy.getParent().toString());
         check(r.code() == 12 && r.err().isEmpty(), "run: a narrowing compound assignment, no warning by default " + r);
         r = run("run", "-WautoCast", lossy.getParent().toString());
@@ -97,7 +97,7 @@ public final class CliTest {
                         "unknown flag -WautoCasts; the -W flags are -WautoCast, -WautoCastLossy, -Wassert, and -Wall for all of them\n"),
                 "-W with an unknown name " + r);
 
-        Path asserts = write(dir, "asserts/Main.lang", """
+        Path asserts = write(dir, "asserts/Main.seal", """
                 class Main
                 {
                     static int calls = 0;
@@ -114,10 +114,10 @@ public final class CliTest {
         r = run("run", asserts.getParent().toString());
         check(r.code() == 0 && r.err().isEmpty(), "asserts are skipped, conditions and all, without -Wassert " + r);
         r = run("run", "-Wassert", asserts.getParent().toString());
-        check(r.code() == 70 && r.err().startsWith("uncaught AssertionError: x >= 0\n    at Main.main (Main.lang:9)"),
+        check(r.code() == 70 && r.err().startsWith("uncaught AssertionError: x >= 0\n    at Main.main (Main.seal:9)"),
                 "-Wassert runs asserts; a failure names the condition " + r);
 
-        Path trap = write(dir, "trap/Main.lang", """
+        Path trap = write(dir, "trap/Main.seal", """
                 struct Main
                 {
                     static int main() { System.stdout.print(1); int z = 0; return 1 / z; }
@@ -125,9 +125,9 @@ public final class CliTest {
                 """);
         r = run("run", trap.getParent().toString());
         check(r.code() == 70 && r.out().equals("1") && r.err().startsWith("trap: division by zero")
-                && r.err().contains("at Main.main (Main.lang:3)"), "run: traps exit 70 with a stack trace " + r);
+                && r.err().contains("at Main.main (Main.seal:3)"), "run: traps exit 70 with a stack trace " + r);
 
-        Path uncaught = write(dir, "uncaught/Main.lang", """
+        Path uncaught = write(dir, "uncaught/Main.seal", """
                 struct Main
                 {
                     static void check(int n)
@@ -145,11 +145,11 @@ public final class CliTest {
         r = run("run", uncaught.getParent().toString());
         check(r.code() == 70 && r.err().equals("""
                 uncaught IllegalArgumentException: negative: -3
-                    at Main.check (Main.lang:5)
-                    at Main.main (Main.lang:10)
+                    at Main.check (Main.seal:5)
+                    at Main.main (Main.seal:10)
                 """), "run: an uncaught exception names its class, message and where it was thrown " + r);
 
-        Path streams = write(dir, "streams/Main.lang", """
+        Path streams = write(dir, "streams/Main.seal", """
                 struct Main
                 {
                     static int main()
@@ -175,21 +175,21 @@ public final class CliTest {
         check(r.code() == 70 && r.err().startsWith("uncaught NoSuchElementException: no more lines to read"),
                 "run: reading past the end of input throws " + r);
 
-        Path asm = write(dir, "asm/Main.lang", """
+        Path asm = write(dir, "asm/Main.seal", """
                 struct Main { static int main() { System.rawAssembly("nop"); return 0; } }
                 """);
         r = run("dump", asm.getParent().toString());
         check(r.code() == 0 && !r.out().contains("rawAssembly") && !r.out().contains("CALL      System"),
                 "dump: System.rawAssembly compiles to nothing " + r);
 
-        Path fail = write(dir, "fail/Main.lang", """
+        Path fail = write(dir, "fail/Main.seal", """
                 struct Main { static int main() { System.stdout.print("before "); System.fail("gave up"); return 0; } }
                 """);
         r = run("run", fail.getParent().toString());
         check(r.code() == 70 && r.out().equals("before ") && r.err().startsWith("gave up\ntrap: abort"),
                 "run: System.fail prints to stderr and stops " + r);
 
-        Path deep = write(dir, "deep/Main.lang", """
+        Path deep = write(dir, "deep/Main.seal", """
                 struct Main
                 {
                     static int divide(int a, int b)
@@ -212,11 +212,11 @@ public final class CliTest {
         r = run("run", deep.getParent().toString());
         check(r.code() == 70 && r.err().equals("""
                 trap: division by zero
-                    at Main.divide (Main.lang:6)
-                    at Main.main (Main.lang:14)
+                    at Main.divide (Main.seal:6)
+                    at Main.main (Main.seal:14)
                 """), "run: each frame names its source line; a call spanning lines names its first " + r);
 
-        Path instance = write(dir, "instance/Main.lang", """
+        Path instance = write(dir, "instance/Main.seal", """
                 class Main
                 {
                     int zero;
@@ -230,10 +230,10 @@ public final class CliTest {
         r = run("run", instance.getParent().toString());
         check(r.code() == 70 && r.err().equals("""
                 trap: division by zero
-                    at Main.main (Main.lang:7)
+                    at Main.main (Main.seal:7)
                 """), "run: an instance main's trace starts at main " + r);
 
-        Path inLib = write(dir, "inlib/Main.lang", """
+        Path inLib = write(dir, "inlib/Main.seal", """
                 struct Main
                 {
                     static int main()
@@ -244,10 +244,10 @@ public final class CliTest {
                 }
                 """);
         r = run("run", inLib.getParent().toString());
-        check(r.code() == 70 && r.err().contains("at string.charAt (string.lang:")
-                && r.err().contains("at Main.main (Main.lang:6)"), "run: library frames name their file " + r);
+        check(r.code() == 70 && r.err().contains("at string.charAt (string.seal:")
+                && r.err().contains("at Main.main (Main.seal:6)"), "run: library frames name their file " + r);
 
-        Path other = write(dir, "other/Start.lang", """
+        Path other = write(dir, "other/Start.seal", """
                 struct Start
                 {
                     static void main() { System.stdout.print(5); }
@@ -259,13 +259,13 @@ public final class CliTest {
         check(r.code() == 1 && r.err().contains("no entry point"), "run: missing Main is reported " + r);
 
         // Several directories and files at once; classes refer to each other.
-        Path lib = write(dir, "multi/lib/Helper.lang", "struct Helper { public static int seven() { return 7; } }");
-        Path app = write(dir, "multi/app/Main.lang", "struct Main { static int main() { return Helper.seven() * 6; } }");
+        Path lib = write(dir, "multi/lib/Helper.seal", "struct Helper { public static int seven() { return 7; } }");
+        Path app = write(dir, "multi/app/Main.seal", "struct Main { static int main() { return Helper.seven() * 6; } }");
         r = run("run", lib.getParent().toString(), app.toString());
         check(r.code() == 42, "run: several paths " + r);
 
         // Without the standard library, a built-in System.stdout prints numbers, characters and bits.
-        Path plain = write(dir, "plain/Main.lang", """
+        Path plain = write(dir, "plain/Main.seal", """
                 struct Main { static int main() { System.stdout.print(3); return 0; } }
                 """);
         r = run("run", "--no-stdlib", plain.getParent().toString());
@@ -275,16 +275,16 @@ public final class CliTest {
         r = run("run", "--stdlib", dir.resolve("missing").toString(), plain.getParent().toString());
         check(r.code() == 2 && r.err().contains("standard library not found"), "run: missing stdlib directory " + r);
 
-        Path clash = write(dir, "clash/List.lang", "struct List { }");
-        write(dir, "clash/Main.lang", "struct Main { static int main() { return 0; } }");
+        Path clash = write(dir, "clash/List.seal", "struct List { }");
+        write(dir, "clash/Main.seal", "struct Main { static int main() { return 0; } }");
         r = run("check", clash.getParent().toString());
         check(r.code() == 1 && r.err().contains("struct List is part of the standard library"), "check: stdlib name clash " + r);
 
         r = run("run");
         check(r.code() == 2 && r.err().contains("usage"), "usage message " + r);
 
-        Path apps = write(dir, "apps/app/Main.lang", "package app;\n\nclass Main\n{\n    static int main() { return 3; }\n}\n");
-        write(dir, "apps/tool/Main.lang", """
+        Path apps = write(dir, "apps/app/Main.seal", "package app;\n\nclass Main\n{\n    static int main() { return 3; }\n}\n");
+        write(dir, "apps/tool/Main.seal", """
                 package tool;
 
                 class Main
@@ -300,9 +300,9 @@ public final class CliTest {
         check(r.code() == 3, "--main with a package " + r);
         r = run("run", "--main", "tool.Main", root);
         check(r.code() == 70 && r.err().contains("uncaught IllegalStateException: from tool")
-                && r.err().contains("at tool.Main.main (Main.lang:5)"), "traces name the package " + r);
+                && r.err().contains("at tool.Main.main (Main.seal:5)"), "traces name the package " + r);
 
-        Path wrongName = write(dir, "named/Wrong.lang", "struct Right { }");
+        Path wrongName = write(dir, "named/Wrong.seal", "struct Right { }");
         r = run("check", wrongName.getParent().toString());
         check(r.code() == 1 && r.err().contains("struct Right must be in a file named Right"), "file name rule " + r);
     }

@@ -130,7 +130,7 @@ class Player
 * As in Java, a type in a package can't use one that is in no package.
 * `import a.b.Outer;` also makes `Outer.Inner` usable, and `import a.b.Outer.Inner;` and `import a.b.Outer.*;` import nested types themselves. Private nested types can't be imported.
 * Packages don't change access (§17): members are private unless declared otherwise, and top-level types are public, so another package can use any top-level type and its public members.
-* Two packages may have types of the same name (`a.Tools`, `b.Tools`). Stack traces and run-time errors name types in full: `at com.example.game.Main.main (Main.lang:12)`.
+* Two packages may have types of the same name (`a.Tools`, `b.Tools`). Stack traces and run-time errors name types in full: `at com.example.game.Main.main (Main.seal:12)`.
 
 ### Static imports
 
@@ -1147,7 +1147,7 @@ xs.length()
 * Methods: `length`, `isEmpty`, `fill`, `copy`, `slice(from, to)`, `toList`, `indexOf`, `contains`, `swap`, `reverse`, `sort()` (by `<`) and `sort(Comparator<T>)` (stable). `List.toArray()` and `string.toCharArray()` give arrays.
 * An `array<T><<N>>` converts to an `array<T>` by copying, wherever one is wanted (an initializer, an argument).
 
-`array<T>` is written in the language (`stdlib/array.lang`): an `addr<T>` buffer and a length, with indexing through the `[]` and `[]=` operators (§46).
+`array<T>` is written in the language (`stdlib/array.seal`): an `addr<T>` buffer and a length, with indexing through the `[]` and `[]=` operators (§46).
 
 ---
 
@@ -1827,7 +1827,7 @@ Any other value joins as its type's cast to string (§46), on either side and wi
 
 `Double.toString`, `Float.toString` and `Fixed.toString` give a number's text on its own, alongside `Integer.toString`.
 
-`string` is an ordinary struct in the standard library (`stdlib/string.lang`) with two shapes:
+`string` is an ordinary struct in the standard library (`stdlib/string.seal`) with two shapes:
 
 | Type          | Storage                                                    |
 | ------------- | ---------------------------------------------------------- |
@@ -2068,8 +2068,8 @@ try {
 
 ```text
 uncaught IllegalArgumentException: negative: -3
-    at Main.check (Main.lang:5)
-    at Main.main (Main.lang:10)
+    at Main.check (Main.seal:5)
+    at Main.main (Main.seal:10)
 ```
 
 The standard library's exceptions, and what throws them:
@@ -2902,9 +2902,9 @@ The compiler (`src/lang/codegen`) and VM (`src/lang/vm`) work as follows.
   ```
 
 * `main` may be inherited, as in Java: `class Main extends(App)` runs the `main()` that `App` declares (which can call methods `Main` overrides).
-* `java -cp out lang.Main run DIR` compiles every `.lang` file under `DIR` and runs it; `check` only reports errors; `dump` prints the bytecode.
+* `java -cp out lang.Main run DIR` compiles every `.seal` file under `DIR` and runs it; `check` only reports errors; `dump` prints the bytecode.
 * The standard library (§42) is loaded from `stdlib/` next to the compiler; `--stdlib DIR` chooses another directory and `--no-stdlib` turns it off. Without it, a minimal built-in `System.stdout` and `System.stderr` (printing numbers, characters and bits) are available.
-* Warnings are off unless asked for: each kind has a `-W` flag that turns it on, and `-Wall` turns on every kind. They go to standard error, before any errors, tagged with their flag (`File.lang:6:9: warning: [-WautoCast] ...`), and don't stop a program from running or make `check` fail. Code in the standard library gives none. The kinds:
+* Warnings are off unless asked for: each kind has a `-W` flag that turns it on, and `-Wall` turns on every kind. They go to standard error, before any errors, tagged with their flag (`File.seal:6:9: warning: [-WautoCast] ...`), and don't stop a program from running or make `check` fail. Code in the standard library gives none. The kinds:
 
   | Flag              | Reports |
   | ----------------- | ------- |
@@ -2918,7 +2918,7 @@ The compiler (`src/lang/codegen`) and VM (`src/lang/vm`) work as follows.
 ### Instantiation
 
 * Code is generated per concrete instantiation, and only for instantiations reachable from `main`. A method of `Array<int><<64>>` and the same method of `Array<int><<128>>` are separate functions.
-* Bodies are type-checked again with actual values when instantiated, so value-dependent errors inside methods (e.g. a constant index out of bounds for `array<int><<N>>`) are reported as errors in that instantiation. An error in the standard library's code for the types a program uses is reported at the program's call that led to it, with the library line in parentheses: `Main.lang:6:9: in Writer.println[T=handle<Box>]: Box has no cast to string; ... (Writer.lang:54)`.
+* Bodies are type-checked again with actual values when instantiated, so value-dependent errors inside methods (e.g. a constant index out of bounds for `array<int><<N>>`) are reported as errors in that instantiation. An error in the standard library's code for the types a program uses is reported at the program's call that led to it, with the library line in parentheses: `Main.seal:6:9: in Writer.println[T=handle<Box>]: Box has no cast to string; ... (Writer.seal:54)`.
 
 ### Memory
 
@@ -2945,11 +2945,11 @@ The compiler (`src/lang/codegen`) and VM (`src/lang/vm`) work as follows.
 
 ```text
 trap: division by zero
-    at Main.divide (Main.lang:6)
-    at Main.main (Main.lang:14)
+    at Main.divide (Main.seal:6)
+    at Main.main (Main.seal:14)
 ```
 
-* `dump` shows the same positions as `; File.lang:line` comments in the listing.
+* `dump` shows the same positions as `; File.seal:line` comments in the listing.
 
 ### Strings
 
@@ -3076,7 +3076,7 @@ These rules are implemented by the semantic checker (`src/lang/check`). Several 
 
 ### Files and shapes
 
-* A class must be in a file whose name (up to the first `.`) is the class name, e.g. `Array.lang`.
+* A class must be in a file whose name (up to the first `.`) is the class name, e.g. `Array.seal`.
 * Generic code is checked once per header, with that header's values symbolic. Unguarded members are checked against every header, which enforces the coverage rule (§10) and per-shape member types (§9.2). Unguarded code may therefore use a value such as `N` only if every header binds it.
 * Operators applied to values of a type parameter (`a < b` where `a` and `b` are `T`), and members used on them (`a.size()`, `a.name`), are accepted in the generic definition and checked when it is used with a concrete `T`, as with C++ templates: `Box<int>` reports that `int` has no methods only if the code calling `size()` on it is used.
 * Checks that depend on actual values (negative array sizes, integer widths, compile-time division by zero) run when a concrete type such as `Buf<<0>>` is used, and are reported there: `in Buf<<0>>: array size -1 is negative`.

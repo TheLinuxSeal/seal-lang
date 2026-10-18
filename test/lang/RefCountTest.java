@@ -189,15 +189,15 @@ public final class RefCountTest {
 
     private static void run(String name, String body, String expectedOutput, int expectedLive) {
         Map<String, String> files = new LinkedHashMap<>();
-        files.put("Res.lang", RES);
-        files.put("Holder.lang", "struct Holder { public Res r; }");
-        files.put("Box.lang", "class Box { public Holder h; }");
-        files.put("Node.lang", "class Node { public Node next; public int v; delete() { System.stdout.print(v); } }");
-        files.put("Pair.lang", "class Pair { public Pair other; }");
-        files.put("Animal.lang", "class Animal { public int id; delete() { System.stdout.print(id); } }");
-        files.put("Dog.lang", "class Dog extends(Animal) { }");
-        files.put("Registry.lang", "struct Registry { public static Res keep; }");
-        files.put("Main.lang", """
+        files.put("Res.seal", RES);
+        files.put("Holder.seal", "struct Holder { public Res r; }");
+        files.put("Box.seal", "class Box { public Holder h; }");
+        files.put("Node.seal", "class Node { public Node next; public int v; delete() { System.stdout.print(v); } }");
+        files.put("Pair.seal", "class Pair { public Pair other; }");
+        files.put("Animal.seal", "class Animal { public int id; delete() { System.stdout.print(id); } }");
+        files.put("Dog.seal", "class Dog extends(Animal) { }");
+        files.put("Registry.seal", "struct Registry { public static Res keep; }");
+        files.put("Main.seal", """
                 struct Main
                 {
                     static void keep(Res r) { System.stdout.print('k'); }
@@ -217,7 +217,7 @@ public final class RefCountTest {
                 }
                 """);
         if (library) {
-            files.put("Bad.lang", "class Bad { Res held; public new() { held = new Res(9); Main.boom(); } }");
+            files.put("Bad.seal", "class Bad { Res held; public new() { held = new Res(9); Main.boom(); } }");
         }
         Checker checker = library ? Checker.analyze(files, LIBRARY) : Checker.analyze(files);
         if (!checker.diagnostics().isEmpty()) {

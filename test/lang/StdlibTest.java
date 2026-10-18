@@ -251,8 +251,8 @@ public final class StdlibTest {
         try {
             Path f = dir.resolve("left-open.txt");
             Map<String, String> files = new LinkedHashMap<>();
-            files.put("Keep.lang", "struct Keep { public static FileWriter w; }");
-            files.put("Main.lang", "struct Main { static int main() { Keep.w = new FileWriter(\"" + f
+            files.put("Keep.seal", "struct Keep { public static FileWriter w; }");
+            files.put("Main.seal", "struct Main { static int main() { Keep.w = new FileWriter(\"" + f
                     + "\"); Keep.w.write(\"still written\"); return 0; } }");
             Checker checker = Checker.analyze(files, library);
             VM vm = new VM(CodeGen.generate(checker, "Main").program(), new PrintStream(new ByteArrayOutputStream()));
@@ -260,7 +260,7 @@ public final class StdlibTest {
             check(java.nio.file.Files.readString(f).equals("still written"),
                     "a writer left open when the program ends is written out");
 
-            files.put("Main.lang", "struct Main { static int main() { try { Files.writeString(\"" + dir.resolve("no.txt")
+            files.put("Main.seal", "struct Main { static int main() { try { Files.writeString(\"" + dir.resolve("no.txt")
                     + "\", \"x\"); } catch (IOException e) { System.stdout.print(e.getMessage()); } return 0; } }");
             checker = Checker.analyze(files, library);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -771,8 +771,8 @@ public final class StdlibTest {
 
     private static void conflicts() {
         Map<String, String> files = new LinkedHashMap<>();
-        files.put("List.lang", "struct List { }");
-        files.put("Main.lang", "struct Main { static int main() { return 0; } }");
+        files.put("List.seal", "struct List { }");
+        files.put("Main.seal", "struct Main { static int main() { return 0; } }");
         List<Diagnostic> d = Checker.analyze(files, library).diagnostics();
         check(d.stream().anyMatch(x -> x.message().contains("struct List is part of the standard library")),
                 "redefining a stdlib struct is an error: " + d);
@@ -791,13 +791,13 @@ public final class StdlibTest {
 
     private static Result execute(String body) {
         Map<String, String> files = new LinkedHashMap<>();
-        files.put("Thing.lang", "class Thing { }");
-        files.put("Res.lang", "class Res { public int id; public new(int i) { id = i; } delete() { System.stdout.print(id); } }");
-        files.put("Keep.lang", "struct Keep { public static Res thing; }");
-        files.put("Pt.lang", "class Pt { public int x; public int y; public new(int x, int y) { this.x = x; this.y = y; }"
+        files.put("Thing.seal", "class Thing { }");
+        files.put("Res.seal", "class Res { public int id; public new(int i) { id = i; } delete() { System.stdout.print(id); } }");
+        files.put("Keep.seal", "struct Keep { public static Res thing; }");
+        files.put("Pt.seal", "class Pt { public int x; public int y; public new(int x, int y) { this.x = x; this.y = y; }"
                 + " @overload(Operator.EQUALS) public bit same(Pt o) { return o != null && x == o.x && y == o.y; }"
                 + " public uint<<64>> hash() { return Hash.of(x * 31 + y); } }");
-        files.put("Main.lang", "struct Main\n{\n"
+        files.put("Main.seal", "struct Main\n{\n"
                 + "    static void shout(string s) { s.toUpper(); s.append(\"!\"); System.stdout.println(s); }\n"
                 + "    static void fill(List<int> xs) { while (xs.size() < 5) { xs.add(0); } }\n"
                 + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n");
