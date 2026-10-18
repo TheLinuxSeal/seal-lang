@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# The Seal command line: seal run|check|dump [options] PATH...
+# Builds the compiler into out/ first when it isn't built, or a source file is newer than the build.
+set -u
+here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+main="$here/out/io/github/thelinuxseal/seal/Main.class"
+if [ ! -f "$main" ] || [ -n "$(find "$here/src" -name '*.java' -newer "$main" -print -quit)" ]; then
+    javac -d "$here/out" $(find "$here/src" -name '*.java') || exit 1
+fi
+exec java -cp "$here/out" io.github.thelinuxseal.seal.Main "$@"

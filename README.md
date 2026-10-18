@@ -60,21 +60,21 @@ The full language is described in [`SPEC.md`](SPEC.md).
 
 ## Building and running
 
-You need JDK 25. There is no build tool and there are no dependencies:
+You need JDK 25. There is no build tool and there are no dependencies. The `seal` script builds the
+compiler into `out/` the first time, and again whenever its source changes:
 
 ```sh
-javac -d out $(find src -name '*.java')          # build the compiler into out/
-java -cp out lang.Main run examples/01-basics     # compile and run a program
-./test.sh                                         # build, then run every test suite
+./seal run examples/01-basics     # compile and run a program
+./test.sh                         # build, then run every test suite
 ```
 
 A program is a folder of `.seal` files, each holding one top-level type and named after it. Its
 entry point is `main()` in the class `Main`.
 
 ```text
-java -cp out lang.Main run   [options] PATH...   compile and run
-java -cp out lang.Main check [options] PATH...   only report errors
-java -cp out lang.Main dump  [options] PATH...   print the bytecode
+seal run   [options] PATH...   compile and run
+seal check [options] PATH...   only report errors
+seal dump  [options] PATH...   print the bytecode
 
   --main Class       the class whose main() runs (default Main; com.example.Main in a package)
   -WautoCast         warn about every number converted without a cast
@@ -97,13 +97,22 @@ modding as one of its goals.
 
 ## Layout
 
+The compiler is in the Java package `io.github.thelinuxseal.seal`, under
+`src/io/github/thelinuxseal/seal/`:
+
 | Path | What's there |
 | ---- | ------------ |
-| `src/lang/lexer`, `src/lang/parser`, `src/lang/ast` | reading source into a syntax tree |
-| `src/lang/check` | the type checker, which resolves everything a backend needs |
-| `src/lang/codegen` | code generation for the VM |
-| `src/lang/vm` | the virtual machine |
-| `src/lang/Main.java` | the command line |
+| `lexer/`, `parser/`, `ast/` | reading source into a syntax tree |
+| `check/` | the type checker, which resolves everything a backend needs |
+| `codegen/` | code generation for the VM |
+| `vm/` | the virtual machine |
+| `Main.java` | the command line, which the `seal` script runs |
+
+And at the top of the repository:
+
+| Path | What's there |
+| ---- | ------------ |
+| `seal` | the command-line script |
 | `stdlib/` | the standard library, in Seal |
 | `examples/` | example programs and their output |
 | `test/` | the test suites, run by `./test.sh` |

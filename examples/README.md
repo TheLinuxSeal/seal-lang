@@ -34,7 +34,7 @@ two examples use them, on purpose (03 and 11).
 Each directory is a complete program. Run one with:
 
 ```bash
-java -cp out lang.Main run examples/01-basics
+./seal run examples/01-basics
 ```
 
 `expected.txt` in each directory is the program's output; `ExamplesTest` checks

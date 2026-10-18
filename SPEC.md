@@ -2881,7 +2881,7 @@ The VM therefore does not need to understand generic classes.
 
 ## 56.1 Implementation
 
-The compiler (`src/lang/codegen`) and VM (`src/lang/vm`) work as follows.
+The compiler (`src/io/github/thelinuxseal/seal/codegen`) and VM (`.../seal/vm`), in the Java package `io.github.thelinuxseal.seal`, work as follows.
 
 ### Running programs
 
@@ -2902,7 +2902,7 @@ The compiler (`src/lang/codegen`) and VM (`src/lang/vm`) work as follows.
   ```
 
 * `main` may be inherited, as in Java: `class Main extends(App)` runs the `main()` that `App` declares (which can call methods `Main` overrides).
-* `java -cp out lang.Main run DIR` compiles every `.seal` file under `DIR` and runs it; `check` only reports errors; `dump` prints the bytecode.
+* `seal run DIR` compiles every `.seal` file under `DIR` and runs it (the `seal` script builds the compiler and runs `io.github.thelinuxseal.seal.Main`); `check` only reports errors; `dump` prints the bytecode.
 * The standard library (§42) is loaded from `stdlib/` next to the compiler; `--stdlib DIR` chooses another directory and `--no-stdlib` turns it off. Without it, a minimal built-in `System.stdout` and `System.stderr` (printing numbers, characters and bits) are available.
 * Warnings are off unless asked for: each kind has a `-W` flag that turns it on, and `-Wall` turns on every kind. They go to standard error, before any errors, tagged with their flag (`File.seal:6:9: warning: [-WautoCast] ...`), and don't stop a program from running or make `check` fail. Code in the standard library gives none. The kinds:
 
@@ -3072,7 +3072,7 @@ As in C, copying an object copies its bits. Ownership of memory reached through 
 
 # 59.1 Checker Rules
 
-These rules are implemented by the semantic checker (`src/lang/check`). Several resolve questions that were previously open.
+These rules are implemented by the semantic checker (`src/io/github/thelinuxseal/seal/check`). Several resolve questions that were previously open.
 
 ### Files and shapes
 
