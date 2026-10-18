@@ -1,7 +1,7 @@
 # Seal on the JVM: design
 
-**Status:** proposal, for review before any code. Decisions already taken are marked **Decided**;
-the rest are **Proposed**, with the reasoning, and the questions still open are collected at the end.
+**Status:** design agreed; implementation not started. Choices made on review are marked
+**Decided**; the rest were **Proposed** and accepted with the design, and stand unless revisited.
 
 Seal today compiles to bytecode for its own register VM (`vm/`), written in Java. This document
 describes a backend that compiles Seal to JVM class files instead, so that Seal programs run on any
@@ -62,7 +62,8 @@ desugared (`rewritten`, `desugared` for-each loops, `switches`, `switchExprs`, `
 | struct, unique, record, enum, `array<T><<N>>` | a storage reference (§4) | values in `long[]` storage |
 | `addr<T>` | a pointer object (§4.4) | |
 | `array<T>` (sized at run time) | a JVM array (§8.1) | |
-| `string` | `java.lang.String` (proposed, §8.2) | immutable |
+| `string` | `java.lang.String` (§8.2) | immutable |
+| `string<<N>>` | a value in storage (§4) | at most N characters, inline; immutable |
 
 ### 3.1 Integers of any width
 
@@ -131,7 +132,7 @@ final class Block {
 | another struct, a fixed array | its container's block, inline, as today |
 | `new<T>(n)` | a block of its own |
 
-- **Proposed: a frame block per method call** that has struct locals. When such a method starts,
+- **Decided: a frame block per method call** that has struct locals. When such a method starts,
   it makes its own small block (`new long[n]`, and an `Object[]` if its values hold references)
   for the struct locals and temporaries it needs, uses it while it runs, and leaves it to the
   garbage collector when it returns. JVM allocation is a pointer bump in the thread's own buffer,
@@ -279,10 +280,13 @@ language (part of M0):
 - Building text in a loop uses a builder, as Java's `StringBuilder` (each `+=` copies the text so
   far). The library's `StringBuffer`, the buffer behind growable strings today, becomes that public
   `StringBuilder`.
-- **Proposed:** on the JVM a bare `string` then *is* a `java.lang.String`: no wrapper, and passing
-  text to Java code or Minecraft costs nothing.
-- **Open:** fixed strings, `string<<N>>`, are values of at most N characters stored inline. They
-  can stay that, immutable too, in storage blocks; or become bare strings with a checked length.
+- **Decided:** on the JVM a bare `string` *is* a `java.lang.String`: no wrapper, and passing text to
+  Java code or Minecraft costs nothing. Its methods compile to `String`'s where they match, or to
+  runtime helpers.
+- **Decided:** fixed strings, `string<<N>>`, stay values of at most N characters stored inline, in
+  storage blocks like other values, and are immutable too. Joining two of them still makes a
+  `string<<N + K>>` without allocating, and the conversion of a `string<<N>>` to a bare `string`
+  (today an `@implicit` constructor) makes a `java.lang.String` from its characters.
 
 ### 8.3 Natives
 
@@ -362,15 +366,15 @@ Not designed here, but the design keeps the door open:
 - Several mods bundling different versions of the Seal runtime and library would clash in one
   game; the usual answers are one shared library mod, or giving each mod its own renamed copy.
 
-## 15. Open questions
+## 15. Decisions made on review
 
-Decided on review: struct fields of class objects in a block per object (§5), resources with
-`close()` and try-with-resources (§6), immutable strings (§8.2), the library in
-`io.github.thelinuxseal.seal.lang` (§8.3), Java 25 class files (§2), and the instantiation names
-(§5.1, §5.2). Still open:
+- Struct fields of class objects live in a block per object (§5).
+- Resources close with `close()` and try-with-resources (§6).
+- Strings are immutable; a bare `string` is a `java.lang.String`, and `string<<N>>` an immutable
+  value stored inline (§8.2).
+- The library is in `io.github.thelinuxseal.seal.lang` (§8.3).
+- Class files target Java 25 (§2).
+- Instantiations are named from their arguments, `List$int`, `Matrix$double$3$3` (§5.1, §5.2).
+- Each method call that has struct locals gets a frame block of its own (§4.2).
 
-1. **Storage per method call** (§4.2): a new frame block per call that has struct locals
-   (proposed), or a per-thread stack?
-2. **Fixed strings** (§8.2): `string<<N>>` as immutable inline values, or bare strings with a
-   checked length?
-3. **Bare strings as `java.lang.String`** (§8.2): proposed; confirm.
+No questions are open. The next step is M0 (§13), done and tested on the VM before any JVM code.
