@@ -2,7 +2,7 @@ class Dog extends(Animal)
 {
     public new(string<<12>> n) { super(n); }
 
-    public string<<8>> sound() { return "woof"; }
+    public string sound() { return "woof"; }
 
     public void fetch()
     {

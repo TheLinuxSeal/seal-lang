@@ -1923,6 +1923,7 @@ public final class CodeGen {
                     flushTemps();
                     emit(Op.THROW, h);
                 }
+                case Try t when !t.resources().isEmpty() -> stmt(tb.desugared.get(t)); // the try/finally the checker wrote
                 case Try t -> tryStatement(t);
                 case Switch sw -> {
                     Checker.SwitchInfo info = tb.switches.get(sw);
@@ -2088,24 +2089,14 @@ public final class CodeGen {
                     stmt(l.body());
                 }
                 case DeleteStmt d -> {
-                    Type t = type(d.target());
-                    int v = value(d.target(), t);
+                    AddrT a = (AddrT) type(d.target()); // only addr memory is freed by hand (§24)
+                    int v = value(d.target(), a);
                     int skip = label();
                     jumpIfZero(v, skip); // deleting null does nothing
-                    if (t instanceof AddrT a) {
-                        if (needsDestroy(a.target())) {
-                            destroyValue(new Mem(v, 0), a.target()); // destroys one T (§16)
-                        }
-                        emit(Op.FREE, v);
-                    } else {
-                        int base = regs(1);
-                        emit(Op.MOV, base, v);
-                        emit(Op.VCALL, slotId(DESTROY_SLOT), base, 1, -1);
-                        emit(Op.HDELETE, v);
-                        if (isLvalue(d.target())) {
-                            store(place(d.target()), t, constant(0)); // the variable no longer refers to it
-                        }
+                    if (needsDestroy(a.target())) {
+                        destroyValue(new Mem(v, 0), a.target()); // destroys one T (§16)
                     }
+                    emit(Op.FREE, v);
                     mark(skip);
                     flushTemps();
                 }

@@ -6,5 +6,5 @@ class Bird extends(Animal)
         legs = 2;
     }
 
-    public string<<8>> sound() { return "tweet"; }
+    public string sound() { return "tweet"; }
 }

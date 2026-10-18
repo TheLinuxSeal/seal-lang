@@ -38,11 +38,12 @@ Point[x=3, y=9]  is 9.49 from the origin
 ## What it has
 
 - **Java's comforts:** classes, interfaces, abstract classes, generics, lambdas, exceptions, enums,
-  records, switch expressions, labeled `break`/`continue`, text blocks, packages with imports and
-  static imports, and `string.format`/`printf`.
+  records, switch expressions, labeled `break`/`continue`, text blocks, try-with-resources, packages
+  with imports and static imports, immutable strings with `StringBuilder`, and
+  `string.format`/`printf`.
 - **Values and objects.** A `struct` is a value that is copied. A `unique` is a value that can't be
   copied, so its destructor runs exactly once, when its scope ends. A `class` is a shared object, as in
-  Java, freed when the last reference goes away.
+  Java, freed automatically once nothing refers to it; what it holds open, it releases in `close()`.
 - **Shapes:** compile-time values in types. `string<<16>>` is a string of at most 16 characters stored
   inline, `array<int><<4>>` four ints, and `Matrix<double><<3, 3>>` a 3×3 matrix. Code can take them
   as parameters: `int<<int W>>` is an integer of any width W.
@@ -104,7 +105,8 @@ says what each one shows.
 
 Seal is young and still changing. Programs compile to bytecode for Seal's own virtual machine,
 which is written in Java. A backend that compiles to JVM bytecode is planned next, with Minecraft
-modding as one of its goals; [`docs/JVM.md`](docs/JVM.md) is its design.
+modding as one of its goals; [`docs/JVM.md`](docs/JVM.md) is its design. The language changes it
+needs (no class destructors, try-with-resources, immutable strings) are done.
 
 ## Layout
 

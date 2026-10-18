@@ -3,8 +3,9 @@
 //   while (System.stdin.hasNextLine()) { string line = System.stdin.readLine(); ... }
 //   for (string line : System.stdin) { ... }
 //
-// It closes itself when the last reference to it goes, if not before.
-class Reader implements(Iterable<string>)
+// It closes itself once it has read the last line; close(), or
+// try-with-resources, closes it before that.
+class Reader implements(Iterable<string>, AutoCloseable)
 {
     int<<64>> file;        // the VM's stream, 0 once closed
     string pending;        // a line hasNextLine read ahead
@@ -18,7 +19,10 @@ class Reader implements(Iterable<string>)
         if (hasPending) { return true; }
         if (file == 0) { return false; }
         int<<64>> n = Files.nReadLine(file);
-        if (n == -3) { return false; } // the end
+        if (n == -3) { // the end
+            close();
+            return false;
+        }
         pending = Files.text(n);
         hasPending = true;
         return true;
@@ -49,8 +53,6 @@ class Reader implements(Iterable<string>)
     }
 
     public Iterator<string> iterator() { return new Lines(this); }
-
-    delete() { close(); }
 
     /** The lines of a Reader, for a for-each loop. */
     class Lines implements(Iterator<string>)

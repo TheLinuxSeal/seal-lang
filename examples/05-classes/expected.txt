@@ -10,10 +10,6 @@ Rex fetches the ball
 4 wheels: car
 18 wheels: machine
 car
-== objects are freed when nothing refers to them ==
-  goodbye, Tweety
-  goodbye, Bit
-  goodbye, Thing
-rex still refers to Rex
-  goodbye, Rex
-the vehicles are freed at the end of main
+== handles share one object ==
+Max has 4 legs and says woof
+0 in the zoo, Max still here

@@ -1121,9 +1121,10 @@ public final class VM {
             case "time_ns" -> {
                 return System.nanoTime();
             }
-            case "ref_count" -> {
-                // How many references a class object has (0 for null): for copy-on-write.
-                return isLive(x) ? Math.max(0, refCounts.get((int) (x >>> 32))) : 0;
+            case "live_objects" -> {
+                // How many class objects are live, for the VM's own tests (RefCountTest) to see when objects are
+                // freed; the standard library doesn't declare it.
+                return liveObjects();
             }
             default -> {
                 if (name.startsWith("io_")) {

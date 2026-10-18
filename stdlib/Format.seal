@@ -18,7 +18,7 @@ struct Format
 {
     string fmt;
     int pos;
-    string out;
+    StringBuilder out;
 
     // The specifier being filled: its text, flags, width and precision (-1 when not given).
     string spec;
@@ -32,7 +32,11 @@ struct Format
     int precision;
     char conv;
 
-    public new(string fmt) { this.fmt = fmt; }
+    public new(string fmt)
+    {
+        this.fmt = fmt;
+        out = new StringBuilder();
+    }
 
     /** The text, once every value is in. Throws if the format has a specifier left over. */
     public string finish()
@@ -40,7 +44,7 @@ struct Format
         if (next()) {
             throw bad("no value for " + spec);
         }
-        return out;
+        return out.toString();
     }
 
     // ------------------------------------------------------------ values
@@ -65,9 +69,7 @@ struct Format
     {
         if (next()) {
             if (conv == 'c' || conv == 'C' || conv == 's' || conv == 'S') {
-                string s;
-                s.append(c);
-                text(s);
+                text("" + c);
             } else {
                 integer(false, (uint<<64>>)c, (uint<<64>>)c);
             }
@@ -156,9 +158,8 @@ struct Format
     void integer(bit negative, uint<<64>> magnitude, uint<<64>> bits)
     {
         if (conv == 's' || conv == 'S') {
-            string s;
-            if (negative) { s.append('-'); }
-            s.append(Integer.toString(magnitude));
+            string s = Integer.toString(magnitude);
+            if (negative) { s = "-" + s; }
             text(s);
             return;
         }
@@ -180,20 +181,16 @@ struct Format
                 if (group || plus || space) { throw bad(spec + ": , + and space apply to %d, %f and %e"); }
                 string digits;
                 if (conv == 'o') {
-                    if (alt) { digits.append('0'); }
-                    digits.append(Integer.toString(bits, 8));
+                    digits = Integer.toString(bits, 8);
+                    if (alt) { digits = "0" + digits; }
                 } else {
-                    if (alt) { digits.append("0x"); }
-                    digits.append(Integer.toString(bits, 16));
+                    digits = Integer.toString(bits, 16);
+                    if (alt) { digits = "0x" + digits; }
                 }
-                if (conv == 'X') { digits.toUpper(); }
+                if (conv == 'X') { digits = digits.toUpper(); }
                 pad(digits, true);
             }
-            case 'c', 'C' -> {
-                string s;
-                s.append((char)magnitude);
-                text(s);
-            }
+            case 'c', 'C' -> text("" + (char)magnitude);
             default -> { throw mismatch("an integer"); }
         }
     }
@@ -224,7 +221,7 @@ struct Format
         if (negative) { digits = text.substring(1, text.length()); }
         bit finite = digits.length() > 0 && Char.isDigit(digits.charAt(0));
         if (group && finite) { digits = grouped(digits); }
-        if (conv == 'E') { digits.toUpper(); }
+        if (conv == 'E') { digits = digits.toUpper(); }
         if (digits == "NaN") {
             pad(digits, false); // no sign, and padded with spaces, as in Java
         } else {
@@ -242,23 +239,17 @@ struct Format
         if (precision >= 0 && conv != 's' && conv != 'S') { throw bad(spec + " takes no precision"); }
         string shown = s;
         if (precision >= 0 && precision < s.length()) { shown = s.substring(0, precision); }
-        if (conv == 'S' || conv == 'C' || conv == 'B') { shown.toUpper(); }
+        if (conv == 'S' || conv == 'C' || conv == 'B') { shown = shown.toUpper(); }
         pad(shown, false);
     }
 
     /** Number digits with the sign the flags ask for: "-", "+", " " or none. */
     string signed(bit negative, string digits)
     {
-        string s;
-        if (negative) {
-            s.append('-');
-        } else if (plus) {
-            s.append('+');
-        } else if (space) {
-            s.append(' ');
-        }
-        s.append(digits);
-        return s;
+        if (negative) { return "-" + digits; }
+        if (plus) { return "+" + digits; }
+        if (space) { return " " + digits; }
+        return digits;
     }
 
     /** A comma between each group of three digits of the whole part: 1234567.5 is 1,234,567.5. */
@@ -266,12 +257,12 @@ struct Format
     {
         int end = digits.indexOf('.');
         if (end < 0) { end = digits.length(); }
-        string s;
+        StringBuilder s = new StringBuilder();
         for (int i = 0; i < digits.length(); i++) {
             if (i > 0 && i < end && (end - i) % 3 == 0) { s.append(','); }
             s.append(digits.charAt(i));
         }
-        return s;
+        return s.toString();
     }
 
     /** Puts text out at the width: spaces before it, after it with -, or zeros after a number's sign with 0. */

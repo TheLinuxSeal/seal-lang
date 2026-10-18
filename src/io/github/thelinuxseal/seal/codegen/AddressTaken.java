@@ -40,6 +40,7 @@ final class AddressTaken {
             }
             case Throw t -> expr(t.value());
             case Try t -> {
+                t.resources().forEach(this::stmt);
                 stmt(t.body());
                 t.catches().forEach(c -> stmt(c.body()));
                 if (t.finallyBlock() != null) {

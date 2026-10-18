@@ -5,9 +5,10 @@
 //   System.stdout.println("total: " + total);
 //   System.stderr.println("warning: " + name + " not found");
 //
-// Writing to a closed Writer throws an IOException. It closes itself when the
-// last reference to it goes, if not before.
-class Writer
+// Writing to a closed Writer throws an IOException. Close it with close(), or
+// with try-with-resources; anything still open when the program ends is
+// written out then.
+class Writer implements(AutoCloseable)
 {
     int<<64>> file;   // the VM's stream, 0 once closed
 
@@ -70,6 +71,7 @@ class Writer
         if (file != 0) { Files.check(Files.nFlush(file)); }
     }
 
+    /** Writes out what is buffered and closes the stream; closing it again does nothing. */
     public void close()
     {
         if (file != 0) {
@@ -77,6 +79,4 @@ class Writer
             file = 0;
         }
     }
-
-    delete() { close(); }
 }

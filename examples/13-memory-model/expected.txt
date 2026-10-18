@@ -11,11 +11,9 @@ after a.bump(), a.n = 2
   close ticket #3
   close ticket #2
 == class: a shared object ==
-  x.n = 11, references: 2
-  x = null: y still refers to the note
-  note 11 freed
-  y = null
-== string: a value, copied cheaply ==
+  x.n = 11, the same note as y: true
+  x = null: y still refers to the note, n = 11
+== string: a value that never changes ==
   greeting = hello, copy = hello, world
 == List: a shared object ==
   first.size() = 2

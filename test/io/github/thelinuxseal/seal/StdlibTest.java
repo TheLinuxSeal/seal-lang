@@ -26,6 +26,8 @@ public final class StdlibTest {
     public static void main(String[] args) throws IOException {
         library = new LinkedHashMap<>();
         Main.readSources(Path.of("stdlib"), library);
+        // Probe.live(): how many class objects are live, through a native only the VM's tests declare.
+        library.put("Probe.seal", "struct Probe { @native(\"live_objects\") public static int live() { } }");
 
         strings();
         integers();
@@ -138,10 +140,10 @@ public final class StdlibTest {
                 out.write("tw");
                 out.write("o");
                 out.close();
-                FileWriter more = new FileWriter(f, true);
-                more.writeLine("");
-                more.writeLine("three");
-                more = null;
+                try (FileWriter more = new FileWriter(f, true)) {
+                    more.writeLine("");
+                    more.writeLine("three");
+                }
                 FileReader in = new FileReader(f);
                 while (in.hasNextLine()) { System.stdout.print("[" + in.readLine() + "]"); }
                 in.close();
@@ -238,8 +240,8 @@ public final class StdlibTest {
                 """, "same text\nsame text\n");
         run("static objects are released when the program ends, after main", """
                 Keep.thing = new Res(7);
-                System.stdout.print("main done ");
-                """, "main done 7");
+                System.stdout.print("main done");
+                """, "main done");
         run("stdin with no input has no lines", """
                 System.stdout.print("" + System.stdin.hasNextLine() + System.stdin.readAllLines().size());
                 """, "false0");
@@ -303,26 +305,48 @@ public final class StdlibTest {
                 System.stdout.println(c);
                 System.stdout.println(c.length());
                 System.stdout.println(c.maxLength());
-                c.set(0, 74);
+                System.stdout.println(c.replace('H', 'J'));
                 System.stdout.println(c);
-                """, "Hello, world\n12\n12\nJello, world\n");
-        run("bare strings grow", """
+                """, "Hello, world\n12\n12\nJello, world\nHello, world\n");
+        run("bare strings grow with +=", """
                 string s;
-                for (int i = 0; i < 26; i += 1) { s.append((char)(65 + i)); }
-                s.append("!");
+                for (int i = 0; i < 26; i += 1) { s += (char)(65 + i); }
+                s += "!";
                 System.stdout.println(s);
                 System.stdout.println(s.length());
-                s.clear();
+                s = "";
                 System.stdout.println(s.length());
                 """, "ABCDEFGHIJKLMNOPQRSTUVWXYZ!\n27\n0\n");
-        run("literal strings copy on write", """
+        run("a literal's string never changes", """
                 string a = "shared";
-                string b = "shared";
-                a.set(0, 83);
+                string b = a;
+                a = a.replace('s', 'S');
                 System.stdout.println(a);
                 System.stdout.println(b);
                 System.stdout.println("shared");
                 """, "Shared\nshared\nshared\n");
+        run("StringBuilder", """
+                StringBuilder b = new StringBuilder();
+                b.append("n=").append(42).append(' ').append(2.5).append(true).append((uint<<8>>)255);
+                System.stdout.println(b.toString() + " " + b.length());
+                b.insert(0, "[").append(']').setCharAt(1, 'N');
+                System.stdout.println(b);
+                b.delete(1, 4).deleteCharAt(0).reverse();
+                System.stdout.println("" + b + " " + b.charAt(0) + " " + b.indexOf("5.2"));
+                b.setLength(2);
+                StringBuilder c = new StringBuilder('x');
+                System.stdout.println(b.toString() + c + new StringBuilder("abc").insert(1, 'Z') + new StringBuilder(100).isEmpty());
+                """, "n=42 2.5true255 15\n[N=42 2.5true255]\n]552eurt5.2 2 ] 8\n]5xaZbctrue\n");
+        run("strings made from arrays, and new strings from old", """
+                array<char> cs = "hello".toCharArray();
+                cs[0] = 'j';
+                string s = new string(cs);
+                System.stdout.println(s + " " + new string(cs, 1, 3) + " " + s.toUpper() + " " + "AbC".toLower());
+                System.stdout.println("ab".repeat(3) + "|" + "x".repeat(0) + "|" + s.replace('l', 'L'));
+                string<<5>> word = "hello";
+                string<<5>> loud = word.toUpper();
+                System.stdout.println(loud + word);
+                """, "jello ell JELLO abc\nababab||jeLLo\nHELLOhello\n");
         run("comparison", """
                 string a = "apple";
                 string<<6>> b = "banana";
@@ -340,10 +364,9 @@ public final class StdlibTest {
                 System.stdout.println(s.contains(122));
                 string w = s.substring(6, 11);
                 System.stdout.println(w);
-                w.toUpper();
+                w = w.toUpper();
                 System.stdout.println(w);
-                string c = s.copy();
-                c.toUpper();
+                string c = s.toUpper();
                 System.stdout.println(s);
                 System.stdout.println(c);
                 """, "6\nfalse\nworld\nWORLD\nhello world\nHELLO WORLD\n");
@@ -682,10 +705,13 @@ public final class StdlibTest {
                 string<<4>> s = "abc";
                 System.stdout.print(s.charAt(3));
                 """, "uncaught IndexOutOfBoundsException: string index 3 out of range for length 3");
-        trap("fixed string full", """
-                string<<2>> s = "ab";
-                s.append(99);
-                """, "uncaught IllegalStateException: string<<2>> is full");
+        trap("StringBuilder bounds", """
+                System.stdout.print(new StringBuilder("ab").charAt(5));
+                """, "uncaught IndexOutOfBoundsException: index 5 out of range for length 2");
+        trap("a string from part of an array", """
+                array<char> cs = new array<char>(3);
+                string s = new string(cs, 2, 2);
+                """, "uncaught IndexOutOfBoundsException: offset 2 and count 2 out of range for an array of length 3");
         trap("parse error", """
                 System.stdout.println(Integer.parse("12x"));
                 """, "uncaught NumberFormatException: not a decimal integer: \"12x\"");
@@ -707,15 +733,15 @@ public final class StdlibTest {
         run("changing a copy of a string never changes the original", """
                 string a = "hello";
                 string b = a;
-                b.append("!");
+                b += "!";
                 System.stdout.println(a);
                 System.stdout.println(b);
-                a.set(0, 72);
+                a = a.replace('h', 'H');
                 System.stdout.println(a);
                 System.stdout.println(b);
                 string c = b;
-                c.append("?");
-                b.append(".");
+                c += "?";
+                b += ".";
                 System.stdout.println(b);
                 System.stdout.println(c);
                 """, "hello\nhello!\nHello\nhello!\nhello!.\nhello!?\n");
@@ -738,14 +764,25 @@ public final class StdlibTest {
                 xs.add(new Res(1));
                 xs.add(new Res(2));
                 xs.add(new Res(3));
-                System.stdout.print("<");
+                int start = Probe.live();
                 xs.removeAt(0);
-                System.stdout.print("|");
+                System.stdout.print(start - Probe.live());
                 xs.removeLast();
-                System.stdout.print("|");
+                System.stdout.print(start - Probe.live());
                 xs.clear();
-                System.stdout.println(">");
-                """, "<1|3|2>\n");
+                System.stdout.println(start - Probe.live());
+                """, "123\n");
+        run("queues and maps release what they remove", """
+                Queue<Res> q = new Queue();
+                IntMap<Res> m = new IntMap();
+                for (int i = 0; i < 20; i++) { q.push(new Res(i)); m.put(i, new Res(i)); }
+                int start = Probe.live();
+                for (int i = 0; i < 5; i++) { q.pop(); m.remove(i); }
+                System.stdout.print(start - Probe.live());
+                q.clear();
+                m.clear();
+                System.stdout.println(" " + (start - Probe.live()));
+                """, "10 40\n");
         run("collections and strings leave nothing behind", """
                 List<string> words = new List();
                 for (int i = 0; i < 50; i += 1) { words.add(Integer.toString(i)); }
@@ -766,7 +803,7 @@ public final class StdlibTest {
                     inner.add(new Res(9));
                     nested.add(inner);
                 }
-                """, "2\n49\n999");
+                """, "2\n49\n");
     }
 
     private static void conflicts() {
@@ -792,13 +829,13 @@ public final class StdlibTest {
     private static Result execute(String body) {
         Map<String, String> files = new LinkedHashMap<>();
         files.put("Thing.seal", "class Thing { }");
-        files.put("Res.seal", "class Res { public int id; public new(int i) { id = i; } delete() { System.stdout.print(id); } }");
+        files.put("Res.seal", "class Res { public int id; public new(int i) { id = i; } }");
         files.put("Keep.seal", "struct Keep { public static Res thing; }");
         files.put("Pt.seal", "class Pt { public int x; public int y; public new(int x, int y) { this.x = x; this.y = y; }"
                 + " @overload(Operator.EQUALS) public bit same(Pt o) { return o != null && x == o.x && y == o.y; }"
                 + " public uint<<64>> hash() { return Hash.of(x * 31 + y); } }");
         files.put("Main.seal", "struct Main\n{\n"
-                + "    static void shout(string s) { s.toUpper(); s.append(\"!\"); System.stdout.println(s); }\n"
+                + "    static void shout(string s) { s = s.toUpper(); s += \"!\"; System.stdout.println(s); }\n"
                 + "    static void fill(List<int> xs) { while (xs.size() < 5) { xs.add(0); } }\n"
                 + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n");
         Checker checker = Checker.analyze(files, library);

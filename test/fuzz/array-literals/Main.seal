@@ -17,7 +17,7 @@ struct Main
         m = [m[1], m[0]];
         System.stdout.println(m[0][1] * 10 + m[1][0]);
         array<string><<3>> names = ["ann", "bob", "cy"];
-        names[1].append("!");
+        names[1] = names[1] + "!";
         names = [names[2], names[1], "dee"];
         System.stdout.println(names[1]);
         Box first = new Box(10);

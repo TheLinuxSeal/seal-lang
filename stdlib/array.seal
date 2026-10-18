@@ -16,6 +16,12 @@
 // Elements are copied in and out, so they can't be uniques themselves: no
 // array<array<int>>, but an array<array<int><<3>>> is fine, as fixed arrays
 // are values.
+//
+// array<T> is the language's own type, which classes may hold although it is
+// a unique: it has no destructor of its own, as its memory goes with it. On
+// the JVM it is a Java array; this is its implementation on the VM, and the
+// one place in the library that still uses pointers. The collections (List,
+// Queue, IntMap, HashMap, StringBuilder) are built on it.
 unique array<T>
 {
     addr<T> items;   // len elements on the heap
@@ -34,6 +40,9 @@ unique array<T>
     }
 
     public int length() { return len; }
+
+    /** Where the elements are, for the buffer behind bare strings on the VM (StringChars). */
+    private<string> addr<T> start() { return items; }
 
     public bit isEmpty() { return length() == 0; }
 
@@ -71,6 +80,19 @@ unique array<T>
     {
         array<T> out = new array<T>(length());
         for (int i = 0; i < length(); i++) { out.set(i, get(i)); }
+        return out;
+    }
+
+    /**
+     * A new array of n elements: this one's first n, and default ones after
+     * them if it is shorter, as Java's Arrays.copyOf. A list grows with
+     * `items = items.copyOf(2 * items.length());`.
+     */
+    public array<T> copyOf(int n)
+    {
+        array<T> out = new array<T>(n);
+        int k = n < length() ? n : length();
+        for (int i = 0; i < k; i++) { out.set(i, get(i)); }
         return out;
     }
 
@@ -153,6 +175,7 @@ unique array<T>
         for (int i = 0; i < length(); i++) { set(i, sorted.get(i)); }
     }
 
+    // Frees the elements' memory on the VM; the JVM's garbage collector does this itself.
     delete()
     {
         T blank;

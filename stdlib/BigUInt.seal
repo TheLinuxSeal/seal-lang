@@ -204,10 +204,9 @@ struct BigUInt<<int BITS>>
             n++;
             if (v.isZero()) { break; }
         }
-        string s;
-        s.reserve(n);
+        StringBuilder s = new StringBuilder(n);
         for (int i = n - 1; i >= 0; i--) { s.append(digits[i]); }
-        return s;
+        return s.toString();
     }
 
     /** Sets the value from decimal text; fails on anything but digits. */

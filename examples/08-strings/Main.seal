@@ -1,19 +1,27 @@
 // Strings (§39): string<<N>> holds up to N characters inline; the bare
-// string grows on the heap. Strings are values: copies are independent, and
-// memory is freed automatically.
+// string holds any number, on the heap. Strings are immutable, as in Java:
+// methods such as toUpper return a new string, s += x stores a new string in
+// s, and a StringBuilder builds text a piece at a time.
 struct Main
 {
-    /** ROT13. A string<<int N>> parameter accepts a fixed string of any capacity, and N is reused in the result. */
-    static string<<N>> rot13(string<<int N>> s)
+    /** A string<<int N>> parameter accepts a fixed string of any capacity, and N is reused in the result. */
+    static string<<N>> shout(string<<int N>> s) { return s.toUpper(); }
+
+    /** ROT13: the new text is built with a StringBuilder, since a string never changes. */
+    static string rot13(string s)
     {
-        // s is this function's own copy, so change it and return it.
+        StringBuilder out = new StringBuilder(s.length());
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
             // Arithmetic on a char gives an int, so the result is cast back to a char.
-            if (Char.isLower(c)) { s.set(i, (char)((c - 'a' + 13) % 26 + 'a')); }
-            if (Char.isUpper(c)) { s.set(i, (char)((c - 'A' + 13) % 26 + 'A')); }
+            if (Char.isLower(c)) {
+                c = (char)((c - 'a' + 13) % 26 + 'a');
+            } else if (Char.isUpper(c)) {
+                c = (char)((c - 'A' + 13) % 26 + 'A');
+            }
+            out.append(c);
         }
-        return s;
+        return out.toString();
     }
 
     static int main()
@@ -28,19 +36,26 @@ struct Main
         System.stdout.print(" of at most ");
         System.stdout.println(both.maxLength());
 
-        System.stdout.println("== growable strings ==");
-        string built;
-        built.append("counting:");
+        System.stdout.println("== bare strings ==");
+        string built = "counting:";
         for (int i = 1; i <= 5; i++) {
-            built.append(32);
-            string n = Integer.toString(i * i);
-            built.append(n);
+            built += ' ';          // a new string, stored in built
+            built += i * i;
         }
         System.stdout.println(built);
-        string upper = built;      // a copy: changing it leaves `built` alone
-        upper.toUpper();
+        string upper = built.toUpper();   // a new string: built stays as it is
         System.stdout.println(upper);
         System.stdout.println(built.substring(0, 8));
+
+        System.stdout.println("== building text ==");
+        StringBuilder letters = new StringBuilder();
+        for (char c = 'a'; c <= 'e'; c++) {
+            letters.append(c).append(c);   // append returns the builder, so calls chain
+        }
+        System.stdout.println(letters.toString());
+        letters.reverse();
+        letters.setCharAt(0, 'E');
+        System.stdout.println(letters + ", " + letters.length() + " characters");
 
         System.stdout.println("== comparing and sorting ==");
         List<string<<10>>> fruit = new List();
@@ -61,10 +76,10 @@ struct Main
 
         System.stdout.println("== characters and numbers ==");
         string<<24>> secret = "Attack at Dawn";
-        secret = rot13(secret);
-        System.stdout.println(secret);
-        secret = rot13(secret);
-        System.stdout.println(secret);
+        System.stdout.println(shout(secret));
+        string coded = rot13(secret);
+        System.stdout.println(coded);
+        System.stdout.println(rot13(coded));
         System.stdout.print("\"-12345\" parses to ");
         System.stdout.println(Integer.parse("-12345"));
         System.stdout.print("255 in base 2: ");

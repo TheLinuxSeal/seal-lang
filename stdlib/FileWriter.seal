@@ -1,13 +1,12 @@
 // Writes a text file, like Java's FileWriter (§42.1).
 //
-//   FileWriter out = new FileWriter("report.txt");       // or (path, true) to add to the end
-//   out.println("total: " + total);
-//   out.close();
+//   try (FileWriter out = new FileWriter("report.txt")) {   // or (path, true) to add to the end
+//       out.println("total: " + total);
+//   }                                                        // closed here, however the block is left
 //
 // What is written is buffered: flush() or close() makes sure it is in the
-// file. It closes itself when the last reference to it goes, if not before,
-// and anything still open when the program ends is written out then. See
-// Writer for its methods.
+// file, and anything still open when the program ends is written out then.
+// See Writer for its methods.
 class FileWriter extends(Writer)
 {
     /** Creates the file, or empties it if it exists. */

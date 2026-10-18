@@ -5,10 +5,5 @@ class Note implements(Describable)
 
     public new(string t) { text = t; }
 
-    public string describe()
-    {
-        string s = "note: ";
-        s.append(text);
-        return s;
-    }
+    public string describe() { return "note: " + text; }
 }

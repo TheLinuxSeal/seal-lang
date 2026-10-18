@@ -11,13 +11,7 @@ abstract class Shape implements(Describable, Comparable<Shape>)
     public abstract string name();
     public abstract int area();
 
-    public string describe()
-    {
-        string s = name();
-        s.append(", area ");
-        s.append(Integer.toString(area()));
-        return s;
-    }
+    public string describe() { return name() + ", area " + area(); }
 
     public int compareTo(Shape other) { return area() - other.area(); }
 }

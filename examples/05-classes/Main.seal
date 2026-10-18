@@ -27,11 +27,12 @@ struct Main
         Car asCar = car;                         // a Vehicle<<4>> is a Car
         System.stdout.println(asCar.kind());
 
-        System.stdout.println("== objects are freed when nothing refers to them ==");
-        zoo.clear();                 // frees every animal except Rex: `rex` still refers to him
-        System.stdout.println("rex still refers to Rex");
-        rex = null;                  // the last reference to Rex is gone
-        System.stdout.println("the vehicles are freed at the end of main");
+        System.stdout.println("== handles share one object ==");
+        Animal same = rex;           // a second reference to Rex, not a copy
+        same.name = "Max";
+        rex.describe();              // Rex is Max now, through either name
+        zoo.clear();                 // the list lets go of the animals; Max stays, as rex refers to him
+        System.stdout.println(zoo.size() + " in the zoo, " + rex.name + " still here");
         return 0;
     }
 }

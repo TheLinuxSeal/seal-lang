@@ -20,7 +20,6 @@ class Card
             case 13 -> s = "K";
             default -> s = "" + rank;
         }
-        s.append(suit.symbol());
-        return s;
+        return s + suit.symbol();
     }
 }

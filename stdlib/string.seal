@@ -1,22 +1,26 @@
 // Strings of 16-bit characters (§39).
 //
 //   string<<N>>  holds up to N characters inline. It never allocates.
-//   string       (the bare shape) grows as needed, with its characters in a
-//                shared heap buffer.
+//   string       (the bare shape) holds any number, in a buffer on the heap.
 //
-// Strings are values: `b = a` gives b the same text, and changing b never
-// changes a. Copies share their characters until one of them is changed
-// (copy-on-write), and buffers are freed automatically. A string made from a
-// literal uses the literal's characters until it is first changed.
+// Strings are immutable, as Java's: no method changes one. Methods such as
+// substring, trim and toUpper return a new string, `s += x` stores a new
+// string in s, and StringBuilder builds text a piece at a time.
+//
+// On the VM, copies of a bare string share its buffer (a StringChars), and a
+// string literal's characters stay in static data. `s += x` adds to the
+// buffer in place when s ends where the buffer's used part ends, which no
+// other string can see; otherwise it copies into a new buffer. On the JVM a
+// bare string is a java.lang.String.
 struct string<<>>
 struct string<<int N>>
 {
     int size;
     array<char><<N>> chars<<int N>>;
+    // The characters: a literal's in static data, or the start of owner's.
     addr<char> chars<<>>;
-    int capacity<<>>;
-    // The buffer that `chars` points into; null while using a literal's characters.
-    StringBuffer owner<<>>;
+    // The buffer holding them; null for a literal's.
+    StringChars owner<<>>;
 
     // ------------------------------------------------------------ construction
 
@@ -29,17 +33,35 @@ struct string<<int N>>
     @implicit
     public new<<>>(string<<int K>> other)
     {
-        reserve(other.length());
-        append(other);
+        room(other.length());
+        put(other);
+    }
+
+    /** The characters of an array, as Java's new String(char[]). */
+    public new<<>>(array<char> chars)
+    {
+        room(chars.length());
+        for (int i = 0; i < chars.length(); i++) { put(chars[i]); }
+    }
+
+    /** count characters of an array, from offset on, as Java's new String(char[], offset, count). */
+    public new<<>>(array<char> chars, int offset, int count)
+    {
+        if (offset < 0 || count < 0 || offset > chars.length() - count) {
+            throw new IndexOutOfBoundsException("offset " + offset + " and count " + count + " out of range for an array of length " + chars.length());
+        }
+        room(count);
+        for (int i = 0; i < count; i++) { put(chars[offset + i]); }
     }
 
     /** The n characters the last file operation produced, as a new bare string (§42.1). */
     private<Files, Reader> static string takeText(int n)
     {
         string s;
-        s.reserve(n);
+        s.room(n);
         takeInto(s.chars);
         s.size = n;
+        s.owner.used = n;
         return s;
     }
 
@@ -65,8 +87,8 @@ struct string<<int N>>
     public static string fromChars(addr<char> chars, int n)
     {
         string s;
-        s.reserve(n);
-        for (int i = 0; i < n; i++) { s.append(&(chars + (int<<64>>)i * 16)); }
+        s.room(n);
+        for (int i = 0; i < n; i++) { s.put(&(chars + (int<<64>>)i * 16)); }
         return s;
     }
 
@@ -93,24 +115,6 @@ struct string<<int N>>
         return &(chars + (int<<64>>)i * 16);
     }
 
-    public void set<<int N>>(int i, char c)
-    {
-        if (i < 0 || i >= size) { throw new IndexOutOfBoundsException("string index " + i + " out of range for length " + size); }
-        chars[i] = c;
-    }
-
-    public void set<<>>(int i, char c)
-    {
-        if (i < 0 || i >= size) { throw new IndexOutOfBoundsException("string index " + i + " out of range for length " + size); }
-        reserve(size);
-        &(chars + (int<<64>>)i * 16) = c;
-    }
-
-    /**
-     * The characters as an array of the string's capacity; places past
-     * length() are 0. For a literal the two are equal: "abc".toCharArray()
-     * is a char[3].
-     */
     /** The characters as an array of exactly length() chars. */
     public array<char> toCharArray<<>>()
     {
@@ -119,6 +123,11 @@ struct string<<int N>>
         return out;
     }
 
+    /**
+     * The characters as an array of the string's capacity; places past
+     * length() are 0. For a literal the two are equal: "abc".toCharArray()
+     * is an array<char><<3>>.
+     */
     public array<char><<N>> toCharArray<<int N>>()
     {
         array<char><<N>> result;
@@ -126,42 +135,66 @@ struct string<<int N>>
         return result;
     }
 
-    // ------------------------------------------------------------ building
+    // ------------------------------------------------------------ making strings
+    //
+    // put and room add to a string being made, before anything else sees it:
+    // a local of a method here that makes and returns a new string. A bare
+    // string adds to its buffer in place only past the end of what any other
+    // string uses of it, so none of them changes.
 
-    public void append<<int N>>(char c)
+    void put<<int N>>(char c)
     {
         if (size >= N) { throw new IllegalStateException("string<<" + N + ">> is full"); }
         chars[size] = c;
         size++;
     }
 
-    public void append<<>>(char c)
+    void put<<>>(char c)
     {
-        reserve(size + 1);
+        room(size + 1);
         &(chars + (int<<64>>)size * 16) = c;
         size++;
+        owner.used = size;
     }
 
-    public void append<<int N>>(string other)
+    void put<<int N>>(string other)
     {
-        for (int i = 0; i < other.length(); i++) { append(other.charAt(i)); }
+        for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
     }
 
-    public void append<<>>(string other)
+    void put<<>>(string other)
     {
-        reserve(size + other.length());
-        for (int i = 0; i < other.length(); i++) { append(other.charAt(i)); }
+        room(size + other.length());
+        for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
     }
 
-    public void append<<int N>>(string<<int K>> other)
+    void put<<int N>>(string<<int K>> other)
     {
-        for (int i = 0; i < other.length(); i++) { append(other.charAt(i)); }
+        for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
     }
 
-    public void append<<>>(string<<int K>> other)
+    void put<<>>(string<<int K>> other)
     {
-        reserve(size + other.length());
-        for (int i = 0; i < other.length(); i++) { append(other.charAt(i)); }
+        room(size + other.length());
+        for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
+    }
+
+    /**
+     * Makes room for n characters in a buffer this string may add to: its own,
+     * if nothing uses that buffer past this string's end and it is big enough;
+     * otherwise a new one, with the characters copied, at least twice as big.
+     */
+    void room<<>>(int n)
+    {
+        if (owner != null && owner.used == size && n <= owner.data.length()) { return; }
+        int c = owner == null ? 0 : owner.data.length() * 2;
+        if (c < 8) { c = 8; }
+        if (c < n) { c = n; }
+        StringChars fresh = new StringChars(c);
+        for (int i = 0; i < size; i++) { fresh.data[i] = &(chars + (int<<64>>)i * 16); }
+        fresh.used = size;
+        chars = fresh.data.start();
+        owner = fresh;     // the old buffer is freed once no string uses it
     }
 
     /** Joins two fixed strings into one whose capacity is the sum of theirs. */
@@ -169,8 +202,8 @@ struct string<<int N>>
     public string<<N + K>> add<<int N>>(string<<int K>> other)
     {
         string<<N + K>> result;
-        for (int i = 0; i < size; i++) { result.append(chars[i]); }
-        result.append(other);
+        for (int i = 0; i < size; i++) { result.put(chars[i]); }
+        result.put(other);
         return result;
     }
 
@@ -187,7 +220,7 @@ struct string<<int N>>
     @overload(Operator.ADD) public string add<<int N>>(fixed<<int A, int B>> x) { return join(Fixed.toString(x)); }
     @overload(Operator.ADD) public string add<<int N>>(ufixed<<int A, int B>> x) { return join(Fixed.toString(x)); }
     @overload(Operator.ADD) public string add<<int N>>(bit x) { if (x) { return join("true"); } return join("false"); }
-    @overload(Operator.ADD) public string add<<int N>>(char c) { string r = copy(); r.append(c); return r; }
+    @overload(Operator.ADD) public string add<<int N>>(char c) { string r = copy(); r.put(c); return r; }
 
     @overload(Operator.ADD) public string add<<>>(string other) { return join(other); }
     @overload(Operator.ADD) public string add<<>>(string<<int K>> other) { return join(other); }
@@ -199,53 +232,27 @@ struct string<<int N>>
     @overload(Operator.ADD) public string add<<>>(fixed<<int A, int B>> x) { return join(Fixed.toString(x)); }
     @overload(Operator.ADD) public string add<<>>(ufixed<<int A, int B>> x) { return join(Fixed.toString(x)); }
     @overload(Operator.ADD) public string add<<>>(bit x) { if (x) { return join("true"); } return join("false"); }
-    @overload(Operator.ADD) public string add<<>>(char c) { string r = copy(); r.append(c); return r; }
+    @overload(Operator.ADD) public string add<<>>(char c) { string r = this; r.put(c); return r; }
 
-    // s += x appends to s itself (§46): its own operator, not s = s + x.
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(string other) { append(other); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(string<<int K>> other) { append(other); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(int x) { append(Integer.toString(x)); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(int<<int W>> x) { append(Integer.toString((int<<64>>)x)); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(uint<<int W>> x) { append(Integer.toString((uint<<64>>)x)); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(double x) { append(Double.toString(x)); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(float x) { append(Float.toString(x)); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(fixed<<int A, int B>> x) { append(Fixed.toString(x)); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(ufixed<<int A, int B>> x) { append(Fixed.toString(x)); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(bit x) { if (x) { append("true"); } else { append("false"); } }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(char c) { append(c); }
+    // s += x stores s + x in s (§46). That is a new string, which may share s's
+    // buffer: see put. (A compound operator is its own, so string declares it.)
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(string other) { put(other); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(string<<int K>> other) { put(other); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(int x) { put(Integer.toString(x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(int<<int W>> x) { put(Integer.toString((int<<64>>)x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(uint<<int W>> x) { put(Integer.toString((uint<<64>>)x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(double x) { put(Double.toString(x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(float x) { put(Float.toString(x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(fixed<<int A, int B>> x) { put(Fixed.toString(x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(ufixed<<int A, int B>> x) { put(Fixed.toString(x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(bit x) { if (x) { put("true"); } else { put("false"); } }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(char c) { put(c); }
 
     string join(string text)
     {
-        string r = copy();
-        r.append(text);
+        string r = this;
+        r.put(text);
         return r;
-    }
-
-    public void clear() { size = 0; }
-
-    /**
-     * Makes room for at least n characters in a buffer this string alone
-     * uses. Copy-on-write: if the buffer is shared with another copy (or is a
-     * literal's), the characters are copied into a new buffer first.
-     */
-    public void reserve<<>>(int n)
-    {
-        bit shared = owner == null || System.refCount(owner) > 1;
-        if (!shared && n <= capacity) { return; }
-        int c = capacity;
-        if (n > c) {
-            c = capacity * 2;
-            if (c < 8) { c = 8; }
-            if (c < n) { c = n; }
-        }
-        StringBuffer fresh = new StringBuffer();
-        fresh.chars = new<char>(c);
-        for (int i = 0; i < size; i++) {
-            &(fresh.chars + (int<<64>>)i * 16) = &(chars + (int<<64>>)i * 16);
-        }
-        chars = fresh.chars;
-        capacity = c;
-        owner = fresh;     // the old buffer is released, and freed if nothing else uses it
     }
 
     // ------------------------------------------------------------ comparison
@@ -406,27 +413,73 @@ struct string<<int N>>
 
     // ------------------------------------------------------------ conversion
 
-    /** Characters from (inclusive) to to (exclusive), as a new bare string the caller owns. */
+    /** Characters from (inclusive) to to (exclusive), as a new bare string. */
     public string substring(int from, int to)
     {
         if (from < 0 || to > size || from > to) { throw new IndexOutOfBoundsException("substring(" + from + ", " + to + ") out of range for length " + size); }
         string result;
-        result.reserve(to - from);
-        for (int i = from; i < to; i++) { result.append(charAt(i)); }
+        result.room(to - from);
+        for (int i = from; i < to; i++) { result.put(charAt(i)); }
         return result;
     }
 
-    /** A copy as a bare string the caller owns. */
+    /** The same text as a bare string: for a fixed string, (string)s. */
     public string copy() { return substring(0, size); }
 
-    public void toUpper()
+    /** The string with every letter in upper case: s = s.toUpper(); as Java's toUpperCase. */
+    public string<<N>> toUpper<<int N>>()
     {
-        for (int i = 0; i < size; i++) { set(i, Char.toUpper(charAt(i))); }
+        string<<N>> r;
+        for (int i = 0; i < size; i++) { r.put(Char.toUpper(chars[i])); }
+        return r;
     }
 
-    public void toLower()
+    public string toUpper<<>>()
     {
-        for (int i = 0; i < size; i++) { set(i, Char.toLower(charAt(i))); }
+        string r;
+        r.room(size);
+        for (int i = 0; i < size; i++) { r.put(Char.toUpper(charAt(i))); }
+        return r;
+    }
+
+    /** The string with every letter in lower case, as Java's toLowerCase. */
+    public string<<N>> toLower<<int N>>()
+    {
+        string<<N>> r;
+        for (int i = 0; i < size; i++) { r.put(Char.toLower(chars[i])); }
+        return r;
+    }
+
+    public string toLower<<>>()
+    {
+        string r;
+        r.room(size);
+        for (int i = 0; i < size; i++) { r.put(Char.toLower(charAt(i))); }
+        return r;
+    }
+
+    /** The string with every old character replaced by new, as Java's replace(char, char). */
+    public string replace(char old, char replacement)
+    {
+        string r;
+        r.room(size);
+        for (int i = 0; i < size; i++) {
+            char c = charAt(i);
+            r.put(c == old ? replacement : c);
+        }
+        return r;
+    }
+
+    /** The string n times over, as Java's repeat. */
+    public string repeat(int n)
+    {
+        if (n < 0) { throw new IllegalArgumentException("repeat count is negative: " + n); }
+        string r;
+        r.room(size * n);
+        for (int k = 0; k < n; k++) {
+            for (int i = 0; i < size; i++) { r.put(charAt(i)); }
+        }
+        return r;
     }
 
     /** Parses an optionally negative decimal integer; fails on anything else. */

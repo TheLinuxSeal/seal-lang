@@ -1,12 +1,12 @@
 struct Main
 {
-    static string shout(string s) { s.toUpper(); s.append("!"); return s; }
+    static string shout(string s) { s = s.toUpper(); s += "!"; return s; }
 
     static int main()
     {
         string a = "hello";
         string b = a;
-        b.append(" world");
+        b += " world";
         string c = shout(b);
         a = c;
         IntMap<string> names = new IntMap();
@@ -28,7 +28,7 @@ struct Main
         words.sort();
         string<<16>> fixedText = "fixed";
         string joined = words.get(0);
-        joined.append(fixedText);
+        joined += fixedText;
         System.stdout.print(joined.length() + names.size() + q.size() + first.legs);
         System.stdout.println();
         return 0;

@@ -1,14 +1,18 @@
 == fixed-capacity strings ==
 Hello, world
 length 12 of at most 12
-== growable strings ==
+== bare strings ==
 counting: 1 4 9 16 25
 COUNTING: 1 4 9 16 25
 counting
+== building text ==
+aabbccddee
+Eeddccbbaa, 10 characters
 == comparing and sorting ==
 apple banana fig kiwi pear 
 index of apple: 0
 == characters and numbers ==
+ATTACK AT DAWN
 Nggnpx ng Qnja
 Attack at Dawn
 "-12345" parses to -12345

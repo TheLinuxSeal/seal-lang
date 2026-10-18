@@ -1,9 +1,0 @@
-// The heap buffer behind a growable string. Strings share a StringBuffer
-// until one of them is changed (copy-on-write); it is freed automatically
-// when no string uses it any more.
-class StringBuffer
-{
-    public addr<char> chars;
-
-    delete() { delete chars; }
-}

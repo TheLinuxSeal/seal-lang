@@ -41,7 +41,10 @@ public final class LanguageTest {
 
     public static void main(String[] args) throws IOException {
         Main.readSources(Path.of("stdlib"), LIBRARY);
+        // Probe.live(): how many class objects are live, through a native only the VM's tests declare.
+        LIBRARY.put("Probe.seal", "struct Probe { @native(\"live_objects\") public static int live() { } }");
         inheritance();
+        resources();
         construction();
         destruction();
         pointers();
@@ -104,8 +107,6 @@ public final class LanguageTest {
                         pr(c.y);
                         handle<B> b = new B();
                         pr(b.chain());
-                        delete a;
-                        delete b;
                         """)), "23 111 5 2 ");
         output("virtual methods returning objects", files(
                 "Point", "struct Point { public int x; public int y; }",
@@ -127,7 +128,6 @@ public final class LanguageTest {
                         handle<Shape> s = new Square();
                         Point c = s.corner();
                         pr(c.x); pr(c.y); pr(s.area());
-                        delete s;
                         """)), "7 14 7 ");
         compileError("overrides must keep the return type", files(
                 "A", "class A { public int<<8>> f() { return 1; } }",
@@ -239,15 +239,35 @@ public final class LanguageTest {
                 { array<Noisy<<6>>><<3>> arr; }
                 System.stdout.println();
                 """)), "666\n");
-        output("deleting a dynamic object destroys its fields", files(
+        output("a unique's body runs before its fields are destroyed, last first", files(
                 "Noisy", noisy,
-                "Holder", "class Holder { public Noisy<<7>> n; delete() { System.stdout.print(0); } }",
-                "Main", main("handle<Holder> h = new Holder(); delete h;")), "07");
-        output("destructor chain through parents", files(
+                "Pair", "unique Pair { Noisy<<1>> a; Noisy<<2>> b; delete() { System.stdout.print(9); } }",
+                "Main", main("{ Pair p; System.stdout.print('|'); } System.stdout.println();")), "|921\n");
+        compileError("a class can't have a destructor", files(
+                "Holder", "class Holder { public int n; delete() { System.stdout.print(0); } }",
+                "Main", main("Holder h = new Holder();")),
+                "class Holder cannot have a destructor: the garbage collector frees class objects, at no set time");
+        compileError("a class can't hold a unique with a destructor", files(
                 "Noisy", noisy,
-                "P", "class P { Noisy<<1>> pn; delete() { System.stdout.print(8); } }",
-                "Q", "class Q extends(P) { Noisy<<2>> qn; delete() { System.stdout.print(9); } }",
-                "Main", main("handle<P> h = new Q(); delete h;")), "9281");
+                "Holder", "class Holder { public Noisy<<7>> n; }",
+                "Main", main("Holder h = new Holder();")),
+                "class Holder can't hold Noisy<<7>> in n: Noisy<<7>> has a destructor");
+        compileError("nor one inside a struct or a fixed array", files(
+                "Noisy", noisy,
+                "Wrap", "unique Wrap { public array<Noisy<<1>>><<2>> two; }",
+                "Holder", "class Holder { public Wrap w; }",
+                "Main", main("Holder h = new Holder();")),
+                "class Holder can't hold Wrap in w: Wrap has a destructor");
+        compileError("nor one given as a type argument", files(
+                "Noisy", noisy,
+                "Box", "class Box<T> { public T item; }",
+                "Main", main("Box<Noisy<<3>>> b = new Box();")),
+                "Box<Noisy<<3>>> can't hold Noisy<<3>> in item: Noisy<<3>> has a destructor");
+        output("a class may hold a unique without a destructor, and an array<T>", files(
+                "Quiet", "unique Quiet { public int n; }",
+                "Holder", "class Holder { public Quiet q; public array<int> xs = new array<int>(3); public static Noisy<<5>> kept; }",
+                "Noisy", noisy,
+                "Main", main("Holder h = new Holder(); h.q.n = 4; h.xs[2] = 6; pr(h.q.n + h.xs[2]);")), "10 5");
     }
 
     private static void pointers() {
@@ -312,7 +332,6 @@ public final class LanguageTest {
                         c.items[0].pages = 3;
                         pr(c.items[0].pages);
                         pr(c.items[1] == null);
-                        delete c.items[0];
                         """)), "3 true ");
         output("static method with a binder", files(
                 "Box", "struct Box<<int N>> { }",
@@ -1115,23 +1134,24 @@ public final class LanguageTest {
                 {
                     public int v;
                     public new(int n) { v = n; }
-                    delete() { System.stdout.print(v); System.stdout.print("- "); }
                 }
                 """, "Main", """
                 struct Main
                 {
                     static int main()
                     {
+                        int base = Probe.live();
                         Box keep = new Box(1);
                         array<Box><<2>> boxes = [keep, new Box(2)];
                         boxes = [boxes[1], null];
-                        System.stdout.print("swapped ");
+                        System.stdout.print(Probe.live() - base);
                         keep = null;
-                        System.stdout.print(boxes[0].v); System.stdout.print(" ");
+                        System.stdout.print(Probe.live() - base);
+                        System.stdout.print(boxes[0].v);
                         return 0;
                     }
                 }
-                """), "swapped 1- 2 2- ");
+                """), "212");
         output("joining strings with + and converting fixed strings", files("Main", """
                 struct Main
                 {
@@ -1749,7 +1769,6 @@ public final class LanguageTest {
                 {
                     public int v;
                     public new(int n) { v = n; }
-                    delete() { System.stdout.print("~box" + v + " "); }
                 }
                 """;
         output("an exception unwinds frames, destroying and releasing what they hold", files("Res", res, "Box", box,
@@ -1771,15 +1790,17 @@ public final class LanguageTest {
                     }
                     static int main()
                     {
+                        int base = Probe.live();
                         try {
                             depth(2);
                         } catch (BadInput e) {
                             System.stdout.print("caught " + e.getMessage() + " " + e.code);
                         }
+                        System.stdout.print(", " + (Probe.live() - base) + " left");
                         return 0;
                     }
                 }
-                """), "+2 +1 +0 ~box0 -0 ~box1 -1 ~box2 -2 caught bottom 42");
+                """), "+2 +1 +0 -0 -1 -2 caught bottom 42, 0 left");
         output("finally runs on every way out", files("Main", """
                 struct Main
                 {
@@ -1942,7 +1963,6 @@ public final class LanguageTest {
                     public Node prepend(int v) { return new Node(v, this); }
                     public bit same(Node other) { return this == other; }
                     public Supplier<int> getter() { return () -> this.value * 2; }
-                    delete() { System.stdout.print("~" + value); }
                 }
                 """, "Main", """
                 struct Main
@@ -1961,7 +1981,7 @@ public final class LanguageTest {
                         return 0;
                     }
                 }
-                """), "6 7 11 2 2 1 truefalse 4 ~2~1");
+                """), "6 7 11 2 2 1 truefalse 4 ");
         compileError("no this in static code", files("Main", main("System.stdout.print(this == null);")),
                 "this is only available in the methods and constructors of an object, not static code");
         compileError("this can't be assigned", files("P", "struct P { int x; public void f(P o) { this = o; } }", "Main", main("")),
@@ -2434,29 +2454,55 @@ struct Main
     }
 
     private static void handles() {
-        output("null handles and deleting null", files(
+        output("null handles, and deleting a null addr", files(
                 "Doc", "class Doc { public int pages; }",
                 "Main", main("""
                         handle<Doc> d = null;
                         pr(d == null);
-                        delete d;
                         d = new Doc();
                         pr(d != null);
                         addr<int> p = null;
                         delete p;
-                        delete d;
                         """)), "true true ");
-        trap("use after delete through a copy", files(
+        compileError("delete frees only addr memory", files(
                 "Doc", "class Doc { public int pages; }",
-                "Main", main("""
-                        handle<Doc> d = new Doc();
-                        handle<Doc> alias = d;
-                        delete d;
-                        pr(alias.pages);
-                        """)), "stale handle");
-        trap("deleting the same object twice", files(
-                "Doc", "class Doc { }",
-                "Main", main("handle<Doc> d = new Doc(); handle<Doc> e = d; delete d; delete e;")), "stale handle");
+                "Main", main("handle<Doc> d = new Doc(); delete d;")),
+                "delete frees addr memory only; the garbage collector frees a class object once nothing refers to it"
+                        + " (set the variable to null to let go of it)");
+    }
+
+    private static void resources() {
+        compileError("try-with-resources needs an AutoCloseable", files("Doc", "class Doc { public void close() { } }", "Main", """
+                struct Main
+                {
+                    void run() { try (Doc d = new Doc()) { } }
+                }
+                """), "a resource of try-with-resources must implement AutoCloseable, so that it can be closed; Doc doesn't"
+                        + " (it has close(): add implements(AutoCloseable))");
+        compileError("a resource can't be assigned", files("Doc", "class Doc implements(AutoCloseable) { public void close() { } }", "Main", """
+                struct Main
+                {
+                    void run() { try (Doc d = new Doc()) { d = new Doc(); } }
+                }
+                """), "d is a resource of try-with-resources, closed at the end of its block, so it can't be assigned");
+        output("try-with-resources with two resources, catch and finally", files(
+                "Doc", "class Doc implements(AutoCloseable) { public int n; public new(int i) { n = i; } public void close() { System.stdout.print(\"~\" + n); } }",
+                "Main", """
+                struct Main
+                {
+                    static int run()
+                    {
+                        try (Doc a = new Doc(1); Doc b = new Doc(a.n + 1);) { return b.n; } catch (IllegalStateException e) { return -1; } finally { System.stdout.print(" f "); }
+                    }
+                    static int main() { System.stdout.print(run()); return 0; }
+                }
+                """), "~2~1 f 2");
+        compileError("string methods that would change it", files("Main", """
+                struct Main
+                {
+                    void run() { string s = "a"; s.append("b"); }
+                }
+                """), "string has no method append; strings are immutable: s += x stores a new string in s");
     }
 
     private static void fixedPoint() {
@@ -2569,7 +2615,6 @@ struct Main
                     public static Shape unit;
                     public int size;
                     public new(int s) { size = s; instances += 1; }
-                    delete() { instances -= 1; }
                     public static Shape make(int s) { return new Shape(s); }
                     public static int area(Shape s) { return s.size * s.size; }
                     public int bigger() { return make(size + 1).size; }
@@ -2587,9 +2632,7 @@ struct Main
                 Shape s = Shape.make(3);
                 Shape.unit = Shape.make(1);
                 pr(Shape.area(s)); pr(s.bigger()); pr(Shape.unit.size); pr(Shape.instances);
-                s = null;
-                pr(Shape.instances);
-                """)), "9 4 1 2 1 ");
+                """)), "9 4 1 3 ");
         output("static members are inherited", files("Shape", shape, "Square", square, "Main", main("""
                 Shape s = Square.make(2);
                 pr(Square.instances); pr(Square.area(s)); pr(Square.sides()); pr(Square.twoOf().size);
@@ -2655,7 +2698,6 @@ struct Main
                     public int area<<int W, int H>>() { return W * H; }
                     public int describe() { return area() * 10; }        // unguarded, virtual, uses guarded area()
                     public int same<<int W>>(Grid<<int K>> other) { return W + K; }   // binder on a class method
-                    delete() { System.stdout.print("~Grid "); }
                 }
                 """,
                 "Big", """
@@ -2696,7 +2738,7 @@ struct Main
                     }
                 }
                 """),
-                "unique: 2 4 4 9 2 96 160\n~Pool<<4>> ~Pool \nclass: 30 120 8 300 ~Grid | \n~Grid ~Grid ~Grid ");
+                "unique: 2 4 4 9 2 96 160\n~Pool<<4>> ~Pool \nclass: 30 120 8 300 | \n");
     }
 
     private static void genericsOnEveryKind() {
@@ -2745,12 +2787,13 @@ struct Main
                 }
                 """,
                 "Holder", """
-                // a generic class holding a unique (classes may hold uniques)
+                // a generic class holding a unique (classes may hold uniques without destructors)
                 class Holder<T>
                 {
                     public T item;
                 }
                 """,
+                "Pin", "unique Pin { public int n; public new() { } public new(int i) { n = i; } }",
                 "Main", """
                 struct Main
                 {
@@ -2778,9 +2821,9 @@ struct Main
                         Base<double> bd = new Base();
                         bd.value = 0.5;
                         System.stdout.print(bd.get()); System.stdout.print(" "); System.stdout.print(bd.kind()); System.stdout.print(" ");
-                        Holder<Fd> h = new Holder();
-                        h.item = new Fd(8);
-                        System.stdout.print(h.item.fd); System.stdout.print(" ");
+                        Holder<Pin> h = new Holder();
+                        h.item = new Pin(8);
+                        System.stdout.print(h.item.n); System.stdout.print(" ");
                         h = null;
                         System.stdout.println("| ");
 
@@ -2788,7 +2831,7 @@ struct Main
                     }
                 }
                 """),
-                "unique: 9 403 1.5 ~Fd-1 7 ~Fd7 ~Owned ~Owned \nclass: 21 2 42 0.5 1 ~Fd-1 8 ~Fd8 | \n");
+                "unique: 9 403 1.5 ~Fd-1 7 ~Fd7 ~Owned ~Owned \nclass: 21 2 42 0.5 1 8 | \n");
         compileError("a type argument without a no-argument constructor", files(
                 "Fd", "unique Fd { public new(int f) { } }",
                 "Slot", "unique Slot<T> { public T inner; }",
@@ -2834,7 +2877,6 @@ struct Main
                 {
                     public int cents;
                     public new(int c) { cents = c; }
-                    delete() { System.stdout.print("~"); System.stdout.print(cents); System.stdout.print(" "); }
                     @overload(Operator.ADD) public Money plus(Money o) { return new Money(cents + o.cents); }
                     @overload(Operator.ADD_ASSIGN) public void add(Money o) { cents += o.cents; }
                     @overload(Operator.NEGATE) public Money negate() { return new Money(-cents); }
@@ -2883,7 +2925,7 @@ struct Main
                     }
                 }
                 """),
-                "350 -100~-100  truefalse 450 900 550~300 ~550  truefalse~100  10~10  truefalse | ~5 ~900 ~250 ~100 ");
+                "350 -100 truefalse 450 900 550 truefalse 10 truefalse | ");
         compileError("a class without the operator", files(
                 "Thing", "class Thing { }",
                 "Main", main("Thing a = new Thing(); Thing b = a + a;")),
@@ -2941,8 +2983,9 @@ struct Main
                 """)), "+".repeat(40) + "|" + "-".repeat(40) + "\n");
         output("arrays in fields, class objects and static fields", files("P", p, "R", r,
                 "Holder", "struct Holder { public array<P><<2>> ps; }",
-                "Box", "class Box { public array<P><<3>> ps; public array<R><<2>> rs; }",
+                "Box", "class Box { public array<P><<3>> ps; }",
                 "Reg", "struct Reg { public static array<P><<2>> shared; }",
+                "Keep", "unique Keep { public static array<R><<2>> rs; }",
                 "Main", main("""
                         Holder h;
                         pr(h.ps[1].x);
@@ -2951,7 +2994,7 @@ struct Main
                         b = null;
                         System.stdout.print(" ");
                         pr(Reg.shared[1].x);
-                        """)), "7 ++7 -- 7 ");
+                        """)), "++7 7  7 --");
         output("a generic array of a type argument", files("P", p,
                 "Stack", "struct Stack<T><<int N>> { public array<T><<N>> items; }",
                 "Main", main("Stack<P><<5>> s; pr(s.items[4].x);")), "7 ");
@@ -3037,7 +3080,8 @@ struct Main
                     }
                 }
                 """), "1+ 2+ 1- | 2- ");
-        output("a unique stored in a class object can be lent", files("Fd", file,
+        output("a unique stored in a class object can be lent", files(
+                "Fd", "unique Fd { public int fd; public new(int f) { fd = f; System.stdout.print(fd); System.stdout.print(\"+ \"); } }",
                 "Holder", "class Holder { public Fd f = new Fd(3); }",
                 "Main", """
                         struct Main
@@ -3052,7 +3096,7 @@ struct Main
                                 return 0;
                             }
                         }
-                        """), "3+ 4 4- ");
+                        """), "3+ 4 ");
         output("arrays of uniques", files("Fd", """
                 unique Fd
                 {
@@ -3094,7 +3138,6 @@ struct Main
                     public void draw() { System.stdout.print("[] "); }
                     public string name() { return "square"; }
                     public int id() { return 7; }
-                    delete() { System.stdout.print("~sq "); }
                 }
                 """;
         String circle = """
@@ -3104,7 +3147,6 @@ struct Main
                     public new(int radius) { r = radius; }
                     public int area() { return 3 * r * r; }
                     public void draw() { System.stdout.print("() "); }
-                    delete() { System.stdout.print("~ci "); }
                 }
                 """;
         output("abstract methods and interface methods dispatch to the object's class", files("Drawable", drawable,
@@ -3129,7 +3171,7 @@ struct Main
                         return 0;
                     }
                 }
-                """), "12 () () [] square square7 9 1 true ~sq ~ci ");
+                """), "12 () () [] square square7 9 1 true ");
         output("a generic interface", files("Comparable", "interface Comparable<T> { int compareTo(T other); }",
                 "Version", """
                 class Version implements(Comparable<Version>)
@@ -3168,7 +3210,7 @@ struct Main
                         return 0;
                     }
                 }
-                """), "square 3 null truefalse ~ci ~sq ");
+                """), "square 3 null truefalse ");
         trap("casting to an interface the object doesn't implement", files("Drawable", drawable,
                 "Named", named, "Thing", thing, "Shape", shape, "Square", square, "Circle", circle, "Main", """
                 struct Main

@@ -455,14 +455,12 @@ public final class RunTest {
                         System.stdout.print(d.describe()); System.stdout.print(' ');
                         handle<Dog> dog = (handle<Dog>)d;
                         System.stdout.print(dog.both());
-                        delete a;
-                        delete d;
                         return 0;
                     }
                 }
                 """), "102 204 21");
-        output("dynamic destructor", files("Res", """
-                class Res
+        output("a unique's destructor runs at the end of its scope", files("Res", """
+                unique Res
                 {
                     public int id;
                     public new(int i) { id = i; }
@@ -473,12 +471,12 @@ public final class RunTest {
                 {
                     static int main()
                     {
-                        handle<Res> r = new Res(7);
-                        delete r;
+                        { Res r = new Res(7); System.stdout.print('|'); }
+                        System.stdout.print('|');
                         return 0;
                     }
                 }
-                """), "7");
+                """), "|7|");
         output("fixed values inside dynamic objects", files("Point", """
                 struct Point
                 {
@@ -619,24 +617,22 @@ public final class RunTest {
                 {
                     int count = 2;
                     new() { count += 3; }
-                    delete() { System.stdout.print(-count); }
                     int main() { bump(); System.stdout.print(count); return count; }
                     void bump() { count += 1; }
                 }
-                """), "6-6", 6);
-        output("the main object goes before static fields", files("Last", """
-                class Last
+                """), "6", 6);
+        output("a unique in a static field is destroyed after main returns", files("Last", """
+                unique Last
                 {
                     delete() { System.stdout.print(2); }
                 }
                 """, "Main", """
                 class Main
                 {
-                    static Last last = new Last();
-                    delete() { System.stdout.print(1); }
+                    static Last last;
                     void main() { System.stdout.print(0); }
                 }
-                """), "012");
+                """), "02");
         output("instance main of a struct", files("Main", """
                 struct Main
                 {
@@ -724,25 +720,13 @@ public final class RunTest {
         trap("double delete", main("addr<int> p = new<int>(1); delete p; delete p;"),
                 "delete of an address that was not allocated with new");
         String box = "class Box { public int v; }";
-        trap("stale handle", files("Box", box, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
-                        handle<Box> b = new Box();
-                        handle<Box> alias = b;
-                        delete b;
-                        return alias.v;
-                    }
-                }
-                """), "stale handle: the object was deleted");
-        trap("the deleted variable itself becomes null", files("Box", box, "Main", """
+        trap("using a variable set to null", files("Box", box, "Main", """
                 struct Main
                 {
                     static int main()
                     {
                         Box b = new Box();
-                        delete b;
+                        b = null;
                         return b.v;
                     }
                 }

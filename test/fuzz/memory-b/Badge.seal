@@ -1,0 +1,8 @@
+// A unique without a destructor, which a class may hold.
+unique Badge
+{
+    public int id;
+    public Res owner;
+    public new() { id = -1; }
+    public new(int i) { id = i; owner = new Res(i); }
+}

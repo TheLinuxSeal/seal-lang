@@ -46,7 +46,7 @@ There are three kinds of type declaration:
 | -------- | ---------- | ---------- | ----- | -------- | ---------- |
 | `struct` | a value, like a C struct or a C# struct | copies it | inline: in variables, fields, arrays | no | not allowed |
 | `unique` | a value that cannot be copied, for things that own a resource | not allowed from a variable; lend it instead | inline | no | allowed |
-| `class`  | a shared reference object, like a Java class | shares the same object | in the class-object pool, reached through handles | yes, plus interfaces and `abstract` (§30) | allowed |
+| `class`  | a shared reference object, like a Java class | shares the same object | in the class-object pool, reached through handles | yes, plus interfaces and `abstract` (§30) | not allowed: freed automatically, at no set time (§26.1) |
 
 ```text
 struct Point { public int x; public int y; }
@@ -69,7 +69,7 @@ Structs and uniques have exact, fixed layouts (§21-22). A struct or unique cann
 
 Pointers (`addr<T>`, §18-24) are optional: everything except low-level work (reinterpreting bits, writing allocators) can be done without them.
 
-> **Status.** Implemented: the three kinds, implicit handles, reference counting (§26.1), the `struct`/`unique` rules (§16.1), and a standard library that frees its own memory (§39, §42).
+> **Status.** Implemented: the three kinds, implicit handles, automatic freeing of class objects (§26.1), the `struct`/`unique`/`class` rules (§16.1), resources closed with try-with-resources (§41.4), and a standard library that frees its own memory (§39, §42).
 
 ## 2.2 Headers
 
@@ -775,7 +775,7 @@ Destructors use:
 delete<<shape>>()
 ```
 
-The class name is not repeated.
+The class name is not repeated. Only a `unique` has a destructor (§16): a `struct` is copied freely, and a `class` object is freed by the runtime at no set time.
 
 Example:
 
@@ -835,16 +835,13 @@ If one does not exist, the declaration is an error.
 
 # 16. Destruction and Copying
 
-Objects in the fixed pool are explicitly deleted.
+A value is destroyed when its variable goes out of scope, on every path out (falling off the end, `return`, `break`, `continue`, an exception), when the object or value holding it is destroyed, or when a new value is assigned over it. Destroying a value runs, in order:
 
-Proposed destructor order:
+1. its destructor's body, if it is a `unique` with one
+2. the destruction of its fields, in reverse declaration order
+3. the release of its memory
 
-1. destructor body
-2. fields in reverse declaration order
-3. parent's `delete`
-4. release memory
-
-Inline objects are destroyed automatically at scope exit.
+A class object is freed automatically once nothing refers to it (§26.1), and has no destructor: nothing runs at that moment, which the program can't predict. A class whose object holds something that must be released, such as an open file, gives it a `close()` method and implements `AutoCloseable`, and its users close it with try-with-resources (§41.4).
 
 ## 16.1 Copying, sharing and lending
 
@@ -856,10 +853,12 @@ What assignment and passing do depends on the kind of type (§2.1):
 | `unique` | an error, unless `a` is a fresh value (`new`, a function result, an operator result) | lent: the function works on the caller's object |
 | `class`  | shares the object (a handle) | the function gets a handle to the same object |
 
-Rules for `struct` and `unique`:
+Rules for `struct`, `unique` and `class`:
 
 * A `struct` cannot have a destructor, since each copy would run it. Use `unique` instead.
+* A `class` cannot have a destructor, since its objects are freed at no set time (§26.1). Use `close()` and try-with-resources.
 * A `struct` cannot contain a `unique`, directly, in an array, or through a type argument such as `Box<File>`.
+* A `class` cannot hold a `unique` that has a destructor (or holds one that does), directly, in a struct or fixed array, or through a type argument such as `Box<File>`, as the destructor would run whenever the object happens to be freed. A unique without one is fine, and so is `array<T>` (§21.3). A static field may hold one: it is destroyed after `main` returns (§26.1).
 * A `unique` may be initialized or assigned from a fresh value. Assigning to one that already holds a value destroys the old value first.
 * Returning a local `unique` moves it out to the caller; it is not destroyed at the return. A lent parameter cannot be returned or stored, because that would copy it.
 * A lent `unique` stays owned by the caller: the function does not destroy it.
@@ -1142,12 +1141,12 @@ xs.length()
 ```
 
 * Elements start as their type's default (0, `false`, null, `""`, a struct's no-argument constructor). An index outside `0` to `length() - 1` throws an `IndexOutOfBoundsException`.
-* **An array is a unique** (§16.1). Passing it to a method lends it, so the method works on the caller's array: `fill(xs)` fills it, `sort(xs)` sorts it. Returning one moves it out. It can't be copied: `array<int> b = a;` is an error; `a.copy()` makes a second array. It is freed, releasing what its elements refer to, when it goes out of scope (or when the object holding it in a field is freed).
+* **An array is a unique** (§16.1). Passing it to a method lends it, so the method works on the caller's array: `fill(xs)` fills it, `sort(xs)` sorts it. Returning one moves it out. It can't be copied: `array<int> b = a;` is an error; `a.copy()` makes a second array. It is freed, releasing what its elements refer to, when it goes out of scope (or when the object holding it in a field is freed). It has no destructor of its own, so a class may hold one (§16.1).
 * Its elements are copied in and out, so they can't be uniques: no `array<array<int>>` and no `List<array<int>>`. Fixed arrays are values, so `array<array<int><<3>>>` (rows of 3) is fine; so are `array<T><<N, K>>` grids, or one array indexed by `row * width + column`.
-* Methods: `length`, `isEmpty`, `fill`, `copy`, `slice(from, to)`, `toList`, `indexOf`, `contains`, `swap`, `reverse`, `sort()` (by `<`) and `sort(Comparator<T>)` (stable). `List.toArray()` and `string.toCharArray()` give arrays.
+* Methods: `length`, `isEmpty`, `fill`, `copy`, `copyOf(n)` (the first `n` elements, padded with defaults, as Java's `Arrays.copyOf`), `slice(from, to)`, `toList`, `indexOf`, `contains`, `swap`, `reverse`, `sort()` (by `<`) and `sort(Comparator<T>)` (stable). `List.toArray()` and `string.toCharArray()` give arrays, and `new string(chars)` a string.
 * An `array<T><<N>>` converts to an `array<T>` by copying, wherever one is wanted (an initializer, an argument).
 
-`array<T>` is written in the language (`stdlib/array.seal`): an `addr<T>` buffer and a length, with indexing through the `[]` and `[]=` operators (§46).
+`array<T>` is the language's own type. On the VM it is written in the language (`stdlib/array.seal`): an `addr<T>` buffer and a length, with indexing through the `[]` and `[]=` operators (§46); on the JVM it will be a Java array (docs/JVM.md). The library's collections (`List`, `Queue`, `IntMap`, `HashMap`, `StringBuilder`) keep their elements in `array<T>`s, so they use no pointers and free nothing themselves.
 
 ---
 
@@ -1239,31 +1238,24 @@ Handles cannot:
 
 This allows the runtime to move and compact class objects.
 
-A handle is a table index plus a generation counter, so a handle to a deleted object traps when used.
+A handle refers to a live object or is null: nothing frees an object while a handle to it remains.
 
 Class objects carry a hidden size header.
 
-## 26.1 Reference counting
+## 26.1 Freeing class objects
 
-Class objects are freed automatically. Each object counts the handles that refer to it:
-
-* Storing a handle anywhere (a variable, parameter, field, array element, or a struct holding it) adds a reference; overwriting or dropping one removes it.
-* `new` and function results come with one reference, which the destination takes over. A result that is only used briefly, as in `new Foo().run()`, is released at the end of its statement.
-* Copying a struct that contains handles adds a reference for each of them.
-* When the count reaches zero, the class's destructor runs, then the object's own handle fields are released, then the object is freed.
+Class objects are freed automatically, as in Java, once nothing refers to them. When that happens is up to the runtime, so a class has no destructor (§16) and nothing can watch it happen; there is no `delete` for a handle either. To let go of an object, drop the references to it: set a variable to `null`, or let it go out of scope. Something that must be released at a known time, such as an open file, is closed with `close()`, best through try-with-resources (§41.4).
 
 ```text
 {
-    Animal a = new Dog();     // one reference
-    Animal b = a;             // two
-}                             // both dropped: the Dog is freed here
+    Animal a = new Dog();
+    Animal b = a;             // the same Dog
+}                             // nothing refers to it any more: it will be freed
 ```
 
-`delete h` still frees an object immediately, whatever its count. The variable deleted through becomes null; other handles to the object become stale and trap if used.
+Static fields keep what they hold until the program ends. A `unique` in a static field has its destructor run after `main` returns (and after the object an instance `main()` ran on is let go, §56.1), the program's own classes first, then the library's. A program that ends through `System.exit`, an uncaught exception or a trap skips this, as Java skips `finally` blocks on exit.
 
-Static fields keep what they hold until the program ends: after `main` returns (and the object an instance `main()` ran on is released, §56.1), they are released, the program's own classes first, then the library's, and `System` (whose streams a destructor may still use) last. A program that ends through `System.exit`, an uncaught exception or a trap skips this, as Java skips `finally` blocks on exit.
-
-Objects that refer to each other in a cycle are never freed, because their counts never reach zero. Weak handles or a cycle collector could address this later.
+On the VM, each object counts the handles that refer to it and is freed when the count reaches zero: storing a handle adds a reference, overwriting or dropping one removes it, `new` and function results come with one, and a temporary is released at the end of its statement. Objects that refer to each other in a cycle are never freed there. The JVM's garbage collector (docs/JVM.md) frees them too.
 
 ---
 
@@ -1271,7 +1263,7 @@ Objects that refer to each other in a cycle are never freed, because their count
 
 Fields and methods of class objects are used through handles, as in Java: `f.count`, `f.run()`.
 
-The VM implements this with handle operations (load, store, bulk copy into and out of fixed memory, create, delete).
+The VM implements this with handle operations (load, store, bulk copy into and out of fixed memory, create, retain, release).
 
 ---
 
@@ -1324,7 +1316,7 @@ Abstract classes, abstract methods and interfaces are likewise only for classes.
 
 ## 30.1 Abstract classes
 
-`abstract class` declares a class that can't be created with `new`; it exists to be extended. It can have everything a class has (fields, constructors, a destructor, static members, ordinary methods) plus abstract methods: public methods with no body, ending in `;`.
+`abstract class` declares a class that can't be created with `new`; it exists to be extended. It can have everything a class has (fields, constructors, static members, ordinary methods) plus abstract methods: public methods with no body, ending in `;`.
 
 ```text
 abstract class Shape
@@ -1407,7 +1399,7 @@ names.forEach(n -> System.stdout.println(n));
 * A lambda with an expression body returns its value (or just evaluates it, if the method returns `void`). A block body returns with `return`, and must return on every path unless the method is `void`.
 * **Captures.** A lambda can use the local variables and parameters around it. It copies them when it is created, as a struct copy would (a handle is copied, so the object is shared). It can't assign them, which would change only its copy; changes made outside after it was created aren't seen. It can't use a unique, which it would have to copy.
 * In a class method, a lambda can use the object's fields and methods; it keeps a reference to the object. In a struct or unique method it can't, since there is no shared object to keep.
-* At run time a lambda is a class object, reference counted like any other, whose class implements the interface. `instanceof` and casts work on it. Each evaluation of a lambda expression creates a new object.
+* At run time a lambda is a class object, freed like any other, whose class implements the interface. `instanceof` and casts work on it. Each evaluation of a lambda expression creates a new object.
 
 The standard library defines the common functional interfaces:
 
@@ -1791,7 +1783,7 @@ enum Planet
 
 # 39. Characters and Strings
 
-`char` is a character: a 16-bit unsigned UTF-16 code unit. It is an integer type of its own, kept apart from `uint<<16>>`, so code can tell a character from a number: `System.stdout.print(c)` prints the character, and `"x" + c` appends it. Strings hold chars: `charAt` returns one, `append` and `set` take one, `toCharArray` gives a `array<char><<N>>` from a `string<<N>>` and a `array<char>` from a bare string, and the `Char` library (`isDigit`, `toUpper`, ...) works on them.
+`char` is a character: a 16-bit unsigned UTF-16 code unit. It is an integer type of its own, kept apart from `uint<<16>>`, so code can tell a character from a number: `System.stdout.print(c)` prints the character, and `"x" + c` appends it. Strings hold chars: `charAt` returns one, `toCharArray` gives an `array<char><<N>>` from a `string<<N>>` and an `array<char>` from a bare string, `new string(chars)` makes a string from an `array<char>`, a `StringBuilder` appends them, and the `Char` library (`isDigit`, `toUpper`, ...) works on them.
 
 A character literal, in single quotes, is a char constant. Like any integer constant it also fits other integer types that can hold its code (`int code = 'A';`), but where nothing decides, it is a char.
 
@@ -1860,7 +1852,7 @@ A `string<<N>>` converts to a bare `string` wherever one is wanted: in an initia
 "n = " + n                  // "n = 42"
 "pi ~ " + 3.14159           // doubles print as in Java: 0.1, 1.0E10
 "hello, " + name + "!"
-s += 3;                     // appends to s: string's own += (§46)
+s += 3;                     // stores s + 3 in s: string's own += (§46)
 ```
 
 A number or `bit` on the left works too, as in Java: `n + " apples"` means `"" + n + " apples"`, and `1 + 2 + "!"` is `"3!"` (left to right). A `char` joins as the character itself: `"x" + c`.
@@ -1874,11 +1866,9 @@ Any other value joins as its type's cast to string (§46), on either side and wi
 | Type          | Storage                                                    |
 | ------------- | ---------------------------------------------------------- |
 | `string<<N>>` | inline, fixed capacity of `N` characters; never allocates  |
-| `string`      | bare shape; holds an `addr` to a growable buffer           |
+| `string`      | bare shape; any number of characters, in a buffer on the heap |
 
-Both live in the fixed memory pool. The bare shape's buffer is allocated with `new<T>(n)` (§24); growing it allocates a new buffer, copies, and deletes the old one.
-
-Its fields are:
+On the VM its fields are:
 
 ```text
 struct string<<>>
@@ -1886,28 +1876,30 @@ struct string<<int N>>
 {
     int size;
     array<char><<N>> chars<<int N>>;
-    addr<char> chars<<>>;
-    int capacity<<>>;
-    StringBuffer owner<<>>;     // the class object that owns the heap buffer
+    addr<char> chars<<>>;       // a literal's characters, or the start of owner's
+    StringChars owner<<>>;      // the buffer holding them; null for a literal's
     ...
 }
 ```
 
-The compiler fills these fields when a string literal is assigned to a `string` (§56.1).
+The compiler fills these fields when a string literal is assigned to a `string` (§56.1). On the JVM a bare `string` will be a `java.lang.String` (docs/JVM.md).
 
-### Strings are values
+### Strings are immutable
 
-`string` is a struct, so strings behave like numbers: `b = a` gives `b` the same text, and changing `b` never changes `a`, including when a string is passed to a function.
+Strings never change, as in Java. `string` is a value, so `b = a` gives `b` the same text; no method changes either, so they stay the same until one of the variables is given a new string:
 
 ```text
 string a = "hello";
 string b = a;
-b.append("!");      // a is still "hello"
+b += "!";                   // a new string in b; a is still "hello"
+string loud = a.toUpper();  // a new string: "HELLO"
 ```
 
-Copying is cheap. The bare shape's characters live in a `StringBuffer` class object that copies share until one of them changes (copy-on-write): before a change, a string whose buffer is shared, or which still uses a literal's characters, copies them into a buffer of its own. Buffers are freed automatically through reference counting (§26.1). There is no `free()`.
+* Methods that make other text return a new string: `substring`, `trim`, `toUpper`, `toLower`, `replace(old, new)`, `repeat(n)`, `+`. For a `string<<N>>`, `toUpper` and `toLower` give a `string<<N>>`.
+* `s += x` stores `s + x` in `s`. Building text a piece at a time is a `StringBuilder`'s job, as in Java (§42).
+* A string can be made from characters: `new string(chars)` from an `array<char>`, and `new string(chars, offset, count)` from part of one.
 
-A string made from a literal uses the literal's characters, which live in static data, until it is first changed.
+On the VM, copies of a bare string share its characters, which live in a `StringChars` buffer, and are freed automatically. `s += x` adds to the buffer in place when `s` ends where the buffer's used part does, since no other string sees past its own end, so a string growing in a loop doesn't copy itself each time; otherwise it copies into a new buffer. A string made from a literal uses the literal's characters, which live in static data.
 
 Characters are 16-bit (UCS-2 style). The character width must be fixed.
 
@@ -2103,7 +2095,7 @@ try {
 
 * `throw e;` takes a handle to an `Exception` (or subclass); `throw null` stops the program.
 * The catches are tried in order, and the first whose class the exception is (`instanceof`) runs, with the exception in its variable. A catch for a class an earlier catch already covers is an error. With no match, the exception goes on to the enclosing `try`, or out of the method to its caller.
-* `finally` runs however the `try` (and its catches) is left: at the end, by an exception (caught or not), or by `return`, `break` or `continue`. A `try` needs at least one catch or a finally.
+* `finally` runs however the `try` (and its catches) is left: at the end, by an exception (caught or not), or by `return`, `break` or `continue`. A `try` needs at least one catch or a finally, unless it has resources.
 * Exceptions are unchecked: methods don't declare what they throw.
 * **Cleanup.** An exception leaving a block or a method runs the same cleanup as leaving it normally: uniques are destroyed, handles released, temporaries of the statement released, so nothing leaks.
 * **Uncaught.** An exception nothing catches stops the program (exit code 70) with its class, message and where it was thrown:
@@ -2114,16 +2106,37 @@ uncaught IllegalArgumentException: negative: -3
     at Main.main (Main.seal:10)
 ```
 
+### try-with-resources
+
+A `try` can declare resources, as in Java: objects that hold something until they are closed, such as an open file. Each is closed when the block is left, however it is left:
+
+```text
+try (FileWriter out = new FileWriter("report.txt")) {
+    out.println("total: " + total);
+}                                        // out.close() runs here
+
+try (FileReader in = new FileReader(a); FileWriter out = new FileWriter(b)) {
+    for (string line : in) { out.println(line.toUpper()); }
+} catch (IOException e) {
+    System.stderr.println("copy failed: " + e.getMessage());
+}
+```
+
+* A resource's type must implement `AutoCloseable`, whose one method is `void close()`. `Writer`, `FileWriter`, `Reader` and `FileReader` do.
+* Resources are declared in order, each in scope for the ones after it, and closed in reverse order. A null resource isn't closed. A resource variable can't be assigned.
+* Any `catch` and `finally` blocks of the statement run after the resources are closed.
+* If the block throws and `close()` throws too, the block's exception goes on, and the one from `close()` is added to it with `addSuppressed`; `getSuppressed()` lists them. If only `close()` throws, its exception goes on.
+
 The standard library's exceptions, and what throws them:
 
 | Class | Extends | Thrown by |
 | ----- | ------- | --------- |
-| `Exception` | | the root; `getMessage()` |
+| `Exception` | | the root; `getMessage()`, `addSuppressed(e)`, `getSuppressed()` |
 | `RuntimeException` | `Exception` | |
 | `IllegalArgumentException` | `RuntimeException` | bad arguments, `Enum.valueOf` of an unknown name, `Random` bounds |
 | `NumberFormatException` | `IllegalArgumentException` | `Integer.parse`, `string.toInt`, `BigUInt.parse` |
-| `IllegalStateException` | `RuntimeException` | appending to a full `string<<N>>` |
-| `IndexOutOfBoundsException` | `RuntimeException` | `List` and `string` indexes, `substring` |
+| `IllegalStateException` | `RuntimeException` | |
+| `IndexOutOfBoundsException` | `RuntimeException` | `List`, `array`, `string` and `StringBuilder` indexes, `substring` |
 | `NoSuchElementException` | `RuntimeException` | a missing `IntMap` key, an empty `Queue`, `removeLast` on an empty `List` |
 | `ArithmeticException` | `RuntimeException` | `BigUInt` division by zero |
 | `UnsupportedOperationException` | `RuntimeException` | |
@@ -2144,7 +2157,7 @@ static int divide(int a, int b)
 * With `-Wassert`, a false condition throws an `AssertionError` with the message (any value that joins a string, §39), or else the condition as written: `uncaught AssertionError: x >= 0`, with the line of the assert.
 * The condition is a `bit`. `AssertionError` extends `RuntimeException`, so it can be caught.
 
-Faults the VM itself detects (division by zero on plain integers, a null or freed handle, an array index out of bounds, a failed cast, `System.fail`, running out of memory or stack) are not exceptions: they stop the program at once, like Java's `Error`s, with `trap:` and the stack.
+Faults the VM itself detects (division by zero on plain integers, a null handle, an array index out of bounds, a failed cast, `System.fail`, running out of memory or stack) are not exceptions: they stop the program at once, like Java's `Error`s, with `trap:` and the stack.
 
 How it works: every function has a table of code ranges, each naming code that releases what is live in that range (locals, the statement's temporaries) and then jumps to the innermost `try`'s catch tests, or passes the exception to the caller. The VM's `THROW` finds the range for the current instruction in each frame in turn.
 
@@ -2255,9 +2268,11 @@ Library classes may declare `@native("name")` methods, which are implemented by 
 | `array`                  | arrays sized at run time, `array<T>` (§21.3) |
 | `Operator`               | the operators `@overload` can name (§46) |
 | `Files`, `File`, `Reader`, `FileReader`, `Writer`, `FileWriter`, `IOException`, `FileNotFoundException` | files, folders and the standard streams (§42.1, §42.2); `printf` (§42.6) |
+| `AutoCloseable`          | what try-with-resources closes: `close()` (§41.4) |
 | `Format`                 | the formatter behind `string.format` and `printf` (§42.6) |
 | `Exception` and subclasses | `RuntimeException`, `IllegalArgumentException`, `NumberFormatException`, `IllegalStateException`, `IndexOutOfBoundsException`, `NoSuchElementException`, `ArithmeticException`, `UnsupportedOperationException`, `AssertionError` (§41.4) |
-| `string`                 | strings (§39), values with copy-on-write: `length`, `charAt`, `set`, `append`, `+` (fixed shapes), `toCharArray`, `==`, `<`, `compare`, `startsWith`, `endsWith`, `indexOf`, `lastIndexOf`, `contains`, `split`, `lines`, `trim`, `substring`, `copy`, `toUpper`, `toLower`, `toInt`, `hash`, `reserve`, `clear`; `string.format` (§42.6) |
+| `string`                 | strings (§39), immutable values: `length`, `charAt`, `+` and `+=`, `toCharArray`, `==`, `<`, `compare`, `startsWith`, `endsWith`, `indexOf`, `lastIndexOf`, `contains`, `split`, `lines`, `trim`, `substring`, `copy`, `toUpper`, `toLower`, `replace`, `repeat`, `toInt`, `hash`; `new string(chars)`; `string.format` (§42.6) |
+| `StringBuilder`          | text built a piece at a time, as Java's (a class): `append` (anything `print` takes; returns the builder, so calls chain), `insert`, `delete`, `deleteCharAt`, `reverse`, `charAt`, `setCharAt`, `setLength`, `length`, `indexOf`, `toString` (its cast to string) |
 | `Char`                   | `isDigit`, `isLetter`, `isUpper`, `isLower`, `isSpace`, `toUpper`, `toLower`, `digitValue` |
 | `Integer`                | `toString` (decimal or any base), `parse`, `mulExact` (exact, widening multiply: `int<<N>> × int<<P>> → int<<N + P>>`, for any mix of signed and unsigned), `min`, `max`, `abs`, `sign`, `gcd`, `pow`, `rol`, `ror` (§50), `bitCount`, `leadingZeros`, `trailingZeros`, and range constants |
 | `Math`                   | for every kind of number (§42.5): `PI`, `E`, `abs`, `min`, `max`, `clamp`, `floor`, `ceil`, `round`, `sqrt`, `sin`, `cos`, `tan`, `atan2`, `exp`, `log`, `pow`, `hypot` |
@@ -2266,12 +2281,12 @@ Library classes may declare `@native("name")` methods, which are implemented by 
 | `List<T>`                | growable list (a class): `add`, `get`, `set`, `insert`, `removeAt`, `removeLast`, `first`, `last`, `indexOf`, `contains`, `sort`, `reverse`, `swap`, `reserve`, `clear` |
 | `Queue<T>`               | FIFO ring buffer (a class): `push`, `pop`, `peek`, `clear` |
 | `IntMap<V>`              | hash map with `int<<64>>` keys (a class): `put`, `get`, `has`, `remove`, `keys`, `clear` |
-| `StringBuffer`           | the shared character buffer behind growable strings |
+| `StringChars`            | on the VM, the buffer behind bare strings' characters; programs don't use it |
 | `Array<T><<N>>`, `Array<T><<N, K>>` | the fixed array from §13, plus `set` and `fill` |
 | `Fixed`                  | fixed-point utilities (§37.1): `mulExact` (exact, widening multiply), `fraction`; also `abs`, `min`, `max`, `floor`, which `Math` has for every number |
 | `BigUInt<<BITS>>`        | fixed-width unsigned integers (§54): `+`, `-`, `*`, `==`, `<`, `<<<`, `<<=`, `divSmall`, `mulAddSmall`, `parse`, `toString` |
 
-`List`, `Queue` and `IntMap` are classes, like Java's collections: create one with `new`, and variables share it. They release their elements as they are removed, and are freed automatically when the last reference goes away:
+`List`, `Queue` and `IntMap` are classes, like Java's collections: create one with `new`, and variables share it. They keep their elements in `array<T>`s, release them as they are removed, and are freed automatically once nothing refers to them:
 
 ```text
 List<Animal> zoo = new List();
@@ -2303,7 +2318,7 @@ The standard library reads and writes files and works with folders, in the style
 
 **`File`**: a path, with Java's methods: `getName`, `getExtension`, `getParent`, `getParentFile`, `getPath`, `getAbsolutePath`, `exists`, `isFile`, `isDirectory`, `length`, `lastModified`, `list` (names), `listFiles`, `walk`, and `delete`, `mkdir`, `mkdirs`, `renameTo`, which return whether they worked. `new File(folder, name)` joins paths, and two Files with the same path are `==`.
 
-**`FileReader`** reads a text file a line at a time (`hasNextLine`, `readLine`, `close`), and can be the subject of a for-each: `for (string line : new FileReader(path))`. **`FileWriter`** writes one (`write`, `writeLine`, `flush`, `close`; `new FileWriter(path, true)` appends). Both are classes that close themselves when their last reference goes, and the VM writes out any file still open when the program ends.
+**`FileReader`** reads a text file a line at a time (`hasNextLine`, `readLine`, `close`), and can be the subject of a for-each: `for (string line : new FileReader(path))`; it closes itself once it has read the last line. **`FileWriter`** writes one (`write`, `writeLine`, `flush`, `close`; `new FileWriter(path, true)` appends). Both are `AutoCloseable`: close them with `close()`, or with try-with-resources (§41.4). The VM writes out any file still open when the program ends.
 
 ```text
 string dir = Files.createTempDirectory("demo");
@@ -2312,9 +2327,9 @@ for (string line : Files.readAllLines(dir + "/notes.txt")) { ... }
 for (File f : new File(dir).walk()) {
     if (f.isFile() && f.getExtension() == "txt") { System.stdout.println(f.getName() + " " + f.length()); }
 }
-FileWriter out = new FileWriter(dir + "/log.txt");
-out.writeLine("done");
-out.close();
+try (FileWriter out = new FileWriter(dir + "/log.txt")) {
+    out.writeLine("done");
+}
 Files.deleteRecursively(dir);
 ```
 
@@ -2454,7 +2469,7 @@ A specifier is `%[flags][width][.precision]conversion`:
 
 # 43. String Ownership
 
-Functions that produce text, such as `Integer.toString(32)` and `string.substring`, return a new bare `string`. Like every string it is a value, and its memory is freed automatically.
+Functions that produce text, such as `Integer.toString(32)`, `string.substring` and `StringBuilder.toString`, return a new bare `string`. Like every string it is an immutable value, and its memory is freed automatically.
 
 ---
 
@@ -2574,7 +2589,7 @@ struct Vec2
   @overload(Operator.ADD_ASSIGN) public void move(Vec2 o) { x += o.x; y += o.y; }                 // a += b: a itself changes
   ```
 
-  On a class object, `a += b` changes the object `a` refers to, which every reference to it sees. Built-in types keep their own: `i += 2` on an `int` is `i = i + 2` (§41.6), and the library's `string`, `BigUInt` and others declare the compound operators they have (`s += "x"` appends to `s`).
+  On a class object, `a += b` changes the object `a` refers to, which every reference to it sees. Built-in types keep their own: `i += 2` on an `int` is `i = i + 2` (§41.6), and the library's `string`, `BigUInt` and others declare the compound operators they have (`s += "x"` stores `s + "x"` in `s`, a new string).
 * Operators are inherited by subclasses and are not virtual (§52).
 
 Indexing is for types that act like containers:
@@ -2799,11 +2814,11 @@ The language deliberately separates values from shared objects.
 * reached through handles (`Foo` or `handle<Foo>`)
 * assignment shares the object
 * the runtime may move it
-* stale handles are detected
+* freed automatically once nothing refers to it, with no destructor; resources are closed with `close()`
 
 ### Raw addresses (optional)
 
-`addr<T>` is a physical, bit-granular address with arithmetic, for low-level work. Memory allocated with `new<T>(n)` is released with `delete`. Ordinary code does not need addresses.
+`addr<T>` is a physical, bit-granular address with arithmetic, for low-level work. Memory allocated with `new<T>(n)` is released with `delete`, the only thing `delete` frees. Ordinary code does not need addresses.
 
 This distinction is fundamental to the memory model.
 
@@ -2898,7 +2913,8 @@ hnew
 hget
 hset
 hresize
-hdelete
+hretain
+hrelease
 ```
 
 The VM therefore does not need to understand generic classes.
@@ -2950,8 +2966,8 @@ The compiler (`src/io/github/thelinuxseal/seal/codegen`) and VM (`.../seal/vm`),
 * Scalar locals live in registers unless their address is taken. Aggregate locals (class values and arrays) and address-taken scalars live in the frame, in fixed memory. Frames are zeroed on entry, and locals without an initializer start at zero.
 * Loads and stores trap on the null byte, outside the pool, or at a misaligned address.
 * Array indexing is bounds-checked when the array size is known.
-* `delete` of a null address or handle does nothing. Deleting an address that was not returned by `new` traps.
-* Each class object has its own resizable storage. A handle is a 32-bit table index and a 32-bit generation; using a handle after `delete` traps.
+* `delete` of a null address does nothing. Deleting an address that was not returned by `new` traps.
+* Each class object has its own resizable storage, and counts its references (§26.1). A handle is a 32-bit table index and a 32-bit generation, so a handle to an object already freed, which only a fault in the VM could leave, traps.
 
 ### Calls and objects
 
@@ -2959,7 +2975,7 @@ The compiler (`src/io/github/thelinuxseal/seal/codegen`) and VM (`.../seal/vm`),
 * Methods of classes are virtual and dispatched through per-class vtables. `super.m()` calls the parent's method directly. Methods with value binders are not virtual.
 * Calling a method on a struct stored inside a class object copies the object out, calls the method on the copy, and copies it back.
 * Construction: zero the object, construct the parent (classes, via `super(...)` or the parent's no-argument constructor), run field initializers and default-construct inline object fields in declaration order, then run the constructor body.
-* Destruction (§16): destructor body, then fields in reverse order, then the parent's part. Inline objects are destroyed at scope exit, including on `return`, `break` and `continue`. `delete p` on an `addr<T>` destroys one `T`.
+* Destruction (§16): a unique's destructor body, then fields in reverse order. Inline objects are destroyed at scope exit, including on `return`, `break` and `continue`. `delete p` on an `addr<T>` destroys one `T`. A class object whose count reaches zero releases its fields, then its parent's, and is freed.
 * `const` fields take no storage and can be read through the class name, like static fields.
 
 ### Runtime errors
@@ -2977,7 +2993,7 @@ trap: division by zero
 
 ### Strings
 
-* A string literal is stored into a `string` class using its fields `size` and `chars` (an array of characters, or an `addr` to them). For an array, the characters are copied in. For an `addr`, `chars` points at the literal's characters in static data, which are shared by every use of that literal, and `capacity` is left at 0 (§39).
+* A string literal is stored into a `string` class using its fields `size` and `chars` (an array of characters, or an `addr` to them). For an array, the characters are copied in. For an `addr`, `chars` points at the literal's characters in static data, which are shared by every use of that literal, and the other fields are left at zero: `owner` is null (§39).
 
 ### Arithmetic
 
@@ -3123,6 +3139,13 @@ These rules are implemented by the semantic checker (`src/io/github/thelinuxseal
 * Members cannot be accessed directly through an `addr`: write `(&p).x`. Handles do allow direct access: `h.x`, `h.method()`.
 * `*x` cannot take the address of anything reached through a handle, since class objects move.
 * `new Foo()` produces an inline value, an `addr<Foo>`, or a `handle<Foo>`, depending on the declared type it is assigned to.
+* `delete` takes an `addr` only; a handle's object is freed automatically (§26.1).
+
+### Memory and resources
+
+* Only a `unique` can have a destructor (§16.1).
+* A class can't hold a unique with a destructor in a field (directly, in a struct or fixed array, or through a type argument); a static field can.
+* A resource of try-with-resources must implement `AutoCloseable`, and its variable can't be assigned (§41.4).
 
 ### Layout
 
@@ -3169,7 +3192,7 @@ The following areas remain unresolved or proposed.
 ### Strings
 
 * Whether to switch from UCS-2 to UTF-8 or UTF-16 with surrogates
-* Weak handles or cycle collection, so objects that refer to each other in a cycle can be freed
+* On the VM, objects that refer to each other in a cycle are never freed; the JVM's garbage collector frees them
 
 ### Object construction
 

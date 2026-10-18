@@ -106,6 +106,10 @@ public final class ParserTest {
         stmt("try { f(); } catch (E e) { g(); } finally { h(); }",
                 "(try (block (call f)) (catch E e (block (call g))) (finally (block (call h))))");
         stmt("try { } catch (A a) { } catch (B b) { }", "(try (block) (catch A a (block)) (catch B b (block)))");
+        stmt("try (R r = open()) { r.use(); }", "(try (var R r (call open)) (block (call (. r use))))");
+        stmt("try (A a = f(); B<int> b = g(a);) { } finally { }",
+                "(try (var A a (call f)) (var B<int> b (call g a)) (block) (finally (block)))");
+        stmt("try (R r = open()) { } catch (E e) { }", "(try (var R r (call open)) (block) (catch E e (block)))");
         expr("a ? b : c", "(? a b c)");
         expr("Main.<int>largest(xs)", "(call (. Main largest) <int> xs)");
         expr("new array<int>(n + 1)", "(new array<int> (+ n 1))");

@@ -3,12 +3,11 @@
 // automatically.
 class IntMap<V>
 {
-    addr<int<<64>>> keyData;
-    addr<V> valueData;
-    // One bit per slot: whether it holds an entry. Bit-addressed memory makes this compact.
-    addr<bit> usedBits;
+    array<int<<64>>> keyData;
+    array<V> valueData;
+    // One bit per slot: whether it holds an entry. An array<bit> takes a bit per element.
+    array<bit> used;
     int count;
-    int capacity;
     V blank;   // never assigned; used to clear removed values
 
     public int size() { return count; }
@@ -18,27 +17,27 @@ class IntMap<V>
     /** Adds or replaces the value for key. */
     public void put(int<<64>> key, V value)
     {
-        if ((count + 1) * 4 > capacity * 3) { grow(); }
+        if ((count + 1) * 4 > capacity() * 3) { grow(); }
         int i = find(key);
-        if (!used(i)) {
-            &(usedBits + i) = true;
-            &(keyData + (int<<64>>)i * 64) = key;
+        if (!used[i]) {
+            used[i] = true;
+            keyData[i] = key;
             count++;
         }
-        &(valueData + (int<<64>>)i * sizeof(V)) = value;
+        valueData[i] = value;
     }
 
     public bit has(int<<64>> key)
     {
-        if (capacity == 0) { return false; }
-        return used(find(key));
+        if (capacity() == 0) { return false; }
+        return used[find(key)];
     }
 
     /** The value for key; fails if there is none. */
     public V get(int<<64>> key)
     {
         if (!has(key)) { throw new NoSuchElementException("IntMap.get: no key " + key); }
-        return &(valueData + (int<<64>>)find(key) * sizeof(V));
+        return valueData[find(key)];
     }
 
     /** Removes key; returns whether it was present. */
@@ -46,23 +45,23 @@ class IntMap<V>
     {
         if (!has(key)) { return false; }
         int hole = find(key);
-        &(usedBits + hole) = false;
-        &(valueData + (int<<64>>)hole * sizeof(V)) = blank;
+        used[hole] = false;
+        valueData[hole] = blank;
         count--;
         // Shift later entries of the same probe run back into the hole.
         int j = hole;
         while (true) {
-            j = (j + 1) & (capacity - 1);
-            if (!used(j)) { return true; }
-            int home = slotOf(keyAt(j));
+            j = (j + 1) & (capacity() - 1);
+            if (!used[j]) { return true; }
+            int home = slotOf(keyData[j]);
             bit stays;
             if (hole <= j) { stays = hole < home && home <= j; } else { stays = hole < home || home <= j; }
             if (!stays) {
-                &(keyData + (int<<64>>)hole * 64) = keyAt(j);
-                &(valueData + (int<<64>>)hole * sizeof(V)) = &(valueData + (int<<64>>)j * sizeof(V));
-                &(valueData + (int<<64>>)j * sizeof(V)) = blank;
-                &(usedBits + hole) = true;
-                &(usedBits + j) = false;
+                keyData[hole] = keyData[j];
+                valueData[hole] = valueData[j];
+                valueData[j] = blank;
+                used[hole] = true;
+                used[j] = false;
                 hole = j;
             }
         }
@@ -73,34 +72,26 @@ class IntMap<V>
     {
         List<int<<64>>> out = new List();
         out.reserve(count);
-        for (int i = 0; i < capacity; i++) {
-            if (used(i)) { out.add(keyAt(i)); }
+        for (int i = 0; i < capacity(); i++) {
+            if (used[i]) { out.add(keyData[i]); }
         }
         return out;
     }
 
     public void clear()
     {
-        for (int i = 0; i < capacity; i++) {
-            &(usedBits + i) = false;
-            &(valueData + (int<<64>>)i * sizeof(V)) = blank;
-        }
+        used.fill(false);
+        valueData.fill(blank);
         count = 0;
     }
 
-    delete()
-    {
-        clear();
-        delete keyData;
-        delete valueData;
-        delete usedBits;
-    }
+    int capacity() { return used.length(); }
 
     /** The slot holding key, or the empty slot where it would go. */
     int find(int<<64>> key)
     {
         int i = slotOf(key);
-        while (used(i) && keyAt(i) != key) { i = (i + 1) & (capacity - 1); }
+        while (used[i] && keyData[i] != key) { i = (i + 1) & (capacity() - 1); }
         return i;
     }
 
@@ -108,33 +99,23 @@ class IntMap<V>
     {
         uint<<64>> h = (uint<<64>>)key * 11400714819323198485;
         h = h ^ (h <<< -29);
-        return (int)(h & (uint<<64>>)(capacity - 1));
+        return (int)(h & (uint<<64>>)(capacity() - 1));
     }
-
-    bit used(int i) { return &(usedBits + i); }
-
-    int<<64>> keyAt(int i) { return &(keyData + (int<<64>>)i * 64); }
 
     void grow()
     {
-        addr<int<<64>>> oldKeys = keyData;
-        addr<V> oldValues = valueData;
-        addr<bit> oldUsed = usedBits;
-        int oldCapacity = capacity;
-        capacity = capacity * 2;
-        if (capacity < 16) { capacity = 16; }
-        keyData = new<int<<64>>>(capacity);
-        valueData = new<V>(capacity);
-        usedBits = new<bit>(capacity);
+        int c = capacity() * 2;
+        if (c < 16) { c = 16; }
+        // The entries, copied out, go back into a table twice as big.
+        array<int<<64>>> oldKeys = keyData.copy();
+        array<V> oldValues = valueData.copy();
+        array<bit> oldUsed = used.copy();
+        keyData = new array<int<<64>>>(c);
+        valueData = new array<V>(c);
+        used = new array<bit>(c);
         count = 0;
-        for (int i = 0; i < oldCapacity; i++) {
-            if (&(oldUsed + i)) {
-                put(&(oldKeys + (int<<64>>)i * 64), &(oldValues + (int<<64>>)i * sizeof(V)));
-                &(oldValues + (int<<64>>)i * sizeof(V)) = blank;
-            }
+        for (int i = 0; i < oldUsed.length(); i++) {
+            if (oldUsed[i]) { put(oldKeys[i], oldValues[i]); }
         }
-        delete oldKeys;
-        delete oldValues;
-        delete oldUsed;
     }
 }

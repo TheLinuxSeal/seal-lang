@@ -28,12 +28,9 @@ struct Files
     /** Writes each line followed by a line end, replacing the file's contents. */
     public static void writeLines(string path, List<string> lines)
     {
-        string all;
-        for (string line : lines) {
-            all.append(line);
-            all.append('\n');
-        }
-        writeString(path, all);
+        StringBuilder all = new StringBuilder();
+        for (string line : lines) { all.append(line).append('\n'); }
+        writeString(path, all.toString());
     }
 
     /** The file's bytes. */

@@ -43,19 +43,15 @@ struct Main
         Note x = new Note(10);
         Note y = x;                  // the same note
         bumpNote(y);
-        System.stdout.print("  x.n = ");
-        System.stdout.print(x.n);
-        System.stdout.print(", references: ");
-        System.stdout.println(System.refCount(x));
+        System.stdout.println("  x.n = " + x.n + ", the same note as y: " + (x == y));
         x = null;
-        System.stdout.println("  x = null: y still refers to the note");
-        y = null;                    // the last reference: the note is freed now
-        System.stdout.println("  y = null");
+        System.stdout.println("  x = null: y still refers to the note, n = " + y.n);
+        y = null;                    // nothing refers to the note now, so it is freed
 
-        System.stdout.println("== string: a value, copied cheaply ==");
+        System.stdout.println("== string: a value that never changes ==");
         string greeting = "hello";
-        string copy = greeting;      // shares the characters until one changes
-        copy.append(", world");
+        string copy = greeting;      // the same characters, which neither can change
+        copy += ", world";           // a new string in copy; greeting still holds hello
         System.stdout.print("  greeting = ");
         System.stdout.print(greeting);
         System.stdout.print(", copy = ");

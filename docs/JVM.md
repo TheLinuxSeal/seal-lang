@@ -1,7 +1,8 @@
 # Seal on the JVM: design
 
-**Status:** design agreed; implementation not started. Choices made on review are marked
-**Decided**; the rest were **Proposed** and accepted with the design, and stand unless revisited.
+**Status:** design agreed. M0, the language changes the backend needs, is done on the VM (§13); the
+backend itself is not started. Choices made on review are marked **Decided**; the rest were
+**Proposed** and accepted with the design, and stand unless revisited.
 
 Seal today compiles to bytecode for its own register VM (`vm/`), written in Java. This document
 describes a backend that compiles Seal to JVM class files instead, so that Seal programs run on any
@@ -226,21 +227,28 @@ compiled with the values in place:
 Reference counting goes away entirely: no retain or release on every handle copy, and no leak from
 objects that refer to each other in a cycle.
 
-Changes this makes to the language, to be done before or with the backend (§13, M0):
+Changes this made to the language, done in M0 (§13) and tested on the VM:
 
 1. **`delete()` is for uniques only.** A class with a destructor is an error.
-2. **Decided: resources close explicitly.** `Writer`, `FileWriter` and `Reader` close themselves
-   today when the last reference goes. They get Java's way instead: `close()`, and
-   try-with-resources, `try (FileWriter w = new FileWriter(path)) { ... }`, closing at the end of the
-   block however it is left.
-3. **A class can't hold a unique that has a destructor**: its owner is freed whenever the
-   collector decides, so the destructor would never run at a known time.
-4. **`delete h` on a handle goes away.** It frees an object at once and leaves other handles stale,
+2. **Decided: resources close explicitly.** `Writer`, `FileWriter` and `Reader` used to close
+   themselves when the last reference went. They have Java's way instead: they implement the
+   library's `AutoCloseable`, with `close()`, and try-with-resources,
+   `try (FileWriter w = new FileWriter(path)) { ... }`, closes them at the end of the block however it
+   is left, adding an exception `close()` throws to the one already on its way (`addSuppressed`). A
+   `Reader` also closes itself once it has read its last line, so `for (string line : new
+   FileReader(path))` leaves nothing open.
+3. **A class can't hold a unique that has a destructor**, directly, in a struct or fixed array, or
+   through a type argument: its owner is freed whenever the collector decides, so the destructor
+   would never run at a known time. Static fields may.
+4. **`delete h` on a handle is gone.** It freed an object at once and left other handles stale,
    which the JVM can't express. `delete p` on an `addr` stays (§4.4).
-5. **The library stops freeing memory in destructors.** `List`, `Queue`, `IntMap`, `array` and
-   `StringBuffer` keep their storage in GC-managed storage instead (§8).
+5. **The library frees no memory in destructors.** `List`, `Queue`, `IntMap` and `StringBuilder`
+   keep their elements in `array<T>`s (§8.1), and `HashMap` in lists.
 6. **Static fields** need no release at the end of the program; uniques in static fields still
    have their destructors run when `main` returns.
+
+On the VM, objects are still freed by reference counting, which no program can observe any more.
+`System.refCount` went with copy-on-write strings.
 
 ## 7. Exceptions and run-time errors
 
@@ -252,7 +260,7 @@ Changes this makes to the language, to be done before or with the backend (§13,
 - The VM's traps (division by zero, null handles, array bounds, failed casts, `System.fail`) become
   the JVM's own exceptions (`ArithmeticException`, `NullPointerException`, ...), which Seal's
   `catch` doesn't catch, since they aren't Seal exceptions. That keeps today's rule that faults
-  stop the program. Stale-handle traps disappear with `delete h`.
+  stop the program. Stale-handle traps went with `delete h`.
 
 ## 8. The standard library
 
@@ -260,11 +268,17 @@ The library is Seal code and stays so. What changes:
 
 ### 8.1 `array<T>` becomes built in
 
-**Proposed:** today `array<T>` is a library class built on `addr<T>`. It becomes a type the compiler
-knows: on the JVM, a Java array (`int[]`, `double[]`, `SealObject[]`, or for structs a `Block`
-holding the elements back to back). `List`, `Queue`, `IntMap`, `HashMap` and `StringBuffer` are
-rebuilt on `array<T>` instead of `addr<T>`, so the library needs no pointers and nothing to free.
-This step is independent of the JVM and can be done first, on the VM, with the existing tests.
+`array<T>` is the language's own type, with no destructor, so classes may hold one. On the JVM it
+is a Java array (`int[]`, `double[]`, `SealObject[]`, or for structs a `Block` holding the elements
+back to back). Done in M0: `List`, `Queue`, `IntMap` and `StringBuilder` are built on `array<T>`
+(growing with `copyOf(n)`, as Java's `Arrays.copyOf`) instead of `addr<T>`, so the collections use no
+pointers and free nothing.
+
+On the VM, `array<T>` keeps its implementation in `stdlib/array.seal`, an `addr<T>` buffer that its
+destructor frees: the one place in the library, with the natives' text buffers, that still uses
+pointers. `JvmGen` compiles its core (`new array<T>(n)`, `length`, `[]`, `[]=`) to JVM array
+instructions, and the rest of `array.seal` (`fill`, `copy`, `copyOf`, `slice`, `sort`, ...) as
+ordinary Seal code over that core.
 
 ### 8.2 Strings are immutable
 
@@ -278,8 +292,13 @@ language (part of M0):
 - Methods that change a string in place return a new one instead, as in Java: `s.toUpper()`
   becomes `s = s.toUpper();`. Methods that only exist to change a string, `set` and `append`, go.
 - Building text in a loop uses a builder, as Java's `StringBuilder` (each `+=` copies the text so
-  far). The library's `StringBuffer`, the buffer behind growable strings today, becomes that public
-  `StringBuilder`.
+  far). The library's `StringBuffer`, the buffer behind growable strings, is gone; `StringBuilder`
+  is public, as Java's, on an `array<char>`.
+- Done in M0, on the VM: no `string` method changes a string any more; `toUpper`, `toLower`,
+  `replace` and `repeat` return new ones, and `new string(chars)` makes one from an `array<char>`.
+  Copies of a bare string share a buffer (`StringChars`, VM only), and `s += x` adds to it in place
+  only past the end of every string using it, which needs no reference counts and keeps `+=` in a
+  loop cheap there. On the JVM, `+=` copies, as Java's does.
 - **Decided:** on the JVM a bare `string` *is* a `java.lang.String`: no wrapper, and passing text to
   Java code or Minecraft costs nothing. Its methods compile to `String`'s where they match, or to
   runtime helpers.
@@ -337,8 +356,9 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 - Every existing suite that runs programs (`LanguageTest`, `RunTest`, `StdlibTest`, `ExamplesTest`,
   `FixedPointTest`, `FuzzTest`, `CliTest`) gets a backend switch and runs on both the VM and the
   JVM, comparing output: the VM is the reference until the JVM backend passes everything.
-- `RefCountTest` (reference counts, destructor order of class objects) and `VMTest` (the VM itself)
-  retire with the VM; their unique-destructor cases move to `LanguageTest`.
+- `RefCountTest` (when the VM's reference counting frees class objects, seen through a live-object
+  count only the tests declare) and `VMTest` (the VM itself) retire with the VM; their
+  unique-destructor cases move to `LanguageTest`.
 - New tests for what only the JVM has: every generated class passes the JVM's bytecode verifier,
   stack traces show Seal lines, classes are callable from Java, the target class-file version holds.
 
@@ -346,7 +366,7 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 
 | Milestone | Contents | Done when |
 | --------- | -------- | --------- |
-| **M0** (on the VM) | §6's language changes: no class destructors, `close()` and try-with-resources, `delete` only on `addr`; `array<T>` built in, and the collections on it (§8.1); immutable strings and `StringBuilder` (§8.2) | all suites pass on the VM |
+| **M0** (on the VM), **done** | §6's language changes: no class destructors, `close()` and try-with-resources, `delete` only on `addr`; `array<T>` built in, and the collections on it (§8.1); immutable strings and `StringBuilder` (§8.2) | all suites pass on the VM |
 | **M1** | `JvmGen` skeleton: static methods, `int`/`int<<64>>`/`double`/`bit`/`char`, control flow, calls, recursion, printing; `seal run --jvm` | `examples/01-basics` runs |
 | **M2** | classes, interfaces, virtual and interface calls, fields, exceptions, lambdas, strings, the runtime's natives | most of `LanguageTest` |
 | **M3** | storage blocks: structs, uniques and their destructors, records, enums, fixed arrays, operators | `RunTest`, `RefCountTest`'s unique cases |
@@ -377,4 +397,4 @@ Not designed here, but the design keeps the door open:
 - Instantiations are named from their arguments, `List$int`, `Matrix$double$3$3` (§5.1, §5.2).
 - Each method call that has struct locals gets a frame block of its own (§4.2).
 
-No questions are open. The next step is M0 (§13), done and tested on the VM before any JVM code.
+No questions are open. M0 is done (§13); the next step is M1, the first JVM code.

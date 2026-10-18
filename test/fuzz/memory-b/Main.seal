@@ -3,6 +3,8 @@ struct Main
     static void punch(Ticket t) { t.id += 100; }
     static Ticket issue(int i) { Ticket t = new Ticket(i); return t; }
     static int idOf(Ticket t) { return t.id; }
+    static void punchBadge(Badge b) { b.id += 100; }
+    static Badge badge(int i) { Badge b = new Badge(i); return b; }
 
     static int main()
     {
@@ -13,10 +15,10 @@ struct Main
         int x = idOf(new Ticket(4));
         Desk d = new Desk();
         d.swapIn(5);
-        punch(d.current);
+        punchBadge(d.current);
         Desk e = d;
         e.swapIn(6);
-        d.spare[1] = issue(7);
+        d.spare[1] = badge(7);
         {
             Ticket inner = issue(8);
             punch(inner);

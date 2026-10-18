@@ -1,0 +1,13 @@
+// The buffer holding a bare string's characters on the VM (§39). Strings
+// never change, so copies of a string share its buffer. A string that ends
+// where the buffer's used part ends may add characters after it in place,
+// as no other string sees past its own end. The buffer is freed once no
+// string uses it. Only string uses it; on the JVM a bare string is a
+// java.lang.String, and this class goes.
+class StringChars
+{
+    public array<char> data;
+    public int used;   // how many of data's characters strings use
+
+    public new(int n) { data = new array<char>(n); }
+}

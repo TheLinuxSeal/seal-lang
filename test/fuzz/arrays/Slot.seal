@@ -3,5 +3,4 @@ unique Slot
     public int id;
     public Tag tag;
     public new() { id = 2; tag = new Tag(3); }
-    delete() { id = 0; }
 }

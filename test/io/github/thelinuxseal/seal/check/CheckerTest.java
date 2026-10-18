@@ -445,7 +445,7 @@ public final class CheckerTest {
                         one = new Doc();
                         int p = one.pages + one.count();
                         one.pages = 3;
-                        delete one;
+                        one = null;
                     }
                 }
                 """));
@@ -1024,7 +1024,18 @@ public final class CheckerTest {
                 {
                     void run() { int x; delete x; }
                 }
-                """, "delete needs an addr<...> or handle<...>, not int");
+                """, "delete needs an addr<...>, not int");
+        error("delete on a handle", files("Doc", "class Doc { }", "Main", """
+                struct Main
+                {
+                    void run() { Doc d = new Doc(); delete d; }
+                }
+                """), "delete frees addr memory only; the garbage collector frees a class object once nothing refers to it");
+        error("a class with a destructor", files("Doc", "class Doc { delete() { } }"),
+                "class Doc cannot have a destructor: the garbage collector frees class objects, at no set time; to release"
+                        + " something, give it a close() method, implement AutoCloseable, and use try-with-resources");
+        error("an abstract class with a destructor", files("Doc", "abstract class Doc { delete() { } }"),
+                "class Doc cannot have a destructor");
     }
 
     private static void packages() {
@@ -2181,7 +2192,11 @@ public final class CheckerTest {
         error("struct holding an array of uniques", files("File", file, "S", "struct S { array<File><<2>> fs; }"),
                 "struct S cannot contain array<File><<2>>, which is unique");
         ok("unique holding a unique", files("File", file, "U", "unique U { File f; }"));
-        ok("class holding a unique", files("File", file, "C", "class C { File f; }"));
+        ok("class holding a unique without a destructor", files("Quiet", "unique Quiet { public int n; }", "C", "class C { Quiet q; }"));
+        error("class holding a unique with a destructor", files("File", file, "C", "class C { File f; }"),
+                "class C can't hold File in f: File has a destructor, and the garbage collector frees a class object at no"
+                        + " set time, so it would never run when it should");
+        ok("a class's static field may hold one", files("File", file, "C", "class C { static File f; }"));
         error("a generic struct made to hold a unique", files("File", file,
                 "Box", "struct Box<T> { T item; }",
                 "Main", "struct Main { static int main() { Box<File> b; return 0; } }"),
@@ -2202,7 +2217,7 @@ public final class CheckerTest {
         error("copying in a field initializer", files("File", file, "Main", """
                 unique Main { static File shared; File mine = shared; }
                 """), "initializer of mine: File is unique and can't be copied");
-        ok("everything that doesn't copy", files("File", file, "Holder", "class Holder { public File f; }", "Main", """
+        ok("everything that doesn't copy", files("File", file, "Holder", "unique Holder { public File f; }", "Main", """
                 struct Main
                 {
                     static File open(int fd) { File f = new File(fd); return f; }   // moved out

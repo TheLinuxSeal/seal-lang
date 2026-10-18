@@ -1080,6 +1080,21 @@ public final class Parser {
             }
             case TRY: {
                 advance();
+                List<VarDecl> resources = new ArrayList<>();
+                if (accept(LPAREN)) {
+                    // try (R r = ...; S s = ...) { }: try-with-resources, a trailing ';' allowed as in Java.
+                    do {
+                        if (check(RPAREN) && !resources.isEmpty()) {
+                            break;
+                        }
+                        Pos rp = here();
+                        TypeRef type = parseType();
+                        String name = expectIdent("resource variable name");
+                        expect(ASSIGN, "'=' and the resource after " + name);
+                        resources.add(new VarDecl(rp, type, name, parseExpr()));
+                    } while (accept(SEMICOLON));
+                    expect(RPAREN, "')' after the resources");
+                }
                 Block body = parseBlock();
                 List<Catch> catches = new ArrayList<>();
                 while (check(CATCH)) {
@@ -1092,10 +1107,10 @@ public final class Parser {
                     catches.add(new Catch(cp, type, name, parseBlock()));
                 }
                 Block fin = accept(FINALLY) ? parseBlock() : null;
-                if (catches.isEmpty() && fin == null) {
+                if (catches.isEmpty() && fin == null && resources.isEmpty()) {
                     throw error("try needs a catch or a finally");
                 }
-                return new Try(start, body, catches, fin);
+                return new Try(start, resources, body, catches, fin);
             }
             case RETURN: {
                 advance();

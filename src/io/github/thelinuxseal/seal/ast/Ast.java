@@ -213,8 +213,11 @@ public final class Ast {
     public record Throw(Pos pos, Expr value) implements Stmt {
     }
 
-    /** `try { } catch (T e) { } ... finally { }`; finallyBlock is null when there is none. */
-    public record Try(Pos pos, Block body, List<Catch> catches, Block finallyBlock) implements Stmt {
+    /**
+     * `try { } catch (T e) { } ... finally { }`; finallyBlock is null when there is none. With resources,
+     * `try (R r = ...; ...) { }`, each is closed at the end of the body (§41.4); resources is empty otherwise.
+     */
+    public record Try(Pos pos, List<VarDecl> resources, Block body, List<Catch> catches, Block finallyBlock) implements Stmt {
     }
 
     public record Catch(Pos pos, TypeRef type, String name, Block body) {

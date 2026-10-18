@@ -9,63 +9,45 @@ struct Integer
 
     // ------------------------------------------------------------ text
 
-    /** Decimal text of x, as a new bare string the caller owns (§43). */
+    /** Decimal text of x, as a new bare string (§43). */
     public static string toString(int<<64>> x)
     {
-        string s;
         if (x < 0) {
-            s.append(45);
-            // Negate as unsigned so that MIN_INT64 works.
-            appendDigits(*s, 0 - (uint<<64>>)x);
-        } else {
-            appendDigits(*s, (uint<<64>>)x);
+            return digits(0 - (uint<<64>>)x, 10, true); // negated as unsigned, so that MIN_INT64 works
         }
-        return s;
+        return digits((uint<<64>>)x, 10, false);
     }
 
-    public static string toString(uint<<64>> x)
-    {
-        string s;
-        appendDigits(*s, x);
-        return s;
-    }
+    public static string toString(uint<<64>> x) { return digits(x, 10, false); }
 
     public static string toString(int x) { return toString((int<<64>>)x); }
     public static string toString(uint x) { return toString((uint<<64>>)x); }
 
-    /** Text of x in the given base (2 to 36), as a new bare string the caller owns. */
+    /** Text of x in the given base (2 to 36), as a new bare string. */
     public static string toString(uint<<64>> x, int base)
     {
         if (base < 2 || base > 36) { throw new IllegalArgumentException("base must be between 2 and 36, not " + base); }
-        array<char><<64>> digits;
-        int n = 0;
+        return digits(x, base, false);
+    }
+
+    /** The digits of x in a base, after a minus sign if negative. */
+    static string digits(uint<<64>> x, int base, bit negative)
+    {
+        array<char> text = new array<char>(65);
+        int at = 65;   // the digits fill the array from its end
         uint<<64>> b = (uint<<64>>)base;
         while (true) {
             uint<<64>> d = x % b;
-            if (d < 10) { digits[n] = (char)(d + '0'); } else { digits[n] = (char)(d - 10 + 'a'); }
-            n++;
+            at--;
+            if (d < 10) { text[at] = (char)(d + '0'); } else { text[at] = (char)(d - 10 + 'a'); }
             x = x / b;
             if (x == 0) { break; }
         }
-        string s;
-        s.reserve(n);
-        for (int i = n - 1; i >= 0; i--) { s.append(digits[i]); }
-        return s;
-    }
-
-    /** Appends the decimal digits of x. Takes an address: a string passed by value is a shallow copy. */
-    static void appendDigits(addr<string> s, uint<<64>> x)
-    {
-        array<char><<20>> digits;
-        int n = 0;
-        while (true) {
-            digits[n] = (char)(x % 10 + '0');
-            n++;
-            x = x / 10;
-            if (x == 0) { break; }
+        if (negative) {
+            at--;
+            text[at] = '-';
         }
-        (&s).reserve((&s).length() + n);
-        for (int i = n - 1; i >= 0; i--) { (&s).append(digits[i]); }
+        return new string(text, at, 65 - at);
     }
 
     public static int<<64>> parse(string s) { return s.toInt(); }

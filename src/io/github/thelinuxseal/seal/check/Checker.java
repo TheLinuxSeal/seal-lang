@@ -204,8 +204,8 @@ public final class Checker {
         public final Map<Expr, ClassT> owners;
         public final Map<Expr, CallInfo> calls;
         public final Map<VarDecl, Type> locals;
-        /** Each for-each loop as the ordinary loop it stands for; generate that instead. */
-        public final Map<ForEach, Stmt> desugared;
+        /** The statements for-each loops and try-with-resources stand for; generate those instead. */
+        public final Map<Stmt, Stmt> desugared;
         public final Map<Switch, SwitchInfo> switches;
         /** A switch expression's hidden subject and its tests, as for a switch statement (§41.3). */
         public final Map<SwitchExpr, SwitchInfo> switchExprs;
@@ -735,7 +735,7 @@ public final class Checker {
             checkExtends(c);
             checkSignatures(c);
             checkConstructorCoverage(c);
-            checkStructRules(c);
+            checkDestructorRules(c);
         }
         checkInheritanceCycles(order);
         for (ClassInfo c : order) {
@@ -1463,6 +1463,9 @@ public final class Checker {
                             report(f.pos(), "struct " + c.name + " cannot contain " + t + ", which is unique: copying "
                                     + c.name + " would copy it; declare `unique " + c.name + "` instead");
                         }
+                        if (c.dynamic && !c.isInterface && !f.modifiers().isStatic()) {
+                            requireNoDestructor(f.pos(), "class " + c.name, f.name(), t);
+                        }
                     }
                     case Method md -> {
                         Env menv = env.copy();
@@ -1626,14 +1629,56 @@ public final class Checker {
         }
     }
 
-    /** A struct is copied freely, so it can't have a destructor or hold a unique (§2.1). */
-    private void checkStructRules(ClassInfo c) {
-        if (c.dynamic || c.unique) {
+    /**
+     * Only a unique has a destructor (§16): a struct is copied freely, so copies would run it more than once, and
+     * a class object is freed by the garbage collector, at no set time (§26).
+     */
+    private void checkDestructorRules(ClassInfo c) {
+        if (c.unique || c.isInterface) {
             return;
         }
         for (MemberInfo d : c.destructors) {
-            report(d.member.pos(), "struct " + c.name + " cannot have a destructor: copies of it would run it more than once;"
-                    + " declare it `unique " + c.name + "` instead");
+            report(d.member.pos(), c.dynamic
+                    ? "class " + c.name + " cannot have a destructor: the garbage collector frees class objects, at no set"
+                            + " time; to release something, give it a close() method, implement AutoCloseable, and use"
+                            + " try-with-resources"
+                    : "struct " + c.name + " cannot have a destructor: copies of it would run it more than once;"
+                            + " declare it `unique " + c.name + "` instead");
+        }
+    }
+
+    /**
+     * Whether a value of this type runs a destructor when it goes: a unique's own, or one of a unique inside it
+     * (§16). array<T> has none: it is the language's own type, and its memory is freed with it.
+     */
+    private boolean hasDestructor(Type t) {
+        if (t instanceof ArrayT a) {
+            return hasDestructor(a.element());
+        }
+        if (!(t instanceof ClassT ct) || ct.cls().dynamic || isArrayObject(ct)) {
+            return false;
+        }
+        Boolean known = destructorCache.get(ct);
+        if (known != null) {
+            return known;
+        }
+        destructorCache.put(ct, false); // a layout can't hold itself (reported elsewhere); this stops the recursion
+        boolean r = ct.cls().destructors.stream().anyMatch(m -> m.existsIn(ct.header()));
+        for (MemberInfo m : ct.cls().storedFields(ct.header())) {
+            r = r || hasDestructor(quietly(() -> fieldType(ct, m)));
+        }
+        destructorCache.put(ct, r);
+        return r;
+    }
+
+    private final Map<ClassT, Boolean> destructorCache = new HashMap<>();
+
+    /** A class object is freed at no set time, so it can't hold a unique whose destructor must run at one (§26). */
+    private void requireNoDestructor(Pos pos, String owner, String field, Type t) {
+        if (hasDestructor(t)) {
+            report(pos, owner + " can't hold " + t + " in " + field + ": " + t + " has a destructor, and the garbage"
+                    + " collector frees a class object at no set time, so it would never run when it should; keep it in"
+                    + " a local variable or in a unique");
         }
     }
 
@@ -2077,6 +2122,7 @@ public final class Checker {
         }
         if (c.dynamic && !o.allowDynamic()) {
             // A class used as a type means a handle to it: `Animal a` is a handle<Animal>.
+            validateClassInstance(t, ref.pos());
             return new HandleT(t);
         }
         validateInstance(t, ref.pos());
@@ -2486,6 +2532,28 @@ public final class Checker {
         }
         for (String msg : new LinkedHashSet<>(found.stream().map(Diagnostic::message).toList())) {
             reportValue(use, "in " + t + ": " + msg);
+        }
+    }
+
+    /** A generic class's fields with the actual type arguments, as Box<File>: none may have a destructor (§26). */
+    private void validateClassInstance(ClassT t, Pos use) {
+        if (t.typeArgs().isEmpty() || !isConcrete(t) || !validated.add(t)) {
+            return;
+        }
+        for (MemberInfo m : t.cls().storedFields(t.header())) {
+            Field f = (Field) m.member;
+            String saved = file;
+            file = t.cls().file;
+            Type declared;
+            try {
+                declared = quietly(() -> resolveType(f.type(), shapeEnv(t.cls(), t.header(), m),
+                        new Opts(false, false, true, null)));
+            } finally {
+                file = saved;
+            }
+            if (!hasDestructor(declared)) { // one that has is reported at the field itself
+                requireNoDestructor(use, t.toString(), f.name(), quietly(() -> fieldType(t, m)));
+            }
         }
     }
 
@@ -3085,7 +3153,9 @@ public final class Checker {
         final Map<Expr, CallInfo> calls = new IdentityHashMap<>();
         final Map<VarDecl, Type> locals = new IdentityHashMap<>();
         /** Each for-each loop as the ordinary loop it stands for (§41.3). */
-        final Map<ForEach, Stmt> desugared = new IdentityHashMap<>();
+        final Map<Stmt, Stmt> desugared = new IdentityHashMap<>();
+        /** The variables of the try-with-resources being checked, which can't be assigned (§41.4). */
+        final Set<String> resources = new HashSet<>();
         final Map<Switch, SwitchInfo> switches = new IdentityHashMap<>();
         final Map<Catch, ClassT> catchTypes = new IdentityHashMap<>();
         /** Expressions that stand for others the checker wrote, e.g. 5 + "x" for "" + 5 + "x". */
@@ -3536,6 +3606,85 @@ public final class Checker {
         return new Call(p, new Select(p, target, method), List.of());
     }
 
+    /**
+     * What try-with-resources becomes (§41.4): each resource is declared in turn, and closed after the rest of the
+     * statement however it is left, the last first; a null one isn't. An exception close() throws while another is
+     * on its way is added to that one with addSuppressed, as in Java. Then the statement's own catch and finally
+     * blocks, if any, go around all of it, so they run after the resources are closed.
+     */
+    private Stmt desugarResources(Body b, Try tr) {
+        boolean closable = true;
+        for (VarDecl r : tr.resources()) {
+            Type t = resolveType(r.type(), b.env, Opts.PLAIN);
+            if (!t.isError() && !(t instanceof HandleT h && h.target() instanceof ClassT ct && implementsInterface(ct, "AutoCloseable"))) {
+                boolean hasClose = t instanceof HandleT h && h.target() instanceof ClassT ct && hasMethod(ct, "close");
+                report(r.type().pos(), "a resource of try-with-resources must implement AutoCloseable, so that it can be"
+                        + " closed; " + (t instanceof HandleT h ? h.target() : t) + " doesn't"
+                        + (hasClose ? " (it has close(): add implements(AutoCloseable))" : ""));
+                closable = false;
+            }
+        }
+        Block inner = tr.body();
+        for (int i = tr.resources().size() - 1; i >= 0; i--) {
+            inner = closing(tr.resources().get(i), inner, closable);
+        }
+        if (tr.catches().isEmpty() && tr.finallyBlock() == null) {
+            return inner;
+        }
+        return new Try(tr.pos(), List.of(), inner, tr.catches(), tr.finallyBlock());
+    }
+
+    /**
+     * R r = init; Exception $primary = null;
+     * try { body } catch (Exception $thrown) { $primary = $thrown; throw $thrown; }
+     * finally { if (r != null) { if ($primary != null) { try { r.close(); } catch (Exception $later) { $primary.addSuppressed($later); } } else { r.close(); } } }
+     */
+    private Block closing(VarDecl r, Block body, boolean closable) {
+        Pos p = r.pos();
+        String primary = "$primary" + (++hiddenNames);
+        String thrown = "$thrown" + (++hiddenNames);
+        String later = "$suppressed" + (++hiddenNames);
+        java.util.function.Supplier<TypeRef> exception = () -> new TypeRef(p, "Exception", List.of(), null, List.of());
+        java.util.function.Supplier<Block> close = () -> new Block(p, List.of(new ExprStmt(p, call(p, new Name(p, r.name()), "close"))));
+        List<Stmt> fin = List.of();
+        if (closable) {
+            Stmt suppressing = new Try(p, List.of(), close.get(), List.of(new Catch(p, exception.get(), later, new Block(p, List.of(
+                    new ExprStmt(p, new Call(p, new Select(p, new Name(p, primary), "addSuppressed"), List.of(new Name(p, later)))))))),
+                    null);
+            Stmt either = new If(p, new Binary(p, BinaryOp.NE, new Name(p, primary), new NullLit(p)),
+                    new Block(p, List.of(suppressing)), close.get());
+            fin = List.of(new If(p, new Binary(p, BinaryOp.NE, new Name(p, r.name()), new NullLit(p)), new Block(p, List.of(either)), null));
+        }
+        Catch record = new Catch(p, exception.get(), thrown, new Block(p, List.of(
+                new ExprStmt(p, new Assign(p, null, new Name(p, primary), new Name(p, thrown))),
+                new Throw(p, new Name(p, thrown)))));
+        return new Block(p, List.of(r, new VarDecl(p, exception.get(), primary, new NullLit(p)),
+                new Try(p, List.of(), body, List.of(record), new Block(p, fin))));
+    }
+
+    /** For a method that would change a string, which strings don't have: how to get the new text instead (§39). */
+    private static String stringMethodHint(ClassInfo cls, String method) {
+        if (!cls.name.equals("string") || !cls.builtin) {
+            return "";
+        }
+        return switch (method) {
+            case "append", "insert", "reserve" -> "; strings are immutable: s += x stores a new string in s, and a"
+                    + " StringBuilder builds text a piece at a time";
+            case "set", "setCharAt" -> "; strings are immutable: make the new text with a StringBuilder (its"
+                    + " setCharAt), or change toCharArray() and make new string(chars)";
+            case "clear" -> "; strings are immutable: s = \"\" stores an empty one in s";
+            default -> "";
+        };
+    }
+
+    /** Whether the class is, extends or implements the named interface. */
+    private boolean implementsInterface(ClassT ct, String name) {
+        if (ct.cls().name.equals(name) && ct.cls().isInterface) {
+            return true;
+        }
+        return allInterfacesOf(ct).stream().anyMatch(i -> i.cls().name.equals(name));
+    }
+
     private static IntLit intLit(Pos p, long v) {
         return new IntLit(p, String.valueOf(v), BigInteger.valueOf(v));
     }
@@ -3764,6 +3913,13 @@ public final class Checker {
                     report(th.value().pos(), "throw needs an exception (an object of a class extending Exception), not " + t);
                 }
             }
+            case Try tr when !tr.resources().isEmpty() -> {
+                Stmt steps = desugarResources(b, tr);
+                b.desugared.put(tr, steps);
+                List<String> names = tr.resources().stream().map(VarDecl::name).filter(b.resources::add).toList();
+                checkStmt(b, steps);
+                names.forEach(b.resources::remove);
+            }
             case Try tr -> {
                 checkStmt(b, tr.body());
                 List<ClassT> caught = new ArrayList<>();
@@ -3801,8 +3957,12 @@ public final class Checker {
             }
             case DeleteStmt d -> {
                 Type t = checkExpr(b, d.target(), null);
-                if (!(t instanceof AddrT) && !(t instanceof HandleT) && !t.isError()) {
-                    report(d.pos(), "delete needs an addr<...> or handle<...>, not " + t
+                if (t instanceof HandleT) {
+                    report(d.pos(), "delete frees addr memory only; the garbage collector frees a class object once"
+                            + " nothing refers to it (set " + (d.target() instanceof Name ? "the variable" : "it")
+                            + " to null to let go of it), and close() releases what it holds");
+                } else if (!(t instanceof AddrT) && !t.isError()) {
+                    report(d.pos(), "delete needs an addr<...>, not " + t
                             + (t instanceof ClassT ? "; inline objects are destroyed automatically at scope exit" : ""));
                 }
             }
@@ -4998,7 +5158,7 @@ public final class Checker {
                 }
                 Found f = findMembers(b, owner, cls, s.name(), s.pos(), staticAccess);
                 if (f == null) {
-                    report(s.pos(), cls.name + " has no method " + s.name());
+                    report(s.pos(), cls.name + " has no method " + s.name() + stringMethodHint(cls, s.name()));
                     return null;
                 }
                 if (f.error) {
@@ -5632,10 +5792,12 @@ public final class Checker {
         }
         if (matching.size() > 1) {
             // As for methods: exact parameter types first, then char parameters for char arguments, then
-            // the most specific: parameters that each equal or widen to every other's (§41.6).
+            // constants at their default types (new StringBuilder(100) takes an int), then the most
+            // specific: parameters that each equal or widen to every other's (§41.6).
             List<List<Type>> all = List.copyOf(matchingParams);
+            int mostDefaults = all.stream().mapToInt(ps -> defaultsKept(ps, args)).max().orElse(0);
             for (java.util.function.Predicate<List<Type>> better : List.<java.util.function.Predicate<List<Type>>>of(
-                    ps -> ps.equals(args), ps -> keepsChars(ps, args),
+                    ps -> ps.equals(args), ps -> keepsChars(ps, args), ps -> defaultsKept(ps, args) == mostDefaults,
                     ps -> all.stream().allMatch(o -> o == ps || atLeastAsSpecific(ps, o)))) {
                 List<Integer> keep = new ArrayList<>();
                 for (int i = 0; i < matching.size(); i++) {
@@ -6646,6 +6808,11 @@ public final class Checker {
         }
         if (target instanceof This) {
             report(pos, "cannot assign to this");
+            return false;
+        }
+        if (target instanceof Name n && b.resources.contains(n.name()) && "local".equals(b.nameKinds.get(n))) {
+            report(pos, n.name() + " is a resource of try-with-resources, closed at the end of its block, so it can't"
+                    + " be assigned");
             return false;
         }
         Name root = assignRoot(b, target);

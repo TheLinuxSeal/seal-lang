@@ -139,7 +139,8 @@ public final class AstPrinter {
                     + (i.otherwise() == null ? "" : " " + print(i.otherwise())) + ")";
             case While w -> "(while " + print(w.cond()) + " " + print(w.body()) + ")";
             case Throw t -> "(throw " + print(t.value()) + ")";
-            case Try t -> "(try " + print(t.body()) + t.catches().stream().map(c -> " (catch " + print(c.type()) + " "
+            case Try t -> "(try " + t.resources().stream().map(r -> print(r) + " ").collect(Collectors.joining())
+                    + print(t.body()) + t.catches().stream().map(c -> " (catch " + print(c.type()) + " "
                     + c.name() + " " + print(c.body()) + ")").collect(Collectors.joining())
                     + (t.finallyBlock() == null ? "" : " (finally " + print(t.finallyBlock()) + ")") + ")";
             case Switch sw -> "(switch " + print(sw.subject()) + sw.cases().stream().map(c -> " (" + (c.isDefault()

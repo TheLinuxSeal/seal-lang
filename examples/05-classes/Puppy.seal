@@ -3,10 +3,5 @@ class Puppy extends(Dog)
     public new(string<<12>> n) { super(n); }
 
     // super.sound() calls the parent's version directly.
-    public string<<8>> sound()
-    {
-        string<<8>> s = "yip-";
-        s.append(super.sound());
-        return s;
-    }
+    public string sound() { return "yip-" + super.sound(); }
 }

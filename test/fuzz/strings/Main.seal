@@ -1,4 +1,4 @@
-// Fuzz input: string literals, character literals and copy-on-write strings.
+// Fuzz input: string literals, character literals, immutable strings sharing buffers, and StringBuilder.
 struct Main
 {
     static int vowels(string s)
@@ -15,12 +15,11 @@ struct Main
     {
         string greeting = "Hello" + ", " + "World";
         string copy = greeting;
-        copy.append('!');
+        copy += '!';
         System.stdout.println(copy);
         System.stdout.println(vowels(greeting));
         System.stdout.println("abc".length() + "de".length());
-        string<<8>> small = "ab";
-        small.append("cd");
+        string<<8>> small = "ab" + "cd";
         string<<11>> both = small + "xyz";
         System.stdout.println(both);
         List<string> words = new List<string>();
@@ -31,7 +30,9 @@ struct Main
         for (int i = 0; i < words.size(); i += 1) { total += words.get(i).length(); }
         System.stdout.println(total);
         string built;
-        for (int i = 0; i < 5; i += 1) { built.append((char)('a' + i)); }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 5; i += 1) { built += (char)('a' + i); sb.append(built.charAt(i)).append(i); }
+        System.stdout.println(sb.toString() + sb.length());
         System.stdout.println(built);
         System.stdout.println(built == "abcde");
         string report = "total " + total + ", vowels " + vowels(greeting) + ", ratio " + 0.25;
