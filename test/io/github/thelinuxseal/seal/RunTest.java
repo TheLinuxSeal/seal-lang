@@ -563,6 +563,9 @@ public final class RunTest {
 
                     @overload(Operator.SHIFT_ASSIGN)
                     public void shiftInPlace(int n) { words[0] = words[0] <<< n; }
+
+                    @overload(Operator.ADD_ASSIGN)
+                    public void addInPlace(BigUInt<<BITS>> o) { words = add(o).words; }
                 }
                 """, "Main", """
                 struct Main

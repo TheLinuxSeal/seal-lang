@@ -211,6 +211,8 @@ public final class Checker {
         public final Map<SwitchExpr, SwitchInfo> switchExprs;
         /** Asserts that run (with -Wassert), as the if-and-throw each stands for (§41.4). */
         public final Map<Assert, Stmt> assertions;
+        /** Statements to generate in place of others: xs[i] += v on an object element (§46). */
+        public final Map<Stmt, Stmt> statementSteps;
         public final Map<Lambda, LambdaInfo> lambdas;
         /** The class each catch clause catches. */
         public final Map<Catch, ClassT> catchTypes;
@@ -242,6 +244,7 @@ public final class Checker {
             this.switches = b.switches;
             this.switchExprs = b.switchExprInfo;
             this.assertions = b.assertions;
+            this.statementSteps = b.statementSteps;
             this.lambdas = b.lambdas;
             this.catchTypes = b.catchTypes;
             this.rewritten = b.rewritten;
@@ -1581,6 +1584,12 @@ public final class Checker {
             if (constant.equals("CAST")) {
                 checkCastOperator(c, md, shape, d);
             }
+            if (constant.endsWith("_ASSIGN")) {
+                Type r = quietly(() -> resolveType(md.returnType(), shapeEnv(c, shape, null), new Opts(true, false, false, null)));
+                if (!(r instanceof VoidT) && !r.isError()) {
+                    report(md.returnType().pos(), "Operator." + constant + " changes the object itself, so it returns void, not " + r);
+                }
+            }
             if (Set.of("==", "!=", "<", ">", "<=", ">=").contains(sym)) {
                 Type r = quietly(() -> resolveType(md.returnType(), shapeEnv(c, shape, null), new Opts(true, false, false, null)));
                 if (!(r instanceof BitT) && !r.isError()) {
@@ -2810,6 +2819,8 @@ public final class Checker {
         final Map<SwitchExpr, SwitchInfo> switchExprInfo = new IdentityHashMap<>();
         /** With -Wassert, each assert as the if-and-throw it runs. */
         final Map<Assert, Stmt> assertions = new IdentityHashMap<>();
+        /** Statements that stand for others the checker wrote: xs[i] += v on an object element (§46). */
+        final Map<Stmt, Stmt> statementSteps = new IdentityHashMap<>();
         /** p.x() calls that read a record's component, with the component's type. */
         final Map<Call, Type> componentReads = new IdentityHashMap<>();
         /** While a block lambda is checked only to learn what it returns: the types of its returns. */
@@ -3164,6 +3175,21 @@ public final class Checker {
         return c.builtin && c.name.equals("System");
     }
 
+    /** How a compound operator is written: += for ADD, <<= for SHIFT. */
+    private static String compoundSymbol(BinaryOp op) {
+        return op == BinaryOp.SHIFT ? "<<=" : op.symbol + "=";
+    }
+
+    /** Why x op= y can't be used on a type: its compound operator isn't declared, and doesn't come from op. */
+    private String noCompound(ClassT ct, BinaryOp op) {
+        String sym = compoundSymbol(op);
+        String constant = OPERATORS.entrySet().stream().filter(e -> e.getValue().equals(sym)).map(Map.Entry::getKey)
+                .findFirst().orElse("?");
+        return ct + " does not define operator " + sym + "; declare it with @overload(Operator." + constant
+                + "), a method that changes the object itself" + (hasOperator(ct, op.symbol)
+                        ? " (it doesn't come from " + op.symbol + ", §46)" : "");
+    }
+
     /** Whether a type is a handle to an Exception (or a subclass). */
     private boolean isException(Type t) {
         ClassInfo e = classes.get("Exception");
@@ -3387,6 +3413,11 @@ public final class Checker {
                     requireDefaultConstructible(t, v.pos(), "variable " + v.name());
                 }
                 b.scopes.peek().put(v.name(), t);
+            }
+            case ExprStmt e when elementCompound(b, e) != null -> {
+                Block steps = elementCompound(b, e);
+                b.statementSteps.put(e, steps);
+                checkStmt(b, steps);
             }
             case ExprStmt e -> checkExpr(b, e.expr(), null);
             case ForEach fe -> {
@@ -6003,7 +6034,9 @@ public final class Checker {
                 {"REMAINDER", "%"}, {"BIT_AND", "&"}, {"BIT_OR", "|"}, {"BIT_XOR", "^"}, {"BIT_NOT", "~"},
                 {"EQUALS", "=="}, {"NOT_EQUALS", "!="}, {"LESS", "<"}, {"GREATER", ">"}, {"LESS_EQUAL", "<="},
                 {"GREATER_EQUAL", ">="}, {"SHIFT", "<<<"}, {"SHIFT_ASSIGN", "<<="}, {"INDEX", "[]"}, {"INDEX_SET", "[]="},
-                {"CAST", CAST}};
+                {"CAST", CAST}, {"ADD_ASSIGN", "+="}, {"SUBTRACT_ASSIGN", "-="}, {"MULTIPLY_ASSIGN", "*="},
+                {"DIVIDE_ASSIGN", "/="}, {"REMAINDER_ASSIGN", "%="}, {"BIT_AND_ASSIGN", "&="}, {"BIT_OR_ASSIGN", "|="},
+                {"BIT_XOR_ASSIGN", "^="}};
         for (String[] op : ops) {
             OPERATORS.put(op[0], op[1]);
         }
@@ -6087,6 +6120,36 @@ public final class Checker {
             case This t -> Lval.YES; // its fields: this.x = x (assigning `this` itself is rejected)
             default -> Lval.NO;
         };
+    }
+
+    /**
+     * `xs[i] += v;` through [] and []= on an element that is an object (a struct, a class object,
+     * a string): the element's own +=, which changes the copy [] gives, then stored back, with i
+     * evaluated once (§46): { var e = xs[i]; e += v; xs[i] = e; }. Null for any other statement.
+     */
+    private Block elementCompound(Body b, ExprStmt s) {
+        if (!(s.expr() instanceof Assign a) || a.op() == null || !(a.target() instanceof Index ix)) {
+            return null;
+        }
+        Type element = quietly(() -> {
+            Type indexed = checkExpr(b, ix.target(), null);
+            ClassT ct = operandClass(indexed) != null ? operandClass(indexed) : indexed instanceof ClassT c ? c : null;
+            if (ct == null || !hasOperator(ct, "[]=") || !hasOperator(ct, "[]")) {
+                return null;
+            }
+            return operatorCall(b, ct, "[]", List.of(checkExpr(b, ix.index(), null)), ix.pos(), null);
+        });
+        if (element == null || element.isError() || operandClass(element) == null) {
+            return null; // numbers and chars: xs[i] = xs[i] + v, as before
+        }
+        Pos p = a.pos();
+        String index = "$index" + (++hiddenNames);
+        String held = "$element" + (++hiddenNames);
+        return new Block(p, List.of(
+                new VarDecl(p, null, index, ix.index()),
+                new VarDecl(p, null, held, new Index(ix.pos(), ix.target(), new Name(p, index))),
+                new ExprStmt(p, new Assign(p, a.op(), new Name(p, held), a.value())),
+                new ExprStmt(p, new Assign(p, null, new Index(ix.pos(), ix.target(), new Name(p, index)), new Name(p, held)))));
     }
 
     /**
@@ -6178,15 +6241,14 @@ public final class Checker {
             return target;
         }
         if (operandClass(target) instanceof ClassT ct) {
-            if (a.op() == BinaryOp.SHIFT) {
-                // `<<=` is its own operator and has no fallback (§51).
-                operatorCall(b, ct, "<<=", List.of(value), a.pos(), a);
-                return target;
+            // On an object, a compound operator is its own overload, which changes the object itself:
+            // x += y doesn't come from +, nor x <<= n from <<< (§46).
+            String sym = compoundSymbol(a.op());
+            if (!hasOperator(ct, sym)) {
+                report(a.pos(), noCompound(ct, a.op()));
+                return Type.ERROR;
             }
-            Type r = classOperator(b, ct, a.op(), value, a.pos(), a);
-            if (!r.isError()) {
-                requireAssignable(b, r, target, a.pos(), "compound assignment");
-            }
+            operatorCall(b, ct, sym, List.of(value), a.pos(), a);
             return target;
         }
         Binary computed = new Binary(a.pos(), a.op(), a.target(), a.value());

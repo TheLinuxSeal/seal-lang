@@ -14,6 +14,11 @@ struct Vec2
     @overload(Operator.SUBTRACT)
     public Vec2 sub(Vec2 o) { return new Vec2(x - o.x, y - o.y); }
 
+    // A compound assignment is an operator of its own, changing the vector itself: pos += step.
+    // It doesn't come from +, so a type has += only if it says so (§46).
+    @overload(Operator.ADD_ASSIGN)
+    public void move(Vec2 o) { x += o.x; y += o.y; }
+
     // Unary minus is an operator of its own: NEGATE, -v, with no parameter.
     @overload(Operator.NEGATE)
     public Vec2 negate() { return new Vec2(-x, -y); }

@@ -81,6 +81,9 @@ public final class CheckerTest {
                 @overload(Operator.ADD)
                 public BigUInt<<BITS>> add(BigUInt<<BITS>> o) { BigUInt<<BITS>> r; return r; }
 
+                @overload(Operator.ADD_ASSIGN)
+                public void addInPlace(BigUInt<<BITS>> o) { }
+
                 @overload(Operator.LESS)
                 public bit isLess(BigUInt<<BITS>> o) { return false; }
 

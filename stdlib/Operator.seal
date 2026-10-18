@@ -29,7 +29,17 @@ enum Operator
     SHIFT_ASSIGN("<<="),
     INDEX("[]"),
     INDEX_SET("[]="),
-    CAST("(T)");
+    CAST("(T)"),
+    // Compound assignments are operators of their own, which change the object itself:
+    // x += y doesn't come from + (§46).
+    ADD_ASSIGN("+="),
+    SUBTRACT_ASSIGN("-="),
+    MULTIPLY_ASSIGN("*="),
+    DIVIDE_ASSIGN("/="),
+    REMAINDER_ASSIGN("%="),
+    BIT_AND_ASSIGN("&="),
+    BIT_OR_ASSIGN("|="),
+    BIT_XOR_ASSIGN("^=");
 
     string sym;
 

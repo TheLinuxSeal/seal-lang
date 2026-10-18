@@ -185,6 +185,11 @@ struct BigUInt<<int BITS>>
     // ------------------------------------------------------------ text
 
     /** The decimal text, for "x = " + big and println(big) (§46). */
+    // a += b, a -= b and a *= b change a itself; they are operators of their own (§46).
+    @overload(Operator.ADD_ASSIGN) public void addInPlace(BigUInt<<BITS>> o) { words = add(o).words; }
+    @overload(Operator.SUBTRACT_ASSIGN) public void subInPlace(BigUInt<<BITS>> o) { words = sub(o).words; }
+    @overload(Operator.MULTIPLY_ASSIGN) public void mulInPlace(BigUInt<<BITS>> o) { words = mul(o).words; }
+
     @overload(Operator.CAST) public string text() { return toString(); }
 
     /** Decimal text, as a new bare string the caller owns. */

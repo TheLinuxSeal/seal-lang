@@ -1818,7 +1818,7 @@ A `string<<N>>` converts to a bare `string` wherever one is wanted: in an initia
 "n = " + n                  // "n = 42"
 "pi ~ " + 3.14159           // doubles print as in Java: 0.1, 1.0E10
 "hello, " + name + "!"
-s += 3;                     // s = s + 3
+s += 3;                     // appends to s: string's own += (§46)
 ```
 
 A number or `bit` on the left works too, as in Java: `n + " apples"` means `"" + n + " apples"`, and `1 + 2 + "!"` is `"3!"` (left to right). A `char` joins as the character itself: `"x" + c`.
@@ -2123,7 +2123,7 @@ counts[word.length()]++;      // an array<int> element, through [] and []=
 * The operand is anything that can be assigned (a variable, a field, an element) holding a number of any kind: an integer of any width, fixed point, `float` or `double`. It is read and written once, so in `xs[i++]++` the index moves once.
 * The result has the operand's own type, and it wraps like other arithmetic: a `uint<<8>>` holding 255 becomes 0. On a `char`, `c++` moves to the next character and stays a `char` (unlike `c + 1`, which is an `int`, §39).
 * On an element reached through `[]=` (§46), `xs[i]++` reads the element with `[]`, then stores the result with `[]=`, evaluating `i` once. It has a value too: `int old = counts[i]++;`.
-* Not for `bit`, addresses, strings or other objects; write `x += 1` where the type defines `+`. A bit slice (`x[0..4]`) takes `x[0..4] += 1`. A fixed-point type needs room for 1: `ufixed<<0, 8>>` has none.
+* Not for `bit`, addresses, strings or other objects; write `x += 1` where the type defines `+=` (§46). A bit slice (`x[0..4]`) takes `x[0..4] += 1`. A fixed-point type needs room for 1: `ufixed<<0, 8>>` has none.
 * In generic code, `++` on a `T` is checked when `T` is known (§12).
 * `x+++y` is `x++ + y`: the lexer takes the longest operator, as Java's does.
 
@@ -2516,6 +2516,8 @@ struct Vec2
 | `EQUALS`, `NOT_EQUALS`, `LESS`, `GREATER`, `LESS_EQUAL`, `GREATER_EQUAL` | `==` `!=` `<` `>` `<=` `>=` | the right operand; returns `bit` |
 | `SHIFT` | `<<<` | the shift amount |
 | `SHIFT_ASSIGN` | `<<=` | the shift amount; changes the object itself |
+| `ADD_ASSIGN`, `SUBTRACT_ASSIGN`, `MULTIPLY_ASSIGN`, `DIVIDE_ASSIGN`, `REMAINDER_ASSIGN` | `+=` `-=` `*=` `/=` `%=` | the right operand; changes the object itself |
+| `BIT_AND_ASSIGN`, `BIT_OR_ASSIGN`, `BIT_XOR_ASSIGN` | `&=` `\|=` `^=` | the right operand; changes the object itself |
 | `INDEX` | `xs[i]` | the index |
 | `INDEX_SET` | `xs[i] = v` | the index and the value |
 | `CAST` | `(T)x` | none; returns `T`, the type it casts to |
@@ -2523,6 +2525,14 @@ struct Vec2
 * The argument must be one of these constants, written `Operator.NAME`. `Operator` is an ordinary enum (`Operator.ADD.symbol()` is `"+"`), but `@overload` reads the name when compiling.
 * `-` is two operators: `SUBTRACT` (`a - b`) and `NEGATE` (`-a`).
 * `!=`, `>`, `<=` and `>=` are derived from `==` and `<` when a type doesn't define them (§48).
+* **Compound assignments are operators of their own.** On a type that defines operators, `x += y` calls its `ADD_ASSIGN` method, which changes `x` itself and returns `void`; it never falls back to `x = x + y`, nor `x <<= n` to `x = x <<< n` (§51). A type has the compound operators it declares, and an error says which to declare:
+
+  ```text
+  @overload(Operator.ADD)        public Vec2 plus(Vec2 o) { return new Vec2(x + o.x, y + o.y); }   // a + b: a new vector
+  @overload(Operator.ADD_ASSIGN) public void move(Vec2 o) { x += o.x; y += o.y; }                 // a += b: a itself changes
+  ```
+
+  On a class object, `a += b` changes the object `a` refers to, which every reference to it sees. Built-in types keep their own: `i += 2` on an `int` is `i = i + 2` (§41.6), and the library's `string`, `BigUInt` and others declare the compound operators they have (`s += "x"` appends to `s`).
 * Operators are inherited by subclasses and are not virtual (§52).
 
 Indexing is for types that act like containers:
@@ -2532,7 +2542,7 @@ Indexing is for types that act like containers:
 @overload(Operator.INDEX_SET) public void set(int i, T value) { ... }  // xs[i] = v
 ```
 
-`[]` takes the index (of any type: a map could take a string) and gives the element; `[]=` takes the index and the new value. `xs[i] += v` is `xs[i] = xs[i] + v` with `i` evaluated once (when it is a number), narrowed back to the element's type as other compound assignments are (§41.6), and an assignment through `[]=` has no value of its own; `xs[i]++` does have one (§41.5). `array<T>` (§21.3) is indexed this way.
+`[]` takes the index (of any type: a map could take a string) and gives the element; `[]=` takes the index and the new value. `xs[i] += v` on a number element is `xs[i] = xs[i] + v` with `i` evaluated once (when it is a number), narrowed back to the element's type as other compound assignments are (§41.6). On an element that is an object (a struct, a class object, a string) it uses the element's own `+=`: `var e = xs[i]; e += v; xs[i] = e;`, with `i` evaluated once, as a statement of its own. An assignment through `[]=` has no value of its own; `xs[i]++` does have one (§41.5). `array<T>` (§21.3) is indexed this way.
 
 A type casts itself to other types with `CAST` methods, one per type it casts to. `(T)x` calls the one returning `T` exactly, so overloads differ only in their return type:
 
@@ -2565,9 +2575,7 @@ struct Meters
 * The built-in casts come first: between numbers, between related class handles (upcasts and checked downcasts), and of a value to its own type. A `CAST` method is used only where none of those applies, so `(Account)savings` stays an upcast.
 * Two `CAST` methods can't return the same type, and a cast to a type with none is an error that lists the types it does cast to.
 
-Compound operators generally derive from their base operators.
-
-However, `<<=` is explicitly separate from `<<<`.
+Compound operators don't derive from their base operators: each one a type has, it declares (above).
 
 ---
 
@@ -2698,37 +2706,11 @@ Integer.ror(...)
 
 ---
 
-# 51. Shift Overload Fallback
+# 51. Compound Operators Don't Fall Back
 
-The behavior when a class implements:
+A type that defines `<<<` but not `<<=`, or `+` but not `+=`, has no `<<=` or `+=`: `x <<= n` and `x += y` are errors that name the operator to declare (`@overload(Operator.SHIFT_ASSIGN)`, `@overload(Operator.ADD_ASSIGN)`). They don't fall back to `x = x <<< n` or `x = x + y`. The same holds for `-=`, `*=`, `/=`, `%=`, `&=`, `|=` and `^=`.
 
-```text
-<<<
-```
-
-but not:
-
-```text
-<<=
-```
-
-remains open.
-
-One proposed rule is:
-
-```text
-x <<= n
-```
-
-falls back to:
-
-```text
-x = x <<< n
-```
-
-for suitable structs.
-
-Another option is to require an explicit `<<=` overload.
+A compound operator changes the object itself, so it can do what the base operator can't do cheaply: `BigUInt`'s `<<=` shifts its words in place, where `<<<` makes a new value. Keeping them apart means `a += b` never quietly builds a new object the way `a + b` does.
 
 ---
 
@@ -3109,7 +3091,7 @@ These rules are implemented by the semantic checker (`src/io/github/thelinuxseal
 
 * Operator overloading works in structs, uniques and classes (§52).
 * `!=` is derived from `==`, and `>`, `<=`, `>=` from `<`, when not declared (§48).
-* `<<=` does not fall back to `x = x <<< n`; a class must overload `<<=` explicitly (§51).
+* Compound assignments don't fall back to their base operators: `x <<= n` is not `x = x <<< n`, nor `x += y` `x = x + y`; a type declares each one it has (§51).
 
 ---
 
@@ -3136,10 +3118,6 @@ The following areas remain unresolved or proposed.
 * Exact downcast syntax
 * Detailed shape-matching algorithm
 * Exact inherited-member coverage rules
-
-### Operators
-
-* Whether other compound operators (`+=` etc.) should also be separately overloadable
 
 ### Compile-time evaluation
 

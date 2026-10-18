@@ -2067,7 +2067,7 @@ public final class LanguageTest {
                 "an array copies its elements in and out, so it can't hold array<int>, a unique");
         output("Operator is an ordinary enum too", files("Main", main("""
                 System.stdout.print(Operator.ADD.symbol() + Operator.INDEX_SET.symbol() + " " + Operator.values().length() + " " + Operator.valueOf("NEGATE").ordinal());
-                """)), "+[]= 21 2");
+                """)), "+[]= 29 2");
         output("fixed arrays: values with methods, any length, nesting, exceptions", files("Holder", """
                 class Holder { public array<int><<4>> nums = [4, 3, 2, 1]; }
                 """, "Main", """
@@ -2735,6 +2735,7 @@ struct Main
                     public new(int c) { cents = c; }
                     delete() { System.stdout.print("~"); System.stdout.print(cents); System.stdout.print(" "); }
                     @overload(Operator.ADD) public Amount plus(Amount o) { return new Amount(cents + o.cents); }
+                    @overload(Operator.ADD_ASSIGN) public void add(Amount o) { cents += o.cents; }
                     @overload(Operator.NEGATE) public Amount negate() { return new Amount(-cents); }
                     @overload(Operator.LESS) public bit less(Amount o) { return cents < o.cents; }
                     @overload(Operator.EQUALS) public bit same(Amount o) { return cents == o.cents; }
@@ -2756,7 +2757,7 @@ struct Main
                     }
                 }
                 """),
-                "350 -100~-100  truefalsetrue ~350 450 | ~450 ~250 ~100 ");
+                "350 -100~-100  truefalsetrue 450 | ~450 ~250 ~100 ");
         output("operators on a class", files(
                 "Money", """
                 class Money
@@ -2765,6 +2766,7 @@ struct Main
                     public new(int c) { cents = c; }
                     delete() { System.stdout.print("~"); System.stdout.print(cents); System.stdout.print(" "); }
                     @overload(Operator.ADD) public Money plus(Money o) { return new Money(cents + o.cents); }
+                    @overload(Operator.ADD_ASSIGN) public void add(Money o) { cents += o.cents; }
                     @overload(Operator.NEGATE) public Money negate() { return new Money(-cents); }
                     @overload(Operator.LESS) public bit less(Money o) { return cents < o.cents; }
                     @overload(Operator.MULTIPLY) public Money times(int k) { return new Money(cents * k); }
@@ -2811,7 +2813,7 @@ struct Main
                     }
                 }
                 """),
-                "350 -100~-100  truefalse ~350 450 900 550~300 ~550  truefalse~100  10~10  truefalse | ~5 ~900 ~250 ~100 ");
+                "350 -100~-100  truefalse 450 900 550~300 ~550  truefalse~100  10~10  truefalse | ~5 ~900 ~250 ~100 ");
         compileError("a class without the operator", files(
                 "Thing", "class Thing { }",
                 "Main", main("Thing a = new Thing(); Thing b = a + a;")),

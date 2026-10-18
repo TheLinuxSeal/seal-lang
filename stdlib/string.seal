@@ -201,6 +201,19 @@ struct string<<int N>>
     @overload(Operator.ADD) public string add<<>>(bit x) { if (x) { return join("true"); } return join("false"); }
     @overload(Operator.ADD) public string add<<>>(char c) { string r = copy(); r.append(c); return r; }
 
+    // s += x appends to s itself (§46): its own operator, not s = s + x.
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(string other) { append(other); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(string<<int K>> other) { append(other); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(int x) { append(Integer.toString(x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(int<<int W>> x) { append(Integer.toString((int<<64>>)x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(uint<<int W>> x) { append(Integer.toString((uint<<64>>)x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(double x) { append(Double.toString(x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(float x) { append(Float.toString(x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(fixed<<int A, int B>> x) { append(Fixed.toString(x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(ufixed<<int A, int B>> x) { append(Fixed.toString(x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(bit x) { if (x) { append("true"); } else { append("false"); } }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(char c) { append(c); }
+
     string join(string text)
     {
         string r = copy();

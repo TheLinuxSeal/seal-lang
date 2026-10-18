@@ -1865,6 +1865,10 @@ public final class CodeGen {
         }
 
         void stmt(Stmt s) {
+            if (tb.statementSteps.containsKey(s)) {
+                stmt(tb.statementSteps.get(s)); // the statements the checker wrote for it
+                return;
+            }
             pos = s.pos();
             declareBindings(s);
             switch (s) {
@@ -3233,19 +3237,11 @@ public final class CodeGen {
             Type t = type(a.target());
             if (tb.calls.containsKey(a)) {
                 if (t instanceof HandleT) {
-                    // On a class object: `a += b` stores the operator's new object; `a <<= n` changes a itself.
+                    // On a class object, `a += b` and `a <<= n` call its own operator, which changes a itself (§46).
                     CallInfo ci = tb.calls.get(a);
-                    Place p = place(a.target());
-                    int receiver = load(p, t);
-                    if (a.op() == BinaryOp.SHIFT) {
-                        invoke(ci, receiver, List.of(a.value()), null);
-                        return receiver;
-                    }
-                    int result = invoke(ci, receiver, List.of(a.value()), null);   // owned
-                    int old = load(p, t);
-                    store(p, t, result);
-                    emit(Op.HRELEASE, old);
-                    return result;
+                    int receiver = load(place(a.target()), t);
+                    invoke(ci, receiver, List.of(a.value()), null);
+                    return receiver;
                 }
                 // Overloaded compound assignment on a struct or unique.
                 compoundOnObject(a, place(a.target()));
@@ -3391,20 +3387,10 @@ public final class CodeGen {
             store(p, it, normalize(combined, it));
         }
 
-        /** `c += x` (via the + operator) or `c <<= n` (its own operator) on a fixed object. */
+        /** `c += x` or `c <<= n` on a struct or unique: its own operator, which changes c where it is (§46). */
         void compoundOnObject(Assign a, Place target) {
             CallInfo ci = tb.calls.get(a);
-            Type t = type(a.target());
-            if (a.op() == BinaryOp.SHIFT) {
-                withAddress(target, t, addr -> invoke(ci, addr, List.of(a.value()), null));
-                return;
-            }
-            Mem result = temp(t);
-            withAddress(target, t, addr -> invoke(ci, addr, List.of(a.value()), result));
-            if (needsDestroy(t)) {
-                destroyValue(target, t); // the old value is replaced
-            }
-            copy(target, result, sizeOf(t));
+            withAddress(target, type(a.target()), addr -> invoke(ci, addr, List.of(a.value()), null));
         }
 
         // ------------------------------------------------------------ operators on objects

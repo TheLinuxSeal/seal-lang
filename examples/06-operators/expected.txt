@@ -12,7 +12,7 @@ a < b:  false
 a > b:  true
 a <= a: true
 b >= a: false
-== compound assignment uses the operator ==
+== compound assignment is its own operator ==
 (2.0, 1.0)
 == the operators on built-in types ==
 flags = 2312
