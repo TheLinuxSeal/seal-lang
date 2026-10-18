@@ -68,6 +68,17 @@ compiler into `out/` the first time, and again whenever its source changes:
 ./test.sh                         # build, then run every test suite
 ```
 
+With Nix, the repository is a flake:
+
+```sh
+nix develop                                # a shell with JDK 25, where seal runs the repository's script
+nix run . -- run examples/01-basics        # the packaged compiler, with its standard library
+nix build                                  # ./result/bin/seal
+nix flake check                            # build the package and run every test suite
+```
+
+With [direnv](https://direnv.net), the `.envrc` enters the dev shell by itself (run `direnv allow` once).
+
 A program is a folder of `.seal` files, each holding one top-level type and named after it. Its
 entry point is `main()` in the class `Main`.
 
