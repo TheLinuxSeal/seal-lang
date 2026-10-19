@@ -117,6 +117,7 @@ public final class CheckerTest {
         fixedPointErrors();
         uniqueRules();
         accessOnEveryKind();
+        pureMethods();
 
         System.out.println(passed + " passed, " + failures.size() + " failed");
         failures.forEach(f -> System.out.println("FAIL: " + f));
@@ -1671,10 +1672,10 @@ public final class CheckerTest {
         error("unknown decorator", """
                 struct Foo
                 {
-                    @pure
+                    @inline
                     int f() { return 0; }
                 }
-                """, "unknown decorator @pure");
+                """, "unknown decorator @inline");
         ok("overloading in a class", files("Foo", """
                 class Foo
                 {
@@ -2321,6 +2322,58 @@ public final class CheckerTest {
             m.put(pairs[i] + ".seal", pairs[i + 1]);
         }
         return m;
+    }
+
+    /** `pure` (§17.2): static methods whose result depends only on their arguments. */
+    private static void pureMethods() {
+        String box = "class Box { public int v; public static int shared; public int get() { return v; } }";
+        ok("pure methods may use their arguments, their own variables, const fields and other pure methods", files("Box", box,
+                "Spot", "struct Spot { public int x; public int y; }", "Main", """
+                struct Main
+                {
+                    const int K = 3;
+                    static pure int twice(int n) { return n * 2; }
+                    static pure int sum(Spot s, Box b) { Spot c = s; c.x += K; array<int><<2>> t = [c.x, s.y]; return twice(t[0] + t[1]) + b.v; }
+                    static pure int<<twice(4)>> eight(int<<twice(4)>> x) { return x; }
+                    static int main() { return 0; }
+                }
+                """));
+        error("a pure method must be static", """
+                struct Main { pure int f() { return 1; } static int main() { return 0; } }
+                """, "a pure method must be static: it depends only on its arguments, not on an object; write `static pure`");
+        error("only methods are pure", """
+                struct Main { static pure int x; static int main() { return 0; } }
+                """, "only methods can be pure");
+        error("pure is a keyword, not a decorator", """
+                struct Main { @pure static int f() { return 1; } static int main() { return 0; } }
+                """, "pure is a keyword, as static is, not a decorator: write `static pure` before the return type");
+        error("a pure method can't use a static field", files("Box", box, "Main", """
+                struct Main { static pure int f() { return Box.shared; } static int main() { return 0; } }
+                """), "a pure method can't use the static field shared: its result may depend only on its arguments");
+        error("a pure method can't change an object its caller shares", files("Box", box, "Main", """
+                struct Main { static pure int f(Box b) { b.v = 2; return 0; } static int main() { return 0; } }
+                """), "a pure method can't change Box objects: its caller shares them");
+        error("a pure method calls only pure methods", """
+                struct Main { static int g() { return 1; } static pure int f() { return g(); } static int main() { return 0; } }
+                """, "a pure method can only call pure methods, and Main.g isn't pure; declare it `static pure`");
+        error("a pure method can't call an object's methods", files("Box", box, "Main", """
+                struct Main { static pure int f(Box b) { return b.get(); } static int main() { return 0; } }
+                """), "a pure method can only call pure methods, which are static, and Box.get belongs to an object");
+        error("a pure method makes no objects", files("Box", box, "Main", """
+                struct Main { static pure int f() { Box b = new Box(); return 0; } static int main() { return 0; } }
+                """), "a pure method can't make objects: new Box runs its constructor");
+        error("a pure method uses no addresses", """
+                struct Main { static pure int f(int n) { addr<int> p = *n; return &p; } static int main() { return 0; } }
+                """, "a pure method can't use addresses");
+        error("a lambda in a pure method keeps its rules", files("Box", box, "Main", """
+                struct Main { static pure int f() { Runnable r = () -> { Box.shared = 1; }; return 0; } static int main() { return 0; } }
+                """, "Runnable", "interface Runnable { void run(); }"), "a pure method can't use the static field shared");
+        error("only pure methods run while compiling", """
+                struct Main { static int g() { return 8; } static int<<g()>> x; static int main() { return 0; } }
+                """, "Main.g isn't pure, so it can't run while compiling; declare it `static pure`");
+        error("a pure method can't need itself for its own types", """
+                struct Main { static pure int f(int<<f(1)>> x) { return 8; } static int main() { return 0; } }
+                """, "this call is in the types of the method it calls, which it needs to be found");
     }
 
     private static void ok(String name, Map<String, String> files) {

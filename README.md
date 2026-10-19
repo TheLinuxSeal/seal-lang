@@ -46,7 +46,8 @@ Point[x=3, y=9]  is 9.49 from the origin
   Java, freed automatically once nothing refers to it; what it holds open, it releases in `close()`.
 - **Shapes:** compile-time values in types. `string<<16>>` is a string of at most 16 characters stored
   inline, `array<int><<4>>` four ints, and `Matrix<double><<3, 3>>` a 3×3 matrix. Code can take them
-  as parameters: `int<<int W>>` is an integer of any width W.
+  as parameters: `int<<int W>>` is an integer of any width W. A `static pure` method, whose result
+  depends only on its arguments, also runs while compiling: `uint<<Bits.needed(1000)>>`.
 - **Numbers:** signed and unsigned integers of any width from 1 to 64 bits (`int<<8>>`, `uint<<64>>`),
   fixed point (`fixed<<16, 16>>`), `float` and `double`. They widen as in Java and narrow where
   stored, as in C; `-WautoCast` and `-WautoCastLossy` show every conversion the compiler makes.

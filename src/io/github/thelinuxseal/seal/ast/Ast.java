@@ -128,12 +128,14 @@ public final class Ast {
      * @param friends classes listed in `private<A, B>`; empty otherwise
      * @param isDefault a `default` method of an interface, with a body the classes implementing it
      *     get; or a `default` field of an interface or abstract class, with a value they get (§30.4)
+     * @param isPure `pure` (§17.2): a static method that depends only on its arguments, so it can also run
+     *     while compiling, in `<<...>>`
      */
     public record Modifiers(List<Decorator> decorators, Access access, List<TypeRef> friends,
-                            boolean isStatic, boolean isConst, boolean isAbstract, boolean isDefault) {
+                            boolean isStatic, boolean isConst, boolean isAbstract, boolean isDefault, boolean isPure) {
         public Modifiers(List<Decorator> decorators, Access access, List<TypeRef> friends,
                          boolean isStatic, boolean isConst, boolean isAbstract) {
-            this(decorators, access, friends, isStatic, isConst, isAbstract, false);
+            this(decorators, access, friends, isStatic, isConst, isAbstract, false, false);
         }
     }
 

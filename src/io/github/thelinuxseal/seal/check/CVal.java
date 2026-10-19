@@ -93,6 +93,27 @@ public sealed interface CVal {
         }
     }
 
+    /**
+     * A pure method's call on values not known yet, as `Fib.of(N)` inside a generic class (§17.2):
+     * computed when they are. Calls of one method on the same values are the same value.
+     */
+    record PureCall(String name, Object method, List<CVal> args, Function<List<CVal>, CVal> compute) implements CVal {
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof PureCall c && c.method == method && c.args.equals(args);
+        }
+
+        @Override
+        public int hashCode() {
+            return System.identityHashCode(method) * 31 + args.hashCode();
+        }
+
+        @Override
+        public String toString() {
+            return name + "(" + String.join(", ", args.stream().map(CVal::toString).toList()) + ")";
+        }
+    }
+
     /** Placeholder for a value that failed to evaluate; errors have been reported. */
     record ErrV() implements CVal {
         @Override
@@ -297,6 +318,14 @@ public sealed interface CVal {
                 yield r == null ? s : r;
             }
             case LayoutOf l -> layout.apply(l);
+            case PureCall c -> {
+                List<CVal> args = c.args().stream().map(a -> substitute(a, subst, layout)).toList();
+                if (args.stream().anyMatch(a -> a instanceof ErrV)) {
+                    yield new ErrV();
+                }
+                yield args.stream().allMatch(CVal::isConstant) ? c.compute().apply(args)
+                        : new PureCall(c.name(), c.method(), args, c.compute());
+            }
             case Op o -> {
                 List<CVal> args = o.args().stream().map(a -> substitute(a, subst, layout)).toList();
                 if (args.size() == 1) {

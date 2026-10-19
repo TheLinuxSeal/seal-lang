@@ -1202,6 +1202,12 @@ public final class Checker {
             if (m.modifiers().isConst() && !(m instanceof Field)) {
                 report(m.pos(), "only fields can be const");
             }
+            if (m.modifiers().isPure() && !(m instanceof Method)) {
+                report(m.pos(), "only methods can be pure");
+            } else if (m.modifiers().isPure() && !m.modifiers().isStatic()) {
+                report(m.pos(), "a pure method must be static: it depends only on its arguments, not on an object;"
+                        + " write `static pure`");
+            }
             if (m instanceof Field f && f.modifiers().isConst() && f.init() == null) {
                 report(f.pos(), "const field " + f.name() + " needs an initializer");
             }
@@ -2366,11 +2372,181 @@ public final class Checker {
                 CVal v = layout(t, a.pos()).align();
                 return new Const(v, new IntConstT(v.intValue()));
             }
+            case Call call:
+                return pureCall(call, env);
             default:
                 report(e.pos(), "not a compile-time constant; <<...>> values and array sizes may use literals, "
-                        + "arithmetic, const fields, sizeof and other compile-time values");
+                        + "arithmetic, const fields, sizeof, calls to pure methods and other compile-time values");
                 return new Const(new ErrV(), Type.ERROR);
         }
+    }
+
+    /** Runs pure methods while compiling (§17.2); one for the whole program, so each call's result is kept. */
+    private final PureEval pure = new PureEval(this);
+    /** The compile-time calls being resolved, to catch one in its own method's types. */
+    private final Set<Call> resolvingPure = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+
+    /**
+     * A call in a compile-time value (§17.2): to a static pure method, found as any call is, and
+     * run now; or, on values not known yet (`Fib.of(N)` in a generic class), a value computed when
+     * they are.
+     */
+    private Const pureCall(Call call, Env env) {
+        if (resolvingPure.contains(call)) {
+            // f(1) in f's own signature: finding and running f needs its parameters' types, which need f(1).
+            throw new PureCycle(call);
+        }
+        resolvingPure.add(call);
+        try {
+            return pureCallOnce(call, env);
+        } catch (PureCycle c) {
+            if (c.call != call) {
+                throw c;
+            }
+            report(call.pos(), "this call is in the types of the method it calls, which it needs to be found");
+            return new Const(new ErrV(), Type.ERROR);
+        } finally {
+            resolvingPure.remove(call);
+        }
+    }
+
+    /** A compile-time call met again while it is being worked out; the first one reports it. */
+    private static final class PureCycle extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        final transient Call call;
+
+        PureCycle(Call call) {
+            super(null, null, false, false);
+            this.call = call;
+        }
+    }
+
+    private Const pureCallOnce(Call call, Env env) {
+        Const error = new Const(new ErrV(), Type.ERROR);
+        Body b = new Body(env.cls, -1, env, true, false, Type.VOID, "<<...>>");
+        if (checkExpr(b, call, null).isError()) {
+            return error;
+        }
+        CallInfo ci = b.calls.get(call);
+        if (ci == null || ci.kind() != CallKind.STATIC || !(ci.member().member instanceof Method md)) {
+            report(call.pos(), "a compile-time value can call only static pure methods (§17.2)");
+            return error;
+        }
+        String name = declaringClass(ci.member()).name + "." + md.name();
+        if (!md.modifiers().isPure()) {
+            report(call.pos(), name + " isn't pure, so it can't run while compiling; declare it `static pure` (§17.2)");
+            return error;
+        }
+        // Each argument is a compile-time value, or for a fixed array an array literal: a list of them.
+        List<Object> args = new ArrayList<>();
+        for (Expr a : call.args()) {
+            Object v = pureArgument(a, env);
+            if (v == null) {
+                return error;
+            }
+            args.add(v);
+        }
+        MemberInfo m = ci.member();
+        Map<String, CVal> binders = ci.binders();
+        Type ret = returnTypeOf(null, m, binders);
+        boolean known = args.stream().allMatch(Checker::known)
+                && binders.values().stream().allMatch(v -> v.isConstant() || v instanceof TypeV);
+        if (!known) {
+            if (!binders.isEmpty() || args.stream().anyMatch(a -> a instanceof List)) {
+                report(call.pos(), name + " can't run on values not known yet when it has binders or takes arrays");
+                return error;
+            }
+            String at = file;
+            List<CVal> symbolic = args.stream().map(a -> (CVal) a).toList();
+            return new Const(new CVal.PureCall(name, m, symbolic,
+                    now -> runPure(name, m, Map.of(), new ArrayList<>(now), ret, call.pos(), at, true)), pureType(ret, null));
+        }
+        CVal v = runPure(name, m, binders, args, ret, call.pos(), file, false);
+        return v instanceof ErrV ? error : new Const(v, pureType(ret, v));
+    }
+
+    /** A pure call's argument while compiling: a compile-time value, or the values of an array literal; null after an error. */
+    private Object pureArgument(Expr a, Env env) {
+        if (a instanceof ArrayLit al) {
+            List<Object> items = new ArrayList<>();
+            for (Expr e : al.elements()) {
+                Object v = pureArgument(e, env);
+                if (v == null) {
+                    return null;
+                }
+                items.add(v);
+            }
+            return items;
+        }
+        Const c = evalConst(a, env);
+        return c.value() instanceof ErrV ? null : c.value();
+    }
+
+    private static boolean known(Object arg) {
+        return arg instanceof List<?> items ? items.stream().allMatch(Checker::known) : ((CVal) arg).isConstant();
+    }
+
+    private static String argumentText(Object arg) {
+        return arg instanceof List<?> items ? "[" + String.join(", ", items.stream().map(Checker::argumentText).toList()) + "]"
+                : arg.toString();
+    }
+
+    /** m(args) worked out now; on failure, the reason is reported at the call, and the value is an error. */
+    private CVal runPure(String name, MemberInfo m, Map<String, CVal> binders, List<Object> args, Type ret, Pos at,
+                         String callFile, boolean later) {
+        try {
+            List<Type> params = paramTypes(null, m, binders);
+            List<Object> values = new ArrayList<>();
+            for (int i = 0; i < args.size(); i++) {
+                values.add(pureValue(args.get(i), params.get(i)));
+            }
+            return PureEval.toCVal(pure.call(m, binders, values), ret);
+        } catch (PureEval.Failure f) {
+            String message = name + "(" + String.join(", ", args.stream().map(Checker::argumentText).toList())
+                    + ") can't be worked out while compiling: it " + f.getMessage()
+                    + (f.where == null ? "" : " (" + f.where + ")");
+            String saved = file;
+            file = callFile;
+            try {
+                if (later) {
+                    reportValue(at, message);
+                } else {
+                    report(at, message);
+                }
+            } finally {
+                file = saved;
+            }
+            return new ErrV();
+        }
+    }
+
+    private Object pureValue(Object arg, Type t) {
+        if (arg instanceof List<?> items) {
+            if (!(t instanceof ArrayT at) || at.size() == null || at.size().intValue() == null
+                    || at.size().intValue().intValue() != items.size()) {
+                throw new PureEval.Failure("was given an array literal for a " + t, null);
+            }
+            Object[] out = new Object[items.size()];
+            for (int i = 0; i < out.length; i++) {
+                out[i] = pureValue(items.get(i), at.element());
+            }
+            return out;
+        }
+        return pure.fromCVal((CVal) arg, t);
+    }
+
+    /**
+     * The type of a pure call's value while compiling: as a literal's, a known number that must fit
+     * where it goes, whatever type the method computed it in.
+     */
+    private static Type pureType(Type ret, CVal v) {
+        return switch (v) {
+            case StrV s -> new StrConstT(s.value());
+            case IntV i -> new IntConstT(i.value());
+            case FloatV f -> new FloatConstT(exactDouble(f.value()));
+            case null -> ret instanceof IntT ? new IntConstT(null) : ret;
+            default -> ret;
+        };
     }
 
     private static Type constResultType(Type t, CVal v) {
@@ -3259,6 +3435,11 @@ public final class Checker {
                         checkBlock(b, md.body(), false);
                         if (!(ret instanceof VoidT) && !ret.isError() && !returns(md.body())) {
                             report(md.pos(), "method " + md.name() + " can reach its end without returning a " + ret);
+                        }
+                        if (md.modifiers().isPure()) {
+                            for (Purity.Problem p : Purity.of(this, new TypedBody(c.file, b, params, ret, List.of()), md.body())) {
+                                report(p.pos(), p.message());
+                            }
                         }
                     }
                     case Constructor ctor -> {

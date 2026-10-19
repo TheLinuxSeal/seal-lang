@@ -415,6 +415,7 @@ Allowed expressions include:
 * `const` variables
 * `sizeof`
 * other bound generic parameters
+* calls to `pure` methods (§17.2), which run while compiling: `int<<Bits.needed(1000)>>`
 
 Primitive values may be used as compile-time parameters.
 
@@ -437,9 +438,7 @@ Current proposed rules include:
 * recursive instantiation depth limits
 * a limit on the total number of instantiations
 
-General compile-time functions are not currently part of the language.
-
-A future `pure` function system may allow restricted compile-time functions, potentially with a compiler step limit.
+Compile-time functions are `pure` methods (§17.2), with a step limit.
 
 ---
 
@@ -934,6 +933,51 @@ Modifiers may appear in any order before the member's type. Decorators come firs
 ```
 
 Access control is a compile-time restriction. Since `addr<T>` provides low-level memory access, it cannot be treated as a runtime security boundary.
+
+## 17.2 `pure`
+
+A `pure` method's result depends only on its arguments, so it can also run while compiling: wherever a compile-time value goes (§8), in `<<...>>`, an array's size or a `const` field.
+
+```text
+struct Bits
+{
+    public static pure int needed(int n)
+    {
+        int bits = 1;
+        while ((1 <<< bits) <= n) { bits++; }
+        return bits;
+    }
+}
+
+struct Fib
+{
+    public static pure int of(int n)
+    {
+        if (n < 0) { throw new IllegalArgumentException("n must not be negative"); }
+        int a = 0;
+        int b = 1;
+        for (int i = 0; i < n; i++) { int t = a + b; a = b; b = t; }
+        return a;
+    }
+}
+
+uint<<Bits.needed(1000)>> count;              // a uint<<10>>
+array<int><<Fib.of(6)>> table;                // 8 elements
+const int LIMIT = Fib.of(20);
+struct Table<<int N>> { array<int><<Fib.of(N) + 1>> cells; }   // worked out for each N used
+```
+
+`pure` is a modifier, as `static` is, and a pure method must also be `static`. Its body keeps these rules, which the compiler checks:
+
+* It reads no field but its arguments' (a struct argument's, or a class object's) and `const` fields: no static fields, so it can't print, read files or count calls.
+* It changes no class object: a class object belongs to its caller too. Its own variables, and its arguments (copies, as values are), it may change.
+* It calls only pure methods. The one object it may make is an exception it throws, `throw new IllegalArgumentException("...")`.
+* It uses no addresses (`*x`, `&p`, `new<T>(n)`, `delete`).
+* A lambda inside it keeps the same rules.
+
+While the program runs, a pure method is an ordinary static method. While compiling, the compiler runs it exactly as the program would: numbers of every width wrap as they do at run time, and fixed point, floating point, bits, characters, strings and fixed arrays work as they do; an array literal can be an argument, `Stats.sum([1, 2, 3])`. A call's result is a known value, like a literal, which must fit where it goes. Each call with the same arguments runs once; a pure method can't tell. A call on values not known yet, as `Fib.of(N)` in the generic class above, is worked out for each set of values the program uses.
+
+A call that can't be worked out while compiling is an error at the call, saying why and where: it threw (`Fib.of(-1) can't be worked out while compiling: it threw IllegalArgumentException: n must not be negative (Fib.seal:5)`), divided by zero, indexed outside a fixed array, recursed more than 20,000 calls deep, or ran for more than 50,000,000 steps. While compiling, values of other types (structs, class objects, `array<T>`) and `try` don't run yet; such a pure method still works while the program runs.
 
 ---
 

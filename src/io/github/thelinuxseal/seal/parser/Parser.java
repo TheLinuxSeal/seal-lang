@@ -936,9 +936,15 @@ public final class Parser {
         boolean isConst = false;
         boolean isAbstract = false;
         boolean isDefault = false;
+        boolean isPure = false;
 
         while (true) {
-            if (check(AT)) {
+            if (check(AT) && pos + 1 < tokens.size() && tokens.get(pos + 1).kind() == PURE) {
+                advance();
+                error("pure is a keyword, as static is, not a decorator: write `static pure` before the return type");
+                advance();
+                isPure = true;
+            } else if (check(AT)) {
                 Pos start = here();
                 advance();
                 String name = expectIdent("decorator name");
@@ -979,12 +985,18 @@ public final class Parser {
                 }
                 advance();
                 isDefault = true;
+            } else if (check(PURE)) {
+                if (isPure) {
+                    error("duplicate 'pure'");
+                }
+                advance();
+                isPure = true;
             } else {
                 break;
             }
         }
         return new Modifiers(decorators, access == null ? Access.PRIVATE : access, friends, isStatic, isConst, isAbstract,
-                isDefault);
+                isDefault, isPure);
     }
 
     private List<Param> parseParams() {

@@ -54,6 +54,7 @@ public final class JvmTest {
         fixedPoint();
         pointers();
         random(randomPrograms, seed);
+        randomPure(Math.max(1, randomPrograms / 3), seed);
 
         System.out.println(passed + " passed, " + failures.size() + " failed");
         failures.forEach(f -> System.out.println("FAIL: " + f));
@@ -1056,6 +1057,53 @@ public final class JvmTest {
         }
     }
 
+    /**
+     * Random pure methods (§17.2), each worked out twice: while compiling, as a const field's value,
+     * and while the program runs; each line prints both, which must be the same, on both backends.
+     */
+    private static void randomPure(int count, long seed) {
+        Random rnd = new Random(seed);
+        for (int p = 0; p < count; p++) {
+            StringBuilder members = new StringBuilder();
+            StringBuilder body = new StringBuilder();
+            int functions = 4;
+            for (int f = 0; f < functions; f++) {
+                Gen g = new Gen(rnd);
+                String ret = g.numberType();
+                while (ret.contains("fixed") && width(ret) > 52) {
+                    ret = g.numberType(); // a fixed-point compile-time value is kept as a double
+                }
+                members.append(g.pureFunction("f" + f, ret));
+                members.append("    const ").append(ret).append(" C").append(f).append(" = f").append(f).append("();\n");
+                String shown = ret.equals("char") ? "(int)" : ""; // a character may be a space or a newline
+                body.append("        pr(").append(shown).append("C").append(f).append("); pr(").append(shown).append("f").append(f)
+                        .append("()); System.stdout.println();\n");
+            }
+            Map<String, String> files = Map.of("Main.seal", "struct Main\n{\n" + HELPERS + members
+                    + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n");
+            Run vm = onVm(files, "Main");
+            String where = "random pure methods " + p + " (seed " + seed + ")\n" + members;
+            if (vm.error() != null) {
+                failures.add(where + "\n    don't compile: " + vm.error());
+                continue;
+            }
+            boolean same = true;
+            for (String line : vm.output().split("\n")) {
+                String[] two = line.trim().split(" ");
+                same &= two.length == 2 && two[0].equals(two[1]);
+            }
+            Run jvm = onJvm(files, "Main");
+            check(same && jvm.error() == null && vm.output().equals(jvm.output()) && vm.code() == jvm.code(),
+                    where + "\n    VM  " + vm + "\n    JVM " + jvm + firstDifference(vm.output(), jvm.output()));
+        }
+    }
+
+    /** N + M of a fixed-point type's name. */
+    private static int width(String fixedType) {
+        String[] nm = fixedType.substring(fixedType.indexOf("<<") + 2, fixedType.indexOf(">>")).split(", ");
+        return Integer.parseInt(nm[0]) + Integer.parseInt(nm[1]);
+    }
+
     private static String firstDifference(String a, String b) {
         String[] x = a.split("\n", -1);
         String[] y = b.split("\n", -1);
@@ -1131,23 +1179,7 @@ public final class JvmTest {
         }
 
         String program() {
-            int n = 3 + rnd.nextInt(4);
-            for (int i = 0; i < n; i++) {
-                String t = numberType();
-                String v = "v" + i;
-                boolean real = isFloat(t) || (isFixed(t) && rnd.nextBoolean());
-                String init = real ? (rnd.nextBoolean() ? "-" : "") + rnd.nextInt(100000) + "." + rnd.nextInt(1000)
-                        + (rnd.nextInt(4) == 0 ? "e" + (rnd.nextInt(40) - 10) : "")
-                        : Long.toString(rnd.nextLong() >> rnd.nextInt(64));
-                out.append("        int<<64>> s").append(i).append(" = ").append(real ? "0" : init).append(";\n");
-                if (real && !isFloat(t)) {
-                    out.append("        double r").append(i).append(" = ").append(init).append(";\n"); // wraps at run time
-                }
-                out.append("        ").append(t).append(' ').append(v).append(" = ")
-                        .append(isFloat(t) ? init : real ? "(" + t + ")r" + i : "(" + t + ")s" + i).append(";\n");
-                vars.add(v);
-                types.add(t);
-            }
+            declare();
             int statements = 6 + rnd.nextInt(8);
             for (int i = 0; i < statements; i++) {
                 int pick = rnd.nextInt(vars.size());
@@ -1166,6 +1198,45 @@ public final class JvmTest {
                 out.append("        pr(").append(v).append(");\n");
             }
             return out.toString();
+        }
+
+        /** A pure method computing a ret from variables of random types, as program() does, without printing. */
+        String pureFunction(String name, String ret) {
+            declare();
+            int statements = 3 + rnd.nextInt(6);
+            for (int i = 0; i < statements; i++) {
+                int pick = rnd.nextInt(vars.size());
+                String v = vars.get(pick);
+                String t = types.get(pick);
+                switch (rnd.nextInt(3)) {
+                    case 0 -> out.append("        ").append(v).append(" = ").append(expr(t, 3)).append(";\n");
+                    case 1 -> out.append("        ").append(compound(v, t)).append(";\n");
+                    default -> out.append("        ").append(canStep(t) ? v + "++" : v + " = " + expr(t, 1)).append(";\n");
+                }
+            }
+            return "    static pure " + ret + " " + name + "()\n    {\n" + out + "        return (" + ret + ")("
+                    + expr(ret, 3) + ");\n    }\n";
+        }
+
+        /** The variables, of random types, with random values. */
+        void declare() {
+            int n = 3 + rnd.nextInt(4);
+            for (int i = 0; i < n; i++) {
+                String t = numberType();
+                String v = "v" + i;
+                boolean real = isFloat(t) || (isFixed(t) && rnd.nextBoolean());
+                String init = real ? (rnd.nextBoolean() ? "-" : "") + rnd.nextInt(100000) + "." + rnd.nextInt(1000)
+                        + (rnd.nextInt(4) == 0 ? "e" + (rnd.nextInt(40) - 10) : "")
+                        : Long.toString(rnd.nextLong() >> rnd.nextInt(64));
+                out.append("        int<<64>> s").append(i).append(" = ").append(real ? "0" : init).append(";\n");
+                if (real && !isFloat(t)) {
+                    out.append("        double r").append(i).append(" = ").append(init).append(";\n"); // wraps at run time
+                }
+                out.append("        ").append(t).append(' ').append(v).append(" = ")
+                        .append(isFloat(t) ? init : real ? "(" + t + ")r" + i : "(" + t + ")s" + i).append(";\n");
+                vars.add(v);
+                types.add(t);
+            }
         }
 
         String compound(String v, String t) {

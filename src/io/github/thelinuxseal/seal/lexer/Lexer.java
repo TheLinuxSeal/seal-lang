@@ -43,6 +43,7 @@ public final class Lexer {
             Map.entry("private", TokenKind.PRIVATE),
             Map.entry("static", TokenKind.STATIC),
             Map.entry("const", TokenKind.CONST),
+            Map.entry("pure", TokenKind.PURE),
             Map.entry("int", TokenKind.INT),
             Map.entry("char", TokenKind.CHAR),
             Map.entry("uint", TokenKind.UINT),

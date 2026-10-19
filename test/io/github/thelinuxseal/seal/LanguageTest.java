@@ -63,6 +63,7 @@ public final class LanguageTest {
         operatorsOnEveryKind();
         temporariesOnSkippedPaths();
         arraysOfObjects();
+        pureMethods();
 
         String jvm = ON_JVM.finish(failures);
         System.out.println(passed + " passed, " + failures.size() + " failed" + jvm);
@@ -3227,6 +3228,130 @@ struct Main
     }
 
     // ================================================================ helpers
+
+    private static void pureMethods() {
+        String bits = """
+                struct Bits
+                {
+                    public static pure int<<64>> fib(int n)
+                    {
+                        if (n < 0) { throw new IllegalArgumentException("fib of a negative number"); }
+                        int<<64>> a = 0;
+                        int<<64>> b = 1;
+                        for (int i = 0; i < n; i++) { int<<64>> t = a + b; a = b; b = t; }
+                        return a;
+                    }
+                    public static pure int log2(int n) { int r = 0; while ((1 <<< (r + 1)) <= n) { r++; } return r; }
+                    public static pure int bitsFor(int n) { return log2(n) + 1; }
+                    public static pure string unit(int i) { return switch (i) { case 0 -> "m"; case 1 -> "s"; default -> "kg"; }; }
+                    public static pure int sum(array<int><<4>> xs) { int s = 0; for (int x : xs) { s += x; } return s; }
+                }
+                """;
+        output("pure methods run while compiling: in <<...>>, array sizes and const fields (§17.2)", files("Bits", bits,
+                "Quantity", "struct Quantity<<string U>> { public double v; public string unit() { return U; } }",
+                "Main", """
+                struct Main
+                {
+                    const int SIZE = Bits.fib(10);
+                    static uint<<Bits.bitsFor(1000)>> small = 1000;
+                    static array<int><<Bits.fib(6)>> table;
+                    static int main()
+                    {
+                        System.stdout.print(SIZE + " " + sizeof(uint<<Bits.bitsFor(1000)>>) + " " + small + " " + table.length());
+                        Quantity<<Bits.unit(1)>> t;
+                        System.stdout.print(" " + t.unit() + " " + sizeof(array<bit><<Bits.sum([1, 2, 3, 4])>>));
+                        System.stdout.println(" " + Bits.fib(50) + " " + Bits.log2(4096)); // and while the program runs
+                        return 0;
+                    }
+                }
+                """), "55 10 1000 8 s 10 12586269025 12\n");
+        output("a pure call on a generic class's values is worked out for each shape", files("Bits", bits,
+                "Table", "struct Table<<int N>> { public array<int><<Bits.fib(N) + 1>> cells; }",
+                "Main", main("""
+                        Table<<5>> five;
+                        Table<<10>> ten;
+                        pr(five.cells.length()); pr(ten.cells.length()); pr(sizeof(Table<<7>>));
+                        """)), "6 56 448 ");
+        output("pure methods compute as the program does: widths, bits, fixed point, floats, arrays, recursion", files(
+                "Calc", """
+                        struct Calc
+                        {
+                            public static pure uint<<8>> wrap(uint<<8>> x) { return x * 3 + 7; }
+                            public static pure int<<64>> bitsSet(uint<<64>> x) { int<<64>> n = 0; while (x != 0) { if (x[0]) { n++; } x = x <<< -1; } return n; }
+                            public static pure uint<<16>> swap(uint<<16>> x) { uint<<16>> r = 0; r[0..8] = x[8..16]; r[8..16] = x[0..8]; return r; }
+                            public static pure fixed<<8, 8>> half(fixed<<8, 8>> x) { return x / 2 + x * 0.25; }
+                            public static pure double mean(array<double><<3>> xs) { double s = 0; for (double x : xs) { s += x; } return s / 3; }
+                            public static pure int gcd(int a, int b) { return b == 0 ? a : gcd(b, a % b); }
+                            public static pure int primes(int n)
+                            {
+                                array<bit><<200>> composite;
+                                int count = 0;
+                                for (int i = 2; i < n; i++) {
+                                    if (!composite[i]) { count++; for (int j = i * i; j < n; j += i) { composite[j] = true; } }
+                                }
+                                return count;
+                            }
+                            public static pure int ackermann(int m, int n)
+                            {
+                                if (m == 0) { return n + 1; }
+                                if (n == 0) { return ackermann(m - 1, 1); }
+                                return ackermann(m - 1, ackermann(m, n - 1));
+                            }
+                            public static pure char upper(char c) { return c >= 'a' && c <= 'z' ? (char)(c - 32) : c; }
+                        }
+                        """,
+                "Main", """
+                        struct Main
+                        {
+                            const int WRAP = Calc.wrap(100);
+                            const int SET = Calc.bitsSet(18446744073709551615);
+                            const int SWAP = Calc.swap(4660);
+                            const fixed<<8, 8>> HALF = Calc.half(3.0);
+                            const double MEAN = Calc.mean([1.5, 2.5, 4.0]);
+                            const int GCD = Calc.gcd(1071, 462);
+                            const int PRIMES = Calc.primes(200);
+                            const int ACK = Calc.ackermann(2, 3);
+                            const char UP = Calc.upper('q');
+                            static int main()
+                            {
+                                System.stdout.println(WRAP + " " + SET + " " + SWAP + " " + HALF + " " + MEAN + " " + GCD + " " + PRIMES
+                                        + " " + ACK + " " + UP);
+                                System.stdout.println(Calc.wrap(100) + " " + Calc.bitsSet(18446744073709551615) + " " + Calc.swap(4660)
+                                        + " " + Calc.half(3.0) + " " + Calc.mean([1.5, 2.5, 4.0]) + " " + Calc.gcd(1071, 462)
+                                        + " " + Calc.primes(200) + " " + Calc.ackermann(2, 3) + " " + Calc.upper('q'));
+                                return 0;
+                            }
+                        }
+                        """), "51 64 13330 2.25 2.6666666666666665 21 46 9 Q\n51 64 13330 2.25 2.6666666666666665 21 46 9 Q\n");
+        output("each pure call with the same arguments runs once while compiling", files("Bits", bits, "Main", main("""
+                        pr(sizeof(array<bit><<Bits.fib(90) % 1000>>));
+                        """)), "120 ");
+        compileError("a pure call that fails while compiling says why, and where", files("Bits", bits, "Main", main("""
+                        int<<Bits.fib(-1) + 1>> x = 0;
+                        """)), "Bits.fib(-1) can't be worked out while compiling: it threw IllegalArgumentException: "
+                + "fib of a negative number (Bits.seal:5)");
+        compileError("dividing by zero while compiling", files("Main", """
+                struct Main
+                {
+                    static pure int ratio(int a, int b) { return a / b; }
+                    static int main() { array<int><<ratio(4, 0)>> xs; return 0; }
+                }
+                """), "Main.ratio(4, 0) can't be worked out while compiling: it divided by zero (Main.seal:3)");
+        compileError("only pure methods run while compiling", files("Main", """
+                struct Main
+                {
+                    static int count(int n) { return n; }
+                    static int main() { array<int><<count(3)>> xs; return 0; }
+                }
+                """), "Main.count isn't pure, so it can't run while compiling; declare it `static pure`");
+        compileError("a pure method that never ends is stopped", files("Main", """
+                struct Main
+                {
+                    static pure int spin(int n) { while (n > 0) { n++; n--; } return n; }
+                    static int main() { array<int><<spin(1)>> xs; return 0; }
+                }
+                """), "it ran for more than 50,000,000 steps; does it end?");
+    }
 
     private static String main(String body) {
         return "struct Main\n{\n" + HELPERS + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n";

@@ -9,7 +9,7 @@ public enum TokenKind {
     CHAR_LITERAL,   // 'a': an integer constant, the character's UTF-16 code
 
     // Declaration keywords
-    STRUCT, UNIQUE, CLASS, INTERFACE, ENUM, ABSTRACT, EXTENDS, IMPLEMENTS, PUBLIC, PRIVATE, STATIC, CONST,
+    STRUCT, UNIQUE, CLASS, INTERFACE, ENUM, ABSTRACT, EXTENDS, IMPLEMENTS, PUBLIC, PRIVATE, STATIC, CONST, PURE,
     PACKAGE, IMPORT,
 
     // Primitive type keywords
