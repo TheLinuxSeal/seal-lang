@@ -25,6 +25,7 @@ final class OnJvm {
 
     private int same;
     private int notYet;
+    private int checked;
     private final List<String> differences = new ArrayList<>();
 
     /**
@@ -84,6 +85,11 @@ final class OnJvm {
                 : "trap";
         if (output.equals(vmOutput) && vmEnd.equals(jvmEnd)) {
             same++;
+        } else if (o[0].fault() instanceof io.github.thelinuxseal.seal.runtime.Trap trap
+                && trap.getMessage().contains("outside its allocation") && vmOutput.startsWith(output)) {
+            // An address outside its allocation: the JVM stops there, where the VM, which checks
+            // addresses only against its whole memory, reads what lies next to it (docs/JVM.md §4.4).
+            checked++;
         } else {
             differences.add(name + "\n    VM  " + show(vmOutput) + ", " + vmEnd + "\n    JVM " + show(output) + ", " + jvmEnd
                     + (o[0].fault() == null ? "" : "\n    " + JvmRunner.describe(o[0].fault()).replace("\n", "\n    ")
@@ -98,6 +104,7 @@ final class OnJvm {
             failures.add("on the JVM: " + d);
         }
         return "  (on the JVM: " + same + " the same, " + notYet + " not available yet"
+                + (checked == 0 ? "" : ", " + checked + " stopped at an address outside its allocation")
                 + (differences.isEmpty() ? "" : ", " + differences.size() + " different") + ")";
     }
 

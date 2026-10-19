@@ -1,11 +1,12 @@
 # Seal on the JVM: design
 
 **Status:** design agreed. M0, the language changes the backend needs, is done on the VM, and the
-backend's M1 to M4 are done (§13): `seal run --jvm` and `seal build` compile numbers of every width
-and fixed point, control flow, classes and interfaces, generics and shapes, packages, exceptions,
-lambdas, strings, `array<T>`, the collections and files, and structs, uniques and their
-destructors, records, enums, fixed arrays and operators, in storage blocks (§4.6). Pointers and
-bit-packed layouts come next (M5). Choices made on review are marked **Decided**; the rest were
+backend's M1 to M4 are done, with the first part of M5 (§13): `seal run --jvm` and `seal build`
+compile the whole language, numbers of every width and fixed point, classes and interfaces,
+generics and shapes, packages, exceptions, lambdas, strings, `array<T>`, the collections and
+files, structs, uniques and their destructors, records, enums, fixed arrays and operators in
+storage blocks (§4.6), and `addr<T>` (§4.4). Every program in every suite runs on the JVM as on the
+VM. Retiring the VM is what remains. Choices made on review are marked **Decided**; the rest were
 **Proposed** and accepted with the design, and stand unless revisited.
 
 Seal today compiles to bytecode for its own register VM (`vm/`), written in Java. This document
@@ -186,6 +187,33 @@ p` runs the destructors of the uniques in the block (for `new<T>(n)`, all n) and
 memory goes when nothing refers to it. Pointers are optional low-level Seal, so their allocation
 cost is accepted; they can be split into two JVM locals later if it matters.
 
+Done in M5, as planned, in the runtime's `Ptr`:
+
+- A load or store through an address is checked as the VM checks one: a null address traps, and
+  so does a misaligned 8-, 16-, 32- or 64-bit value (§22 of the spec). **One difference:** an
+  address outside the allocation it points into traps on the JVM, where the VM, which checks only
+  against its whole memory, reads or writes whatever lies there. Nothing outside an allocation is
+  reachable on the JVM. For the same reason, the difference of two addresses in different
+  allocations traps; addresses in different allocations still compare, in an order that holds
+  while the program runs.
+- `new<T>(n)` and `new S()` where an `addr<S>` is wanted make a block of their own (zeroed, in
+  whole 64-bit words, as on the VM); `delete p` runs the destructor of the one `T` at p, then marks
+  the block freed, so deleting it again, or deleting an address `new` didn't give, traps.
+- `*x` gives an address of the place x names. A local or parameter whose address the method takes
+  lives in its frame block, as on the VM (the checker's `AddressTaken` finds them for both
+  backends), and so does a static field whose address any code takes, in its class's static
+  block: the first pass finds them all. `*` of a value that has no place, a call's result or an
+  element `[]` gives, is the address of a copy in the frame, as on the VM. Addresses inside class
+  objects are an error when compiling, as before.
+- A reference kept in a block (a handle, a string, an address) lives in its `refs` (§4.1), so
+  reading its bits through an address of another type gives zeros, where the VM gives the
+  handle's or address's bits.
+- The natives for byte files take a `Ptr`. A program's own `string` class (one that doesn't use
+  the library's) gets a literal's `size` and `chars`, as on the VM.
+
+Bit-packed layouts needed nothing more: blocks have the checker's layouts, and reads and writes
+of fields that straddle words were there from M3.
+
 ### 4.5 Cost, and a later optimization
 
 Field access in a block is a few instructions more than a JVM field, and the JIT can't keep block
@@ -221,7 +249,8 @@ version.
 - Assigning to a unique builds the new value aside, destroys the old one, then copies it in, so
   `u = u.next()` works.
 - An instance `main()` of a struct or unique runs on a value `$start` makes and destroys.
-- Not done: §4.5's optimization, `addr<T>` (M5), and fixed strings stored inline (§8.2).
+- Not done: §4.5's optimization, and fixed strings stored inline (§8.2). `addr<T>` came with M5
+  (§4.4).
 
 ## 5. Classes and interfaces
 
@@ -392,8 +421,9 @@ language (part of M0):
   (today an `@implicit` constructor) makes a `java.lang.String` from its characters.
 - Done in M2: a string, of either shape, is a `java.lang.String`. M3 kept that: a `string<<N>>`
   is one too, in a block a reference in its `refs`, which no program can tell, as strings never
-  change; storing fixed strings inline is still to do, with bit-packed layouts (M5). The fixed
-  shape's `toCharArray` reads through `at`, as the rest of `string.seal` does. A string's
+  change; storing fixed strings inline is still to do: it changes no program's behaviour, and waits
+  for when it is worth it. The fixed shape's `toCharArray` reads through `at`, as the rest of
+  `string.seal` does. A string's
   methods are static methods taking the `String` first, in a class per instantiation
   (`lang.string$5` for a `string<<5>>`); most compile from `string.seal` as they are. Reading
   `size` is `length()`, and the few whose bodies use the VM's buffer are `@jvm` (§8.1): `at`, `put`,
@@ -414,7 +444,7 @@ and error texts, and the text a file operation produces kept for `string.takeTex
 identity hashes and exiting; `System`, `Writer`, `Reader`, `Files` and `File` compile from the
 library as they are. `Format`'s places for a double went through a `@jvm` method in M3, and fixed
 point's text (printing, `Fixed.toString`, `Format`'s `%f` and `%s`) in M4. Still to come: the
-natives that take `addr` buffers for bytes (byte files), with M5.
+natives that take `addr` buffers for bytes (byte files) came with M5; every native is done.
 
 **Decided:** the standard library moves into a package of its own on the JVM,
 `io.github.thelinuxseal.seal.lang`, still visible everywhere without imports, as `java.lang` is. In
@@ -426,7 +456,8 @@ in the default package at all.
 A small Java package, `io.github.thelinuxseal.seal.runtime`, shipped with every compiled program:
 
 - `Block` (§4.1): reading and writing bits, references, copying and zeroing values in blocks
-  (done in M3); `Ptr` (§4.4, M5);
+  (done in M3); `Ptr` (§4.4): addresses, their arithmetic and checks, `new` and `delete` (done in
+  M5);
 - `Ints`: the shift operator, truncation, unsigned-to-double (done; unsigned division and text use
   the JDK's `Integer` and `Long` directly);
 - `FixedPoint`: fixed-point multiplication, division, rescaling and text (done in M4, §3.2);
@@ -499,6 +530,13 @@ frames correctly for every control-flow shape (the class-file API does this, giv
   text, `Math` and `Format`. At M4's end: `RunTest` 38 the same and 8 not yet, `LanguageTest` 104
   and 10, `StdlibTest` 56 and 1, `ExamplesTest` 17 and 2, `FuzzTest` 398 and 28: everything not yet
   uses `addr<T>`.
+- Done in M5: nothing is left not yet. `RunTest` has 46 programs the same on the JVM,
+  `LanguageTest` 114, `StdlibTest` 57, `ExamplesTest` all 19, `FixedPointTest` all 600 operations,
+  and `FuzzTest` 425 of the quarter it compares; run on every mutant once
+  (`-Dseal.jvm.every=1`), 1701 of 1712 are the same, 8 are stopped by the VM's step limit, and 3
+  read or write before the start of their allocation, which the JVM stops (§4.4), counted as such.
+  `JvmTest` has cases for addresses of every kind of place, arithmetic, comparisons, `new` and
+  `delete`, and the traps.
 
 ## 13. Order of work
 
@@ -509,7 +547,7 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 | **M2**, **done** | classes, interfaces, virtual and interface calls, fields, exceptions, lambdas, strings, the runtime's natives | everything in the suites that uses only these runs the same; most of `LanguageTest` also needs structs (M3) |
 | **M3**, **done** | storage blocks: structs, uniques and their destructors, records, enums, fixed arrays, operators | `RunTest`, `RefCountTest`'s unique cases (all but pointers) |
 | **M4**, **done** | generics and shapes with naming, all integer widths, fixed point, packages | `FixedPointTest`, all examples but pointers |
-| **M5** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires |
+| **M5**, addresses **done** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires |
 | **M6** (later) | jars, the target class-file version, calling Java classes from Seal, then Mixins (§14) | a first Minecraft mod in Seal |
 
 ## 14. Later: Java and Minecraft
@@ -535,8 +573,8 @@ Not designed here, but the design keeps the door open:
 - Instantiations are named from their arguments, `List$int`, `Matrix$double$3$3` (§5.1, §5.2).
 - Each method call that has struct locals gets a frame block of its own (§4.2).
 
-No questions are open. M0 to M4 are done (§13); the next step is M5, `addr<T>` and bit-packed
-layouts, after which every suite passes on the JVM and the VM retires.
+M0 to M4 are done (§13), and so is M5's first part: every suite passes on the JVM. What remains of
+M5 is retiring the VM.
 
 M1 went further than its row: every integer width already works (§3.1, planned for M4), and so do
 switch statements and labeled loops. M2 removed M1's stopgap for printing: `Writer` compiles as the

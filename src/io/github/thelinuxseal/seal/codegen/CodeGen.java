@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 
 import io.github.thelinuxseal.seal.ast.Ast;
 import io.github.thelinuxseal.seal.ast.Ast.*;
+import io.github.thelinuxseal.seal.check.AddressTaken;
 import io.github.thelinuxseal.seal.check.CVal;
 import io.github.thelinuxseal.seal.check.CVal.BitV;
 import io.github.thelinuxseal.seal.check.CVal.FloatV;

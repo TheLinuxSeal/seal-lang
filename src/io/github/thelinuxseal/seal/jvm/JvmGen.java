@@ -84,6 +84,7 @@ public final class JvmGen {
             "io.github.thelinuxseal.seal.runtime.Strings",
             "io.github.thelinuxseal.seal.runtime.FixedPoint",
             "io.github.thelinuxseal.seal.runtime.Block",
+            "io.github.thelinuxseal.seal.runtime.Ptr",
             "io.github.thelinuxseal.seal.runtime.Exit",
             "io.github.thelinuxseal.seal.runtime.Trap");
 
@@ -100,6 +101,7 @@ public final class JvmGen {
     static final ClassDesc CD_RuntimeException = ClassDesc.of("java.lang.RuntimeException");
     static final ClassDesc CD_MethodHandle = ClassDesc.of("java.lang.invoke.MethodHandle");
     static final ClassDesc BLOCK = ClassDesc.of(RUNTIME + "Block");
+    static final ClassDesc PTR = ClassDesc.of(RUNTIME + "Ptr");
     /** The field of an object (or a class) holding its block of struct fields. */
     static final String VALUES = "$values";
     static final String STATICS = "$statics";
@@ -866,6 +868,7 @@ public final class JvmGen {
             case FloatT f -> "float";
             case DoubleT d -> "double";
             case HandleT h -> typeText(h.target());
+            case AddrT a -> "addr_" + typeText(a.target());
             case ClassT ct when ct.typeArgs().isEmpty() && ct.valueArgs().isEmpty() -> ct.cls().name.replace('.', '_');
             default -> sanitize(t.toString());
         };
@@ -1041,7 +1044,7 @@ public final class JvmGen {
             for (MemberInfo m : c.all) {
                 if (m.member instanceof Field sf && sf.modifiers().isStatic() && !sf.modifiers().isConst()) {
                     Type t = ck.staticFieldType(c, sf);
-                    if (isAggregate(t)) {
+                    if (isAggregate(t) || addressTaken.contains(sf)) {
                         long off = Layouts.roundUp(end, Math.max(32, layouts.alignOf(t)));
                         jc.staticOffsets.put(sf, off);
                         end = off + Math.max(1, layouts.sizeOf(t)); // even a value of no bits has a place
@@ -1054,6 +1057,27 @@ public final class JvmGen {
             }
         }
         return jc.staticOffsets.getOrDefault(f, -1L);
+    }
+
+    /**
+     * The static fields some code takes the address of (`*Registry.count`): they live in their
+     * class's static block, as values do, where an address can reach them. All are found in the
+     * first pass, which lays the blocks out again as each is.
+     */
+    private final Set<Field> addressTaken = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
+    void takeAddress(ClassInfo c, Field f) {
+        if (addressTaken.add(f)) {
+            if (writing) {
+                throw new IllegalStateException("the address of " + f.name() + " was first taken while writing classes");
+            }
+            staticClass(c).staticOffsets = null;
+        }
+    }
+
+    /** Whether a static field is in its class's static block rather than a JVM field. */
+    boolean inStaticBlock(ClassInfo c, Field f) {
+        return isAggregate(ck.staticFieldType(c, f)) || addressTaken.contains(f);
     }
 
     /** A lambda's class: one per lambda and instantiation of the method around it (§30.3). */
@@ -1177,6 +1201,7 @@ public final class JvmGen {
             case DoubleT d -> TypeKind.DOUBLE;
             case VoidT v -> TypeKind.VOID;
             case HandleT h -> TypeKind.REFERENCE;
+            case AddrT a -> TypeKind.REFERENCE;
             case NullT n -> TypeKind.REFERENCE;
             case ClassT ct when isValue(ct) -> TypeKind.REFERENCE;
             default -> throw new Unsupported(null, "values of type " + t + " are not available on the JVM yet");
@@ -1187,6 +1212,7 @@ public final class JvmGen {
         try {
             return switch (t) {
                 case HandleT h when h.target() instanceof ClassT ct -> instance(ct).desc;
+                case AddrT a -> PTR; // §4.4
                 case NullT n -> CD_Object;
                 case ClassT ct when isString(ct) -> CD_String;
                 case ClassT ct when isArray(ct) && isAggregate(ct.typeArgs().get(0)) -> BLOCK; // its elements in a row (§8.1)

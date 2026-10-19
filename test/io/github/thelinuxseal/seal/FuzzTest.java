@@ -51,7 +51,7 @@ public final class FuzzTest {
 
     /** A share of the mutants runs on the JVM too, and must end as on the VM (docs/JVM.md §12). */
     private static final OnJvm ON_JVM = new OnJvm();
-    private static final int JVM_EVERY = 4;
+    private static final int JVM_EVERY = Integer.getInteger("seal.jvm.every", 4);
 
     private static final String[] NUMBERS = {"0", "1", "2", "3", "7", "8", "-1", "64", "100"};
     private static final String[][] SWAPS = {{"+", "-"}, {"<", "<="}, {">", ">="}, {"==", "!="}, {"&&", "||"}, {"+=", "-="}};

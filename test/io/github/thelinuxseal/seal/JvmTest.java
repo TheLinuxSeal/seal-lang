@@ -52,7 +52,7 @@ public final class JvmTest {
         collections();
         values();
         fixedPoint();
-        notYet();
+        pointers();
         random(randomPrograms, seed);
 
         System.out.println(passed + " passed, " + failures.size() + " failed");
@@ -966,9 +966,66 @@ public final class JvmTest {
                 """), "before ", 70);
     }
 
-    /** What isn't on the JVM yet is reported, at its line, rather than generated wrong. */
-    private static void notYet() {
-        unsupported("addresses", "addr<int> p = new<int>(1); delete p;", "not available on the JVM yet");
+    /** Addresses (docs/JVM.md §4.4, M5): a block and a bit offset, checked as the VM checks them. */
+    private static void pointers() {
+        same("addresses of locals, parameters, fields, elements and statics; arithmetic; new and delete", """
+                int x = 10;
+                addr<int> p = *x;
+                &p = 42;
+                addr<addr<int>> pp = *p;
+                &(&pp) += 1;
+                pr(x);
+                bump(5);
+                Vec v;
+                addr<int> vy = *v.y;
+                &vy = 7;
+                addr<Vec> pv = *v;
+                (&pv).x = 3;
+                pr(v.x); pr(v.y); pr(vy - (addr<int>)(addr<void>)pv);
+                array<int><<4>> arr = [1, 2, 3, 4];
+                addr<int> third = *arr[2];
+                pr(&third); pr(&(third + sizeof(int))); pr(&(third - 2 * sizeof(int)));
+                pr(third > *arr[0]); pr(third == *arr[2]); pr(third != null);
+                Counter.n = 4;
+                addr<int> cn = *Counter.n;
+                &cn *= 10;
+                pr(Counter.n);
+                addr<uint<<3>>> tiny = new<uint<<3>>>(8);
+                for (int i = 0; i < 8; i++) { &(tiny + i * 3) = (uint<<3>>)i; }
+                int total = 0;
+                for (int i = 0; i < 8; i++) { total += (int)&(tiny + i * 3); }
+                pr(total);
+                delete tiny;
+                addr<Node> head = null;
+                for (int i = 1; i <= 4; i++) { addr<Node> n = new Node(i); (&n).next = head; head = n; }
+                for (addr<Node> n = head; n != null; n = (&n).next) { System.stdout.print((&n).value); }
+                while (head != null) { addr<Node> next = (&head).next; delete head; head = next; }
+                addr<Tag> t = new Tag(9);
+                pr("made");
+                delete t;
+                addr<string> sp = new<string>(2);
+                &(sp + 64) = "hi";
+                pr(&sp); pr(&(sp + 64));
+                delete sp;
+                Vec w;
+                addr<uint<<64>>> raw = (addr<uint<<64>>>)(addr<void>)*w;
+                w.x = -1;
+                pr(&raw);
+                """, """
+                    static void bump(int n) { addr<int> q = *n; &q += 1; pr(n); }
+                """, "Vec", "struct Vec { public int x; public int y; }",
+                "Counter", "struct Counter { public static int n; }",
+                "Node", "struct Node { public int value; public addr<Node> next; public new(int v) { value = v; } }",
+                "Tag", "unique Tag { public int id; public new(int id) { this.id = id; } delete() { System.stdout.print(\"~\" + id + \" \"); } }");
+        program("a null address is a trap", Map.of("Main.seal", """
+                struct Main { static int main() { addr<int> p = null; System.stdout.print("a"); return &p; } }
+                """), "a", 70);
+        program("a misaligned access is a trap", Map.of("Main.seal", """
+                struct Main { static int main() { addr<int> p = new<int>(2); System.stdout.print("a"); return &(p + 1); } }
+                """), "a", 70);
+        program("deleting twice is a trap", Map.of("Main.seal", """
+                struct Main { static int main() { addr<int> p = new<int>(1); delete p; System.stdout.print("a"); delete p; return 0; } }
+                """), "a", 70);
     }
 
     // ================================================================ random programs
@@ -1253,19 +1310,6 @@ public final class JvmTest {
         check(vm.output().equals(output) && vm.code() == code && jvm.output().equals(output) && jvm.code() == code
                         && jvm.error() == null,
                 name + "\n    expected " + show(output) + ", exit " + code + "\n    VM  " + vm + "\n    JVM " + jvm);
-    }
-
-    private static void unsupported(String name, String body, String expected) {
-        Map<String, String> files = Map.of("Main.seal", "struct Main\n{\n" + HELPERS + "    static int main()\n    {\n"
-                + body + "\n        return 0;\n    }\n}\n", "Vec.seal", "struct Vec { public int x; }");
-        Checker checker = Checker.analyze(files, LIBRARY);
-        if (!checker.diagnostics().isEmpty()) {
-            failures.add(name + ": doesn't compile: " + checker.diagnostics());
-            return;
-        }
-        JvmGen.Result r = JvmGen.generate(checker, "Main");
-        check(r.errors().stream().anyMatch(d -> d.toString().contains(expected) && d.line() >= 1),
-                name + ": expected an error containing " + show(expected) + ", got " + r.errors());
     }
 
     private static Run onVm(Map<String, String> files, String main) {

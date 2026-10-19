@@ -1,4 +1,4 @@
-package io.github.thelinuxseal.seal.codegen;
+package io.github.thelinuxseal.seal.check;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -8,13 +8,13 @@ import io.github.thelinuxseal.seal.ast.Ast.*;
 /**
  * Finds local variables whose address is taken with `*x` (directly, or of a
  * field or element inside them). Those must live in frame memory; other
- * scalar locals can live in registers.
+ * scalar locals can live in registers (on the VM) or JVM locals.
  */
-final class AddressTaken {
+public final class AddressTaken {
 
     private final Set<String> names = new HashSet<>();
 
-    static Set<String> in(Stmt body) {
+    public static Set<String> in(Stmt body) {
         AddressTaken a = new AddressTaken();
         if (body != null) {
             a.stmt(body);

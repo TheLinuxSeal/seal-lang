@@ -1025,6 +1025,8 @@ To reach element `i` of an array of `T`:
 
 Objects do not move in the fixed pool.
 
+An address reaches only the allocation it points into (what `new` made, a variable, a static field): on the JVM, loading or storing outside it traps (docs/JVM.md §4.4), where the VM checks only against its whole pool.
+
 Deletion is explicit:
 
 ```text

@@ -19,6 +19,11 @@ public final class Block {
     public Object[] refs;
     /** For an array<T> of structs: how many elements. */
     public final int count;
+    /** Made by new, for an address (§24), and whether delete has freed it since. */
+    public boolean heap;
+    public boolean freed;
+    /** Where it comes in the order of addresses (Ptr.compare); 0 until it is needed. */
+    long id;
 
     public Block(long size) {
         this(size, 0);

@@ -88,15 +88,16 @@ public final class CliTest {
         check(r.code() == 70 && r.out().equals("x") && r.err().startsWith("trap: division by zero")
                         && r.err().contains("at Main.main (Main.seal:3)"),
                 "run --jvm: a fault is a trap, with the Seal lines " + r);
-        Path notYet = write(dir, "notyet/Main.seal", """
+        Path pointers = write(dir, "pointers/Main.seal", """
                 struct Main
                 {
-                    static int main() { addr<int> p = new<int>(1); delete p; return 0; }
+                    static int main() { addr<int> p = new<int>(1); &p = 4; System.stdout.print(&p); delete p; delete p; return 0; }
                 }
                 """);
-        r = run("run", "--jvm", notYet.getParent().toString());
-        check(r.code() == 1 && r.err().contains("Main.seal:3:") && r.err().contains("not available on the JVM yet"),
-                "run --jvm: what the JVM backend can't do yet is an error " + r);
+        r = run("run", "--jvm", pointers.getParent().toString());
+        check(r.code() == 70 && r.out().equals("4") && r.err().startsWith("trap: delete of an address that was not allocated with new")
+                        && r.err().contains("at Main.main (Main.seal:3)"),
+                "run --jvm: addresses work, and a second delete is a trap " + r);
 
         Path bad = write(dir, "bad/Main.seal", """
                 struct Main

@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 
 import io.github.thelinuxseal.seal.ast.Ast.*;
+import io.github.thelinuxseal.seal.check.AddressTaken;
 import io.github.thelinuxseal.seal.check.CVal;
 import io.github.thelinuxseal.seal.check.CVal.BitV;
 import io.github.thelinuxseal.seal.check.CVal.FloatV;
@@ -93,6 +94,8 @@ final class JvmCode {
     private long frameEnd;
     /** Uniques made for the statement being generated, destroyed at its end (§16). */
     private List<Temp> stmtTemps = new ArrayList<>();
+    /** The locals and parameters whose address the body takes: they live in the frame block (§4.2). */
+    private java.util.Set<String> addressTaken = java.util.Set.of();
 
     /** A unique made for a statement, and a flag in the frame set when it is: code may skip making it (`a && f()`). */
     private record Temp(Stored value, Mem made) {
@@ -124,7 +127,7 @@ final class JvmCode {
     record Local(Type type, int slot) implements Var {
     }
 
-    /** A struct, unique or fixed array variable: its value in a block (§4.2). */
+    /** A struct, unique or fixed array variable, or one whose address is taken: its value in a block (§4.2). */
     record Stored(Type type, Mem mem) implements Var {
     }
 
@@ -243,6 +246,7 @@ final class JvmCode {
         } else if (k.owner() != null) {
             thisType = k.owner();
         }
+        addressTaken = AddressTaken.in(md.body());
         first = bindParams(md.params(), tb.params, first, params);
         openScope(params);
         block(md.body());
@@ -264,6 +268,14 @@ final class JvmCode {
             if (g.isAggregate(t)) {
                 into.put(ps.get(i).name(), new Stored(t, new Mem(c.parameterSlot(j), c.parameterSlot(j + 1), 0)));
                 j += 2;
+            } else if (addressTaken.contains(ps.get(i).name())) {
+                // Its address is taken: copied into the frame, where an address can reach it.
+                Mem m = temp(t);
+                push(m);
+                c.loadLocal(load(t), c.parameterSlot(j));
+                storePushed(t);
+                into.put(ps.get(i).name(), new Stored(t, m));
+                j++;
             } else {
                 into.put(ps.get(i).name(), new Local(t, c.parameterSlot(j)));
                 j++;
@@ -311,6 +323,7 @@ final class JvmCode {
         List<Stmt> body = List.of();
         if (ctor != null) {
             tb = typed(k.cls(), t, k.member(), k.binders());
+            addressTaken = AddressTaken.in(ctor.body());
             bindParams(ctor.params(), tb.params, 0, params);
             body = ctor.body().stmts();
         }
@@ -401,6 +414,7 @@ final class JvmCode {
         Map<String, Var> params = new HashMap<>();
         if (ctor != null) {
             tb = typed(k.cls(), t, k.member(), k.binders());
+            addressTaken = AddressTaken.in(ctor.body());
             bindParams(ctor.params(), tb.params, 0, params);
         }
         thisLocal = new Local(t, c.allocateLocal(TypeKind.REFERENCE));
@@ -424,6 +438,7 @@ final class JvmCode {
         Map<String, Var> params = new HashMap<>();
         if (ctor != null) {
             tb = typed(k.cls(), t, k.member(), k.binders());
+            addressTaken = AddressTaken.in(ctor.body());
             bindParams(ctor.params(), tb.params, 2, params);
         }
         openScope(params);
@@ -486,6 +501,7 @@ final class JvmCode {
         returnType = Type.VOID;
         tb = typed(k.cls(), t, k.member(), Map.of());
         thisMem = new Mem(c.parameterSlot(0), c.parameterSlot(1), 0);
+        addressTaken = AddressTaken.in(d.body());
         openScope(new HashMap<>());
         block(d.body());
         c.return_();
@@ -581,6 +597,17 @@ final class JvmCode {
                 }
                 Type t = ck.staticFieldType(cls, f);
                 pos = f.pos();
+                if (!g.isAggregate(t) && g.inStaticBlock(cls, f)) {
+                    // A number or reference whose address some code takes: in the block.
+                    if (f.init() != null) {
+                        tb = typed(cls, null, m, Map.of());
+                        at(f.init().pos());
+                        push(staticMem(m));
+                        value(f.init(), t);
+                        storePushed(t);
+                    }
+                    continue;
+                }
                 if (g.isAggregate(t)) {
                     Mem sm = staticMem(m);
                     if (f.init() != null) {
@@ -639,10 +666,11 @@ final class JvmCode {
         }
         openScope(captured);
         Map<String, Var> params = new HashMap<>();
-        bindParams(lam.params(), li.params(), 0, params);
-        openScope(params);
         Block body = lam.block() != null ? lam.block() : new Block(lam.pos(), List.of(returnType instanceof VoidT
                 ? new ExprStmt(lam.pos(), lam.expr()) : new Return(lam.pos(), lam.expr())));
+        addressTaken = AddressTaken.in(body);
+        bindParams(lam.params(), li.params(), 0, params);
+        openScope(params);
         block(body);
         endOfMethod();
     }
@@ -680,6 +708,7 @@ final class JvmCode {
                 c.aload(0);
                 c.getfield(lambdaClass.desc, cp.field().name(), cp.field().type());
             }
+            case Stored st when !g.isAggregate(st.type()) -> loadFrom(st.mem(), st.type());
             case Stored st -> throw new IllegalStateException("a struct variable used as a single value: " + st.type());
         }
     }
@@ -1323,6 +1352,22 @@ final class JvmCode {
                     }
                     return;
                 }
+                if (addressTaken.contains(v.name())) {
+                    // Its address is taken (§19): it lives in the frame block.
+                    Stored st = new Stored(t, temp(t));
+                    Label start = here();
+                    push(st.mem());
+                    if (v.init() != null) {
+                        value(v.init(), t);
+                    } else {
+                        zero(t);
+                    }
+                    guardTemps(start, stmtTemps);
+                    flushTemps();
+                    storePushed(t);
+                    scopes.peek().put(v.name(), st);
+                    return;
+                }
                 int slot = c.allocateLocal(kind(t));
                 Label start = here();
                 if (v.init() != null) {
@@ -1442,7 +1487,7 @@ final class JvmCode {
                 }
                 jump("break", out.loop());
             }
-            case DeleteStmt d -> throw unsupported(d.pos(), "delete");
+            case DeleteStmt d -> deleteStatement(d);
         }
     }
 
@@ -1470,7 +1515,27 @@ final class JvmCode {
         jump(kind, loop, null);
     }
 
-    /** As above; moved is a local unique a return hands to the caller, which isn't destroyed. */
+    /** delete p (§24): destroys the T at p, then frees what new made; deleting null does nothing. */
+    private void deleteStatement(DeleteStmt d) {
+        AddrT a = (AddrT) type(d.target());
+        Label start = here();
+        value(d.target(), a);
+        int ptr = c.allocateLocal(TypeKind.REFERENCE);
+        c.astore(ptr);
+        Label skip = c.newLabel();
+        c.aload(ptr);
+        c.ifnull(skip);
+        if (g.needsDestroy(a.target())) {
+            destroyValue(memAt(ptr, a.target()), a.target()); // one T (§16)
+        }
+        c.aload(ptr);
+        c.invokestatic(JvmGen.PTR, "free", MethodTypeDesc.of(CD_void, JvmGen.PTR));
+        c.labelBinding(skip);
+        guardTemps(start, stmtTemps);
+        flushTemps();
+    }
+
+    /** As jump(kind, loop); moved is a local unique a return hands to the caller, which isn't destroyed. */
     private void jump(String kind, Loop loop, Stored moved) {
         int crossing = kind.equals("return") ? fins.size() : fins.size() - loop.fins();
         if (crossing == 0) {
@@ -1872,8 +1937,32 @@ final class JvmCode {
                 c.labelBinding(end);
                 return pushed;
             }
+            case New n when t instanceof AddrT a -> {
+                // new S() where an addr<S> is wanted: made in memory of its own (§24).
+                c.loadConstant(Math.max(1, g.layouts.sizeOf(a.target())));
+                c.invokestatic(JvmGen.PTR, "allocate", MethodTypeDesc.of(JvmGen.PTR, CD_long));
+                int ptr = c.allocateLocal(TypeKind.REFERENCE);
+                c.astore(ptr);
+                c.aload(ptr);
+                c.getfield(JvmGen.PTR, "block", JvmGen.BLOCK);
+                int block = c.allocateLocal(TypeKind.REFERENCE);
+                c.astore(block);
+                construct(new Mem(block, -1, 0), tb.calls.get(n), n.args());
+                c.aload(ptr);
+                return t;
+            }
             case New n -> {
                 return newObject(n, t);
+            }
+            case NewArray n -> {
+                // new<T>(count): count Ts of raw, zeroed memory (§24).
+                Type element = ((AddrT) t).target();
+                value(n.count(), Type.INT);
+                c.i2l();
+                c.loadConstant(g.layouts.stride(element));
+                c.lmul();
+                c.invokestatic(JvmGen.PTR, "allocate", MethodTypeDesc.of(JvmGen.PTR, CD_long));
+                return t;
             }
             case Index ix when tb.calls.containsKey(ix) -> {
                 return operator(ix);
@@ -1948,6 +2037,12 @@ final class JvmCode {
         Pos outer = pos;
         pos = e.pos();
         try {
+            if (tb.types.get(e) instanceof StrConstT sc && t instanceof ClassT ct && !isString(ct)) {
+                // A literal into a program's own string class (without the library's).
+                String text = constString(e);
+                stringLiteral(dst, ct, text != null ? text : sc.value());
+                return;
+            }
             switch (e) {
                 case New n when tb.calls.get(n) instanceof CallInfo ci && g.isAggregate(ci.owner()) -> {
                     zeroMem(dst, t);
@@ -2063,10 +2158,131 @@ final class JvmCode {
             case This th when thisMem != null -> {
                 return thisMem;
             }
+            case Unary u when u.op() == UnaryOp.DEREF -> {
+                return derefMem(u);
+            }
             default -> {
                 return null;
             }
         }
+    }
+
+    /** &p's place (§19): the T at the address p gives, checked as the VM checks a load or store. */
+    private Mem derefMem(Unary u) {
+        value(u.operand(), null);
+        int ptr = c.allocateLocal(TypeKind.REFERENCE);
+        c.astore(ptr);
+        return memAt(ptr, type(u));
+    }
+
+    /** The place of a T at the address in a local: not null, inside its block, aligned (§22). */
+    private Mem memAt(int ptr, Type t) {
+        c.aload(ptr);
+        c.loadConstant((int) Math.max(1, g.layouts.sizeOf(t)));
+        c.loadConstant((int) g.layouts.alignOf(t));
+        c.invokestatic(JvmGen.PTR, "at", MethodTypeDesc.of(JvmGen.BLOCK, JvmGen.PTR, CD_int, CD_int));
+        int block = c.allocateLocal(TypeKind.REFERENCE);
+        c.astore(block);
+        c.aload(ptr);
+        c.getfield(JvmGen.PTR, "off", CD_long);
+        c.l2i();
+        int off = c.allocateLocal(TypeKind.INT);
+        c.istore(off);
+        return new Mem(block, off, 0);
+    }
+
+    /**
+     * *e (§19): the place e names, in a block. A value with no place (a call's result, an element
+     * that [] gives) is copied into the frame first, and the copy's address is the result, as on
+     * the VM.
+     */
+    private Mem addressed(Expr e) {
+        if (tb.rewritten.containsKey(e)) {
+            return addressed(tb.rewritten.get(e));
+        }
+        MemberInfo field = e instanceof Name n && "field".equals(tb.nameKinds.get(n)) ? tb.fieldOf.get(n)
+                : e instanceof Select s ? tb.selected.get(s) : null;
+        if (field != null && field.member instanceof Field f && f.modifiers().isStatic()) {
+            ClassInfo cls = ck.declaringClassOf(field);
+            g.takeAddress(cls, f);
+            return staticMem(field);
+        }
+        Mem m = mem(e);
+        if (m != null) {
+            return m;
+        }
+        Place p = place(e);
+        if (p instanceof MemPlace mp) {
+            return mp.mem();
+        }
+        if (p != null) {
+            throw unsupported(e.pos(), "the address of " + describe(e));
+        }
+        Type t = type(e);
+        if (g.isAggregate(t)) {
+            return aggregateOf(e);
+        }
+        Mem tmp = temp(t);
+        push(tmp);
+        value(e, t);
+        storePushed(t);
+        return tmp;
+    }
+
+    /**
+     * A string literal made into a program's own `string` class, as on the VM (§56): its `size`,
+     * and its `chars`, an array the characters are stored in or an address of memory holding them,
+     * which the string borrows.
+     */
+    private void stringLiteral(Mem dst, ClassT t, String s) {
+        Layouts.Layout l = g.layouts.of(t);
+        MemberInfo size = null;
+        MemberInfo data = null;
+        for (MemberInfo m : t.cls().storedFields(t.header())) {
+            String name = ((Field) m.member).name();
+            if (name.equals("size")) {
+                size = m;
+            } else if (name.equals("chars")) {
+                data = m;
+            }
+        }
+        if (size == null || data == null) {
+            throw unsupported(pos, "a string literal as a " + t + ", which has no `size` and `chars` fields,");
+        }
+        zeroMem(dst, t);
+        Type dataType = l.types().get(data);
+        Mem dataMem = dst.at(l.offsets().get(data));
+        if (dataType instanceof ArrayT a && a.element() instanceof IntT ch) {
+            long stride = g.layouts.stride(ch);
+            for (int i = 0; i < s.length(); i++) {
+                push(dataMem.at(i * stride));
+                intConstant(BigInteger.valueOf(s.charAt(i)), ch);
+                storePushed(ch);
+            }
+        } else if (dataType instanceof AddrT a && a.target() instanceof IntT ch) {
+            long stride = g.layouts.stride(ch);
+            newBlock(Math.max(1, s.length() * stride));
+            int block = c.allocateLocal(TypeKind.REFERENCE);
+            c.astore(block);
+            for (int i = 0; i < s.length(); i++) {
+                c.aload(block);
+                c.loadConstant((int) (i * stride));
+                c.loadConstant((long) s.charAt(i));
+                c.loadConstant(width(ch));
+                c.invokestatic(JvmGen.BLOCK, "store", MethodTypeDesc.of(CD_void, JvmGen.BLOCK, CD_int, CD_long, CD_int));
+            }
+            push(dataMem);
+            c.aload(block);
+            c.iconst_0();
+            c.invokestatic(JvmGen.PTR, "of", MethodTypeDesc.of(JvmGen.PTR, JvmGen.BLOCK, CD_int));
+            storePushed(dataType);
+        } else {
+            throw unsupported(pos, "a string literal as a " + t + ", whose `chars` is neither characters nor their address,");
+        }
+        Type sizeType = l.types().get(size);
+        push(dst.at(l.offsets().get(size)));
+        constant(new IntV(BigInteger.valueOf(s.length())), sizeType, pos);
+        storePushed(sizeType);
     }
 
     /** A struct-valued expression's place: the one it names, or a new one in the frame with its value. */
@@ -2213,6 +2429,10 @@ final class JvmCode {
         ClassInfo cls = ck.declaringClassOf(m);
         Field f = (Field) m.member;
         Type t = ck.staticFieldType(cls, f);
+        if (g.inStaticBlock(cls, f)) {
+            loadFrom(staticMem(m), t);
+            return t;
+        }
         c.getstatic(g.staticClass(cls).desc, f.name(), g.desc(t, at));
         return t;
     }
@@ -2336,6 +2556,9 @@ final class JvmCode {
         if (from instanceof FixedT || to instanceof FixedT) {
             fixedCast(from, to, fromFloat, toFloat);
             return;
+        }
+        if (to instanceof AddrT && (from instanceof AddrT || from instanceof NullT)) {
+            return; // one Ptr, whatever it points at (§23)
         }
         if (from instanceof IntT f && to instanceof IntT t) {
             TypeKind fk = load(f);
@@ -2586,8 +2809,18 @@ final class JvmCode {
                 c.ixor();
                 return Type.BIT;
             }
-            default -> throw unsupported(u.pos(), "addresses");
+            case DEREF -> {
+                Type pointed = type(u);
+                loadFrom(derefMem(u), pointed);
+                return pointed;
+            }
+            case ADDRESS_OF -> {
+                push(addressed(u.operand()));
+                c.invokestatic(JvmGen.PTR, "of", MethodTypeDesc.of(JvmGen.PTR, JvmGen.BLOCK, CD_int));
+                return type(u);
+            }
         }
+        throw new IllegalStateException();
     }
 
     private Type binary(Binary b, Type t) {
@@ -2597,6 +2830,27 @@ final class JvmCode {
         String joined = constString(b);
         if (joined != null) {
             c.loadConstant(joined); // literals joined with +, one string as on the VM
+            return t;
+        }
+        Type lt = type(b.left());
+        Type rt = type(b.right());
+        if ((b.op() == BinaryOp.ADD || b.op() == BinaryOp.SUB) && (lt instanceof AddrT || rt instanceof AddrT)) {
+            if (lt instanceof AddrT && rt instanceof AddrT) {
+                // p - q: how many bits apart (§20).
+                value(b.left(), lt);
+                value(b.right(), rt);
+                c.invokestatic(JvmGen.PTR, "diff", MethodTypeDesc.of(CD_long, JvmGen.PTR, JvmGen.PTR));
+                fromLong(t);
+                return t;
+            }
+            // p + n, n + p and p - n: bits past p, in the same block.
+            boolean addrLeft = lt instanceof AddrT;
+            value(addrLeft ? b.left() : b.right(), null);
+            bitCount(addrLeft ? b.right() : b.left());
+            if (b.op() == BinaryOp.SUB) {
+                c.lneg();
+            }
+            c.invokestatic(JvmGen.PTR, "add", MethodTypeDesc.of(JvmGen.PTR, JvmGen.PTR, CD_long));
             return t;
         }
         switch (b.op()) {
@@ -2768,6 +3022,14 @@ final class JvmCode {
             case Binary b when isComparison(b.op()) && !tb.calls.containsKey(b) -> {
                 Type lt = type(b.left());
                 Type rt = type(b.right());
+                if (lt instanceof AddrT || rt instanceof AddrT) {
+                    // Addresses compare by where they point (§20); null is the lowest.
+                    value(b.left(), null);
+                    value(b.right(), null);
+                    c.invokestatic(JvmGen.PTR, "compare", MethodTypeDesc.of(CD_int, JvmGen.PTR, JvmGen.PTR));
+                    jumpUnless(b.op(), no);
+                    return;
+                }
                 if (isReference(lt) || isReference(rt)) {
                     referenceCompare(b, lt, rt, no);
                     return;
@@ -2781,6 +3043,17 @@ final class JvmCode {
                 value(cond, Type.BIT);
                 c.ifeq(no);
             }
+        }
+    }
+
+    /** An integer added to an address, as a long: sign-extended if signed, as the VM's registers hold it. */
+    private void bitCount(Expr e) {
+        Type it = type(e);
+        if (it instanceof IntT) {
+            value(e, it);
+            asLong(it);
+        } else {
+            value(e, new IntT(CVal.of(64), true));
         }
     }
 
@@ -2914,15 +3187,19 @@ final class JvmCode {
         }
         switch (e) {
             case Name n when "local".equals(tb.nameKinds.get(n)) -> {
-                if (lookup(n.name()) instanceof Local l) {
+                Var v = lookup(n.name());
+                if (v instanceof Local l) {
                     return new LocalPlace(l);
+                }
+                if (v instanceof Stored st && !g.isAggregate(st.type())) {
+                    return new MemPlace(st.mem(), st.type());
                 }
                 return null;
             }
             case Name n when "field".equals(tb.nameKinds.get(n)) -> {
                 MemberInfo m = tb.fieldOf.get(n);
                 if (((Field) m.member).modifiers().isStatic()) {
-                    return new StaticPlace(m, ck.staticFieldType(ck.declaringClassOf(m), (Field) m.member));
+                    return staticPlace(m);
                 }
                 if (thisMem != null) {
                     return new MemPlace(fieldMem(thisMem, k.owner(), m), type(n));
@@ -2932,7 +3209,7 @@ final class JvmCode {
             case Select s when tb.selected.get(s) instanceof MemberInfo m && m.member instanceof Field f
                     && !f.modifiers().isConst() -> {
                 if (f.modifiers().isStatic()) {
-                    return new StaticPlace(m, ck.staticFieldType(ck.declaringClassOf(m), f));
+                    return staticPlace(m);
                 }
                 if (type(s.target()) instanceof ClassT ct && g.isAggregate(ct)) {
                     return new MemPlace(fieldMem(aggregateOf(s.target()), ct, m), type(s));
@@ -2945,10 +3222,21 @@ final class JvmCode {
             case This th when thisLocal != null -> {
                 return new LocalPlace(thisLocal);
             }
+            case Unary u when u.op() == UnaryOp.DEREF -> {
+                return new MemPlace(derefMem(u), type(u));
+            }
             default -> {
                 return null;
             }
         }
+    }
+
+    /** A static field's place: a JVM static field, or a place in its class's static block. */
+    private Place staticPlace(MemberInfo m) {
+        ClassInfo cls = ck.declaringClassOf(m);
+        Field f = (Field) m.member;
+        Type t = ck.staticFieldType(cls, f);
+        return g.inStaticBlock(cls, f) ? new MemPlace(staticMem(m), t) : new StaticPlace(m, t);
     }
 
     private int baseSize(Place p) {
@@ -3050,6 +3338,15 @@ final class JvmCode {
         base(p);
         if (a.op() == null) {
             value(a.value(), t);
+        } else if (t instanceof AddrT) {
+            // p += n, p -= n (§20).
+            dupBase(p);
+            get(p);
+            bitCount(a.value());
+            if (a.op() == BinaryOp.SUB) {
+                c.lneg();
+            }
+            c.invokestatic(JvmGen.PTR, "add", MethodTypeDesc.of(JvmGen.PTR, JvmGen.PTR, CD_long));
         } else {
             dupBase(p);
             get(p);
@@ -3796,7 +4093,7 @@ final class JvmCode {
         }
         for (String name : li.captureNames()) {
             Var v = lookup(name);
-            if (v instanceof Stored st) {
+            if (v instanceof Stored st && g.isAggregate(st.type())) {
                 // A struct is captured as a copy, in a block of the lambda's own.
                 newBlock(Math.max(1, g.layouts.sizeOf(st.type())));
                 c.dup();

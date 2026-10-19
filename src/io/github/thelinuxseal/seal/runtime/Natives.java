@@ -55,6 +55,8 @@ public final class Natives {
     private static final long IO_END = -3;
 
     private static String ioText = "";
+    /** The bytes the last io_read_bytes read. */
+    private static byte[] ioBytes = new byte[0];
     private static final Map<Long, Closeable> openFiles = new HashMap<>();
     private static long nextFileId = 4;
     private static BufferedReader stdinLines;
@@ -62,6 +64,7 @@ public final class Natives {
     /** Forgets what an earlier run left: open files, kept text, buffered input. */
     public static void reset() {
         ioText = "";
+        ioBytes = new byte[0];
         openFiles.clear();
         nextFileId = 4;
         stdinLines = null;
@@ -240,6 +243,36 @@ public final class Natives {
         return file(() -> {
             ioText = new String(Files.readAllBytes(Path.of(path)), StandardCharsets.UTF_8);
             return ioText.length();
+        });
+    }
+
+    /** A file's bytes, kept for io_bytes_take; gives how many. */
+    public static long io_read_bytes(String path) {
+        return file(() -> {
+            ioBytes = Files.readAllBytes(Path.of(path));
+            return ioBytes.length;
+        });
+    }
+
+    /** The bytes io_read_bytes read, stored as uint<<8>>s from buf on. */
+    public static long io_bytes_take(Ptr buf) {
+        Block b = Ptr.at(buf, ioBytes.length * 8, 8);
+        for (int i = 0; i < ioBytes.length; i++) {
+            Block.store(b, (int) buf.off + i * 8, ioBytes[i] & 0xff, 8);
+        }
+        return ioBytes.length;
+    }
+
+    /** n uint<<8>>s from buf on, written to a file. */
+    public static long io_write_bytes(String path, Ptr buf, int n, boolean append) {
+        Block b = Ptr.at(buf, n * 8, 8);
+        byte[] data = new byte[n];
+        for (int i = 0; i < n; i++) {
+            data[i] = (byte) Block.load(b, (int) buf.off + i * 8, 8);
+        }
+        return file(() -> {
+            Files.write(Path.of(path), data, writeOptions(append));
+            return 0;
         });
     }
 
