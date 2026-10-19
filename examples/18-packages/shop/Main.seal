@@ -8,6 +8,8 @@ import shop.pricing.Discount;   // single types, by name
 import shop.pricing.PercentOff;
 import shop.pricing.BulkDeal;
 import shop.report.Receipt;
+import shop.stock.Item as StockItem;            // a second Item, under another name
+import static shop.pricing.Money.text as dollars; // a static method, renamed too
 
 class Main
 {
@@ -30,5 +32,15 @@ class Main
 
         // Any type can be named in full instead of imported: Money isn't imported here.
         System.stdout.println("A thousand notebooks: " + shop.pricing.Money.text(1000 * notebook.price));
+
+        // Two types named Item: Item is shop.model's, from the * import, and StockItem is
+        // shop.stock's. `as` gives a type, or a static member, the name this file knows it by.
+        List<StockItem> stock = new List();
+        stock.add(new StockItem("Notebook", 12));
+        stock.add(new StockItem("Pen", 3));
+        for (StockItem s : stock) {
+            if (s.isLow()) { System.stdout.println("Low on " + s.product + ": " + s.onShelf + " left"); }
+        }
+        System.stdout.println("The pens left are worth " + dollars(3 * pen.price));
     }
 }
