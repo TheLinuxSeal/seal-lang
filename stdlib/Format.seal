@@ -96,14 +96,22 @@ struct Format
             if (conv == 's' || conv == 'S') {
                 text(Fixed.toString(x));
             } else if (conv == 'f') {
-                addr<char> buf = new<char>(places() + 100);
-                int n = places(x, buf, places());
-                decimal(string.fromChars(buf, n));
-                delete buf;
+                decimal(placesText(x, places()));
             } else {
                 real((double)x);
             }
         }
+    }
+
+    /** x rounded to that many places, exactly, ties up ("2.50"). */
+    @jvm("FixedPoint.places")
+    static string placesText(fixed<<int N, int M>> x, int n)
+    {
+        addr<char> buf = new<char>(n + 100);
+        int length = places(x, buf, n);
+        string s = string.fromChars(buf, length);
+        delete buf;
+        return s;
     }
 
     public void arg(ufixed<<int N, int M>> x)
@@ -112,14 +120,22 @@ struct Format
             if (conv == 's' || conv == 'S') {
                 text(Fixed.toString(x));
             } else if (conv == 'f') {
-                addr<char> buf = new<char>(places() + 100);
-                int n = places(x, buf, places());
-                decimal(string.fromChars(buf, n));
-                delete buf;
+                decimal(placesText(x, places()));
             } else {
                 real((double)x);
             }
         }
+    }
+
+    /** x rounded to that many places, exactly, ties up ("2.50"). */
+    @jvm("FixedPoint.placesUnsigned")
+    static string placesText(ufixed<<int N, int M>> x, int n)
+    {
+        addr<char> buf = new<char>(n + 100);
+        int length = places(x, buf, n);
+        string s = string.fromChars(buf, length);
+        delete buf;
+        return s;
     }
 
     public void arg(bit b)

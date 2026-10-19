@@ -82,6 +82,7 @@ public final class JvmGen {
             "io.github.thelinuxseal.seal.runtime.Natives",
             "io.github.thelinuxseal.seal.runtime.Ints",
             "io.github.thelinuxseal.seal.runtime.Strings",
+            "io.github.thelinuxseal.seal.runtime.FixedPoint",
             "io.github.thelinuxseal.seal.runtime.Block",
             "io.github.thelinuxseal.seal.runtime.Exit",
             "io.github.thelinuxseal.seal.runtime.Trap");
@@ -94,6 +95,7 @@ public final class JvmGen {
     static final String RUNTIME = "io.github.thelinuxseal.seal.runtime.";
     static final ClassDesc NATIVES = ClassDesc.of(RUNTIME + "Natives");
     static final ClassDesc INTS = ClassDesc.of(RUNTIME + "Ints");
+    static final ClassDesc FIXED_POINT = ClassDesc.of(RUNTIME + "FixedPoint");
     static final ClassDesc TRAP = ClassDesc.of(RUNTIME + "Trap");
     static final ClassDesc CD_RuntimeException = ClassDesc.of("java.lang.RuntimeException");
     static final ClassDesc CD_MethodHandle = ClassDesc.of("java.lang.invoke.MethodHandle");
@@ -859,6 +861,7 @@ public final class JvmGen {
         return switch (t) {
             case IntT it when it.isChar() -> "char";
             case IntT it -> (it.signed() ? "int" : "uint") + (width(it) == 32 ? "" : String.valueOf(width(it)));
+            case FixedT f -> (f.signed() ? "fixed" : "ufixed") + valueText(f.intBits()) + "_" + valueText(f.fracBits());
             case BitT b -> "bit";
             case FloatT f -> "float";
             case DoubleT d -> "double";
@@ -1169,6 +1172,7 @@ public final class JvmGen {
             case BitT b -> TypeKind.BOOLEAN;
             case IntT it when it.isChar() -> TypeKind.CHAR;
             case IntT it -> width(it) <= 32 ? TypeKind.INT : TypeKind.LONG;
+            case FixedT f -> width(f) <= 32 ? TypeKind.INT : TypeKind.LONG; // its scaled integer (§3.2)
             case FloatT f -> TypeKind.FLOAT;
             case DoubleT d -> TypeKind.DOUBLE;
             case VoidT v -> TypeKind.VOID;
@@ -1214,17 +1218,24 @@ public final class JvmGen {
     static int width(Type t) {
         return switch (t) {
             case IntT it -> ((IntV) it.width()).value().intValueExact();
+            case FixedT f -> ((IntV) f.width()).value().intValueExact();
             default -> throw new IllegalStateException("no width: " + t);
         };
     }
 
     static boolean isNumber(Type t) {
-        return t instanceof IntT || t instanceof FloatT || t instanceof DoubleT;
+        return t instanceof IntT || t instanceof FixedT || t instanceof FloatT || t instanceof DoubleT;
     }
 
     /** An unsigned integer that fills its JVM type, uint<<32>> or uint<<64>>: its comparisons and division need care. */
     static boolean fullUnsigned(Type t) {
-        return t instanceof IntT it && !it.signed() && !it.isChar() && (width(it) == 32 || width(it) == 64);
+        Type r = raw(t);
+        return r instanceof IntT it && !it.signed() && !it.isChar() && (width(it) == 32 || width(it) == 64);
+    }
+
+    /** The integer a fixed-point type is held as, its scaled value: int<<16>> for a fixed<<8, 8>> (§3.2); any other type as it is. */
+    static Type raw(Type t) {
+        return t instanceof FixedT f ? new IntT(f.width(), f.signed()) : t;
     }
 
     /** The concrete type a constant's value is generated in where nothing asks for one. */

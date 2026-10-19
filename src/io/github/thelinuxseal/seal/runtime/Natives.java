@@ -120,6 +120,15 @@ public final class Natives {
         return write(file, x ? "true" : "false");
     }
 
+    /** A fixed-point value's exact text: its scaled integer, and its fraction bits. */
+    public static long io_write_fixed(long file, long x, int frac) {
+        return write(file, FixedPoint.text(x, frac, true));
+    }
+
+    public static long io_write_ufixed(long file, long x, int frac) {
+        return write(file, FixedPoint.text(x, frac, false));
+    }
+
     /** Text to a standard stream, flushed at once so output and errors interleave as written, or to an open file. */
     private static long write(long file, String text) {
         if (file == STDOUT || file == STDERR) {

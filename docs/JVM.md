@@ -1,12 +1,12 @@
 # Seal on the JVM: design
 
 **Status:** design agreed. M0, the language changes the backend needs, is done on the VM, and the
-backend's M1, M2 and M3 are done (§13): `seal run --jvm` and `seal build` compile numbers of every
-width, control flow, classes and interfaces, generics over them, exceptions, lambdas, strings,
-`array<T>`, the collections and files, and structs, uniques and their destructors, records, enums,
-fixed arrays and operators, in storage blocks (§4.6). Fixed point comes next (M4), then pointers
-(M5). Choices made on review are marked **Decided**; the rest were **Proposed** and accepted with
-the design, and stand unless revisited.
+backend's M1 to M4 are done (§13): `seal run --jvm` and `seal build` compile numbers of every width
+and fixed point, control flow, classes and interfaces, generics and shapes, packages, exceptions,
+lambdas, strings, `array<T>`, the collections and files, and structs, uniques and their
+destructors, records, enums, fixed arrays and operators, in storage blocks (§4.6). Pointers and
+bit-packed layouts come next (M5). Choices made on review are marked **Decided**; the rest were
+**Proposed** and accepted with the design, and stand unless revisited.
 
 Seal today compiles to bytecode for its own register VM (`vm/`), written in Java. This document
 describes a backend that compiles Seal to JVM class files instead, so that Seal programs run on any
@@ -100,6 +100,19 @@ and `/` need a 128-bit intermediate and round-to-nearest, ties up: for formats u
 `long` intermediate suffices; for wider ones the runtime uses `Math.multiplyHigh` and, for
 division, a short exact routine. Text and conversions to and from `double` come from the runtime,
 which already exists in Java form in the VM (`formatFixed`).
+
+Done in M4, as planned: a fixed-point value is held as the integer of its width would be (an
+`int` for a `fixed<<8, 8>>`, a `long` for a `fixed<<40, 24>>`), so fields, arrays, blocks,
+comparisons, `+`, `-` and `%` are the integer's. The runtime's `FixedPoint` has the rest, as the
+VM computes it: `mul` (a `long` product while both values are below 2^31, else
+`Math.multiplyHigh` or `unsignedMultiplyHigh` for the 128-bit one), `div` (a `long` quotient while
+it fits, else `BigInteger`), `rescale` for casts between formats and to and from integers, and the
+exact text. Conversions to and from `double` are inline: a multiplication by 2^±M, and rounding
+to nearest as the VM's `F2IR`. A literal becomes its scaled value when compiling, exactly from its
+digits. Natives and runtime methods get a fixed-point value as a `long`, and after the arguments
+the fraction bits of each, as the VM's natives do; `Fixed.toString` and `Format`'s `%f` are
+`@jvm` methods of `FixedPoint`, since their Seal bodies write into `addr` buffers. `mul` and `div`
+were checked against the VM's own on 3 million random operands.
 
 ## 4. Values: structs and uniques in storage
 
@@ -399,8 +412,9 @@ so a call to a native method compiles to a call to it; a Seal object reaches it 
 `java.lang.Object`. Done in M2: the standard streams, files and folders (with the VM's status codes
 and error texts, and the text a file operation produces kept for `string.takeText`), math, time,
 identity hashes and exiting; `System`, `Writer`, `Reader`, `Files` and `File` compile from the
-library as they are. Still to come: the natives that take `addr` buffers (byte files, `Fixed`'s
-text, `Format`'s places), with M3 to M5.
+library as they are. `Format`'s places for a double went through a `@jvm` method in M3, and fixed
+point's text (printing, `Fixed.toString`, `Format`'s `%f` and `%s`) in M4. Still to come: the
+natives that take `addr` buffers for bytes (byte files), with M5.
 
 **Decided:** the standard library moves into a package of its own on the JVM,
 `io.github.thelinuxseal.seal.lang`, still visible everywhere without imports, as `java.lang` is. In
@@ -415,7 +429,7 @@ A small Java package, `io.github.thelinuxseal.seal.runtime`, shipped with every 
   (done in M3); `Ptr` (§4.4, M5);
 - `Ints`: the shift operator, truncation, unsigned-to-double (done; unsigned division and text use
   the JDK's `Integer` and `Long` directly);
-- fixed-point multiplication, division, text and conversions (M4);
+- `FixedPoint`: fixed-point multiplication, division, rescaling and text (done in M4, §3.2);
 - `Strings`: what the library's `@jvm("Strings...")` methods stand for (§8.2);
 - `Natives`: the natives (§8.3), and the entry point (§10);
 - `Exit` (`System.exit`) and `Trap` (what stops a program, as a VM trap does).
@@ -478,6 +492,13 @@ frames correctly for every control-flow shape (the class-file API does this, giv
   (fixed point and pointers), `StdlibTest` 52 and 5, `ExamplesTest` 15 and 4, and `FuzzTest` 368
   and 58. `RefCountTest` has no unique cases left to move: `LanguageTest`'s destructor programs
   cover them, and run the same.
+- Done in M4: `FixedPointTest` runs its 600 random operations on the JVM too, each line checked
+  against the same exact reference. `JvmTest`'s random programs also use random fixed-point
+  formats up to 64 bits (casts to and from every other number type, `*`, `/`, `%`, compound
+  assignments, `++`), and a case covers fixed point in fields, structs, arrays and statics, its
+  text, `Math` and `Format`. At M4's end: `RunTest` 38 the same and 8 not yet, `LanguageTest` 104
+  and 10, `StdlibTest` 56 and 1, `ExamplesTest` 17 and 2, `FuzzTest` 398 and 28: everything not yet
+  uses `addr<T>`.
 
 ## 13. Order of work
 
@@ -487,7 +508,7 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 | **M1**, **done** | `JvmGen` skeleton: static methods, `int`/`int<<64>>`/`double`/`bit`/`char`, control flow, calls, recursion, printing; `seal run --jvm` | `examples/01-basics` runs |
 | **M2**, **done** | classes, interfaces, virtual and interface calls, fields, exceptions, lambdas, strings, the runtime's natives | everything in the suites that uses only these runs the same; most of `LanguageTest` also needs structs (M3) |
 | **M3**, **done** | storage blocks: structs, uniques and their destructors, records, enums, fixed arrays, operators | `RunTest`, `RefCountTest`'s unique cases (all but pointers) |
-| **M4** | generics and shapes with naming, all integer widths, fixed point, packages | `FixedPointTest`, all examples but pointers |
+| **M4**, **done** | generics and shapes with naming, all integer widths, fixed point, packages | `FixedPointTest`, all examples but pointers |
 | **M5** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires |
 | **M6** (later) | jars, the target class-file version, calling Java classes from Seal, then Mixins (§14) | a first Minecraft mod in Seal |
 
@@ -514,8 +535,8 @@ Not designed here, but the design keeps the door open:
 - Instantiations are named from their arguments, `List$int`, `Matrix$double$3$3` (§5.1, §5.2).
 - Each method call that has struct locals gets a frame block of its own (§4.2).
 
-No questions are open. M0 to M3 are done (§13); the next step is M4, fixed point and the rest of
-generics.
+No questions are open. M0 to M4 are done (§13); the next step is M5, `addr<T>` and bit-packed
+layouts, after which every suite passes on the JVM and the VM retires.
 
 M1 went further than its row: every integer width already works (§3.1, planned for M4), and so do
 switch statements and labeled loops. M2 removed M1's stopgap for printing: `Writer` compiles as the
@@ -523,3 +544,6 @@ class it is. Its "done when" was too hopeful: most of `LanguageTest`'s programs 
 uniques, enums or fixed arrays, so they wait for M3 (at M2's end: 36 the same on the JVM, 78 not
 yet, almost all for storage). What M2 covers, every suite's programs that use only it, runs the
 same.
+
+M4 came down to fixed point: of the rest of its row, integer widths came with M1, and generics and
+shapes with their names, and packages (a Seal package is the Java package), with M2.

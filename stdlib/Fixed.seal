@@ -2,6 +2,7 @@
 struct Fixed
 {
     /** The exact value as decimal text, the same as print shows: 2.75, -0.125. */
+    @jvm("FixedPoint.text")
     public static string toString(fixed<<int N, int M>> x)
     {
         addr<char> buf = new<char>(96);
@@ -11,6 +12,7 @@ struct Fixed
         return s;
     }
 
+    @jvm("FixedPoint.textUnsigned")
     public static string toString(ufixed<<int N, int M>> x)
     {
         addr<char> buf = new<char>(96);

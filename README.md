@@ -110,10 +110,10 @@ Seal is young and still changing. Programs compile to bytecode for Seal's own vi
 which is written in Java. A backend that compiles to JVM class files is under way, with Minecraft
 modding as one of its goals; [`docs/JVM.md`](docs/JVM.md) is its design. The language changes it
 needs (no class destructors, try-with-resources, immutable strings) are done, and so are its first
-three milestones: numbers of every width, control flow, classes and interfaces, generics over them,
-exceptions, lambdas, strings, arrays, the collections and files, and structs, uniques and their
-destructors, records, enums, fixed arrays and operators. 15 of the 19 examples run on it; the
-others use fixed point or pointers:
+four milestones: numbers of every width and fixed point, control flow, classes and interfaces,
+generics, packages, exceptions, lambdas, strings, arrays, the collections and files, and structs,
+uniques and their destructors, records, enums, fixed arrays and operators. 17 of the 19 examples
+run on it; the other two use pointers:
 
 ```sh
 ./seal run --jvm examples/01-basics          # compile to class files and run them in this JVM
@@ -121,8 +121,7 @@ others use fixed point or pointers:
 java -cp classes Main                        # and run them with plain java
 ```
 
-What the JVM backend can't compile yet (fixed point, pointers) is reported as an error, with its
-line.
+What the JVM backend can't compile yet (pointers) is reported as an error, with its line.
 
 ## Layout
 

@@ -1,6 +1,8 @@
 package io.github.thelinuxseal.seal;
 
 import java.io.ByteArrayOutputStream;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
@@ -49,6 +51,7 @@ public final class JvmTest {
         strings();
         collections();
         values();
+        fixedPoint();
         notYet();
         random(randomPrograms, seed);
 
@@ -919,9 +922,52 @@ public final class JvmTest {
                 """), "n 3 bye", 3);
     }
 
+    /** Fixed point (docs/JVM.md §3.2, M4): its scaled integer wherever a number goes, and its text. */
+    private static void fixedPoint() {
+        same("fixed point in fields, structs, arrays and statics, as text, through Math and Format", """
+                fixed<<8, 8>> a = 1.5;
+                fixed<<8, 8>> b = -2.25;
+                pr(a * b); pr(a / b); pr(a % b); pr(-b); pr(a < b); pr(a == 1.5); pr((int)b); pr((double)b);
+                Body p = new Body();
+                p.mass = b;
+                p.at.x = -0.125;
+                Spot s = p.at;
+                s.x *= 4;
+                pr(p.mass); pr(p.at.x); pr(s.x);
+                array<ufixed<<4, 12>>> ws = new array<ufixed<<4, 12>>>(3);
+                ws[1] = 2.5;
+                ws[2] = ws[1] * ws[1];
+                pr(ws[2]); pr(ws[0]);
+                array<fixed<<4, 4>>><<3>> fs = [-1.5, 0.25, 7.9375];
+                for (fixed<<4, 4>> f : fs) { System.stdout.print(f + ";"); }
+                Spot.origin.x = 3.75;
+                pr(Spot.origin.x);
+                pr(Fixed.toString(b)); pr("" + a); pr(string.format("%.3f %s %.1f", b, a, (fixed<<16, 16>>)0.25));
+                pr(Math.floor(b)); pr(Math.ceil(b)); pr(Math.round(a)); pr(Math.abs(b)); pr(Math.sqrt((fixed<<16, 16>>)2));
+                pr(Fixed.mulExact(a, b)); pr(Fixed.fraction(b));
+                ufixed<<0, 64>> half = 0.5;
+                pr(half); pr(half * half); pr((double)half);
+                fixed<<40, 24>> big = 12345.678;
+                pr(big * big); pr(big / 7); pr((fixed<<8, 8>>)big);
+                """, "", "Body", "class Body { public fixed<<8, 8>> mass; public Spot at; }",
+                "Spot", "struct Spot { public static Spot origin; public fixed<<12, 20>> x; }");
+        program("fixed-point division by zero stops the program", Map.of("Main.seal", """
+                struct Main
+                {
+                    static int main()
+                    {
+                        fixed<<8, 8>> a = 1.5;
+                        fixed<<8, 8>> z = 0;
+                        System.stdout.print("before ");
+                        System.stdout.print(a / z);
+                        return 0;
+                    }
+                }
+                """), "before ", 70);
+    }
+
     /** What isn't on the JVM yet is reported, at its line, rather than generated wrong. */
     private static void notYet() {
-        unsupported("fixed point", "fixed<<8, 8>> x = 1.5; System.stdout.println(x);", "not available on the JVM yet");
         unsupported("addresses", "addr<int> p = new<int>(1); delete p;", "not available on the JVM yet");
     }
 
@@ -930,8 +976,9 @@ public final class JvmTest {
     private static final int[] WIDTHS = {1, 2, 3, 7, 8, 9, 15, 16, 17, 31, 32, 33, 48, 63, 64};
 
     /**
-     * Random programs over random integer widths, chars and floating point: casts, arithmetic,
-     * shifts, comparisons, compound assignments and ++, each value printed, on both backends.
+     * Random programs over random integer widths, chars, fixed point and floating point: casts,
+     * arithmetic, shifts, comparisons, compound assignments and ++, each value printed, on both
+     * backends.
      */
     private static void random(int count, long seed) {
         Random rnd = new Random(seed);
@@ -982,15 +1029,48 @@ public final class JvmTest {
         }
 
         String numberType() {
-            return switch (rnd.nextInt(8)) {
+            return switch (rnd.nextInt(10)) {
                 case 0 -> "double";
                 case 1 -> "float";
+                case 2, 3 -> fixedType();
                 default -> intType();
             };
         }
 
+        /** A fixed-point format with at least one fraction bit, up to 64 bits wide. */
+        String fixedType() {
+            int w = 2 + rnd.nextInt(63);
+            boolean signed = rnd.nextBoolean();
+            int m = 1 + rnd.nextInt(signed ? w - 1 : w);
+            return (signed ? "fixed" : "ufixed") + "<<" + (w - m) + ", " + m + ">>";
+        }
+
         boolean isFloat(String t) {
             return t.equals("double") || t.equals("float");
+        }
+
+        boolean isFixed(String t) {
+            return t.contains("fixed");
+        }
+
+        /** Whether ++ and -- apply: a fixed-point type must hold 1. */
+        boolean canStep(String t) {
+            if (!isFixed(t)) {
+                return true;
+            }
+            int n = Integer.parseInt(t.substring(t.indexOf("<<") + 2, t.indexOf(", ")));
+            return n >= (t.startsWith("fixed") ? 2 : 1);
+        }
+
+        /** The smallest positive value of a fixed-point type, 2^-M, as a literal. */
+        String smallest(String t) {
+            int m = Integer.parseInt(t.substring(t.indexOf(", ") + 2, t.indexOf(">>")));
+            return new BigDecimal(BigInteger.ONE).divide(new BigDecimal(BigInteger.ONE.shiftLeft(m))).toPlainString();
+        }
+
+        /** r as a divisor of fixed-point type t: never zero. */
+        String divisor(String t, String r) {
+            return "(" + t + ")((" + r + ") != (" + t + ")0 ? (" + r + ") : (" + t + ")" + smallest(t) + ")";
         }
 
         String program() {
@@ -998,12 +1078,16 @@ public final class JvmTest {
             for (int i = 0; i < n; i++) {
                 String t = numberType();
                 String v = "v" + i;
-                String init = isFloat(t) ? (rnd.nextBoolean() ? "-" : "") + rnd.nextInt(100000) + "." + rnd.nextInt(1000)
+                boolean real = isFloat(t) || (isFixed(t) && rnd.nextBoolean());
+                String init = real ? (rnd.nextBoolean() ? "-" : "") + rnd.nextInt(100000) + "." + rnd.nextInt(1000)
                         + (rnd.nextInt(4) == 0 ? "e" + (rnd.nextInt(40) - 10) : "")
                         : Long.toString(rnd.nextLong() >> rnd.nextInt(64));
-                out.append("        int<<64>> s").append(i).append(" = ").append(isFloat(t) ? "0" : init).append(";\n");
+                out.append("        int<<64>> s").append(i).append(" = ").append(real ? "0" : init).append(";\n");
+                if (real && !isFloat(t)) {
+                    out.append("        double r").append(i).append(" = ").append(init).append(";\n"); // wraps at run time
+                }
                 out.append("        ").append(t).append(' ').append(v).append(" = ")
-                        .append(isFloat(t) ? init : "(" + t + ")s" + i).append(";\n");
+                        .append(isFloat(t) ? init : real ? "(" + t + ")r" + i : "(" + t + ")s" + i).append(";\n");
                 vars.add(v);
                 types.add(t);
             }
@@ -1017,7 +1101,7 @@ public final class JvmTest {
                     case 1 -> out.append("        pr(").append(comparison()).append(");\n");
                     case 2 -> out.append("        ").append(v).append(" = ").append(expr(t, 3)).append(";\n");
                     case 3 -> out.append("        ").append(compound(v, t)).append(";\n");
-                    case 4 -> out.append("        pr(").append(rnd.nextBoolean() ? v + "++" : "--" + v).append(");\n");
+                    case 4 -> out.append("        pr(").append(!canStep(t) ? v : rnd.nextBoolean() ? v + "++" : "--" + v).append(");\n");
                     default -> out.append("        pr(").append(v).append(");\n");
                 }
             }
@@ -1030,6 +1114,16 @@ public final class JvmTest {
         String compound(String v, String t) {
             if (isFloat(t)) {
                 return v + " " + pickOf("+=", "-=", "*=", "/=") + " " + expr(t, 2);
+            }
+            if (isFixed(t)) {
+                String op = pickOf("+=", "-=", "*=", "/=", "%=");
+                if (op.equals("/=") || op.equals("%=")) {
+                    return v + " " + op + " " + divisor(t, expr(t, 1));
+                }
+                if (rnd.nextInt(4) == 0) {
+                    return v + " " + op + " " + expr("double", 1); // narrowed back (§41.6)
+                }
+                return v + " " + op + " " + expr(t, 2);
             }
             String op = pickOf("+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=");
             if (op.equals("<<=")) {
@@ -1077,7 +1171,7 @@ public final class JvmTest {
                     return "(" + t + ")(" + expr(numberType(), depth - 1) + ")";
                 }
                 case 1 -> {
-                    if (f) {
+                    if (f || isFixed(t)) {
                         return "(" + t + ")(-(" + expr(t, depth - 1) + "))";
                     }
                     return "(" + t + ")(" + pickOf("-", "~") + "(" + expr(t, depth - 1) + "))";
@@ -1086,15 +1180,18 @@ public final class JvmTest {
                     return "(" + t + ")(" + comparison() + " ? " + expr(t, depth - 1) + " : " + expr(t, depth - 1) + ")";
                 }
                 case 3 -> {
-                    if (f) {
+                    if (f || isFixed(t)) {
                         return leaf(t);
                     }
                     return "(" + t + ")((" + expr(t, depth - 1) + ") <<< (int)(" + expr(intType(), depth - 1) + "))";
                 }
                 default -> {
-                    String op = f ? pickOf("+", "-", "*", "/") : pickOf("+", "-", "*", "/", "%", "&", "|", "^");
+                    String op = f ? pickOf("+", "-", "*", "/") : isFixed(t) ? pickOf("+", "-", "*", "/", "%")
+                            : pickOf("+", "-", "*", "/", "%", "&", "|", "^");
                     String right = expr(t, depth - 1);
-                    if ((op.equals("/") || op.equals("%")) && !f) {
+                    if ((op.equals("/") || op.equals("%")) && isFixed(t)) {
+                        right = divisor(t, right);
+                    } else if ((op.equals("/") || op.equals("%")) && !f) {
                         if (t.equals("int<<1>>")) {
                             op = "+";
                         } else {
@@ -1119,6 +1216,8 @@ public final class JvmTest {
                 static void pr(double x) { System.stdout.print(x); System.stdout.print(' '); }
                 static void pr(float x) { System.stdout.print(x); System.stdout.print(' '); }
                 static void pr(bit x) { System.stdout.print(x); System.stdout.print(' '); }
+                static void pr(fixed<<int N, int M>> x) { System.stdout.print(x); System.stdout.print(' '); }
+                static void pr(ufixed<<int N, int M>> x) { System.stdout.print(x); System.stdout.print(' '); }
             """;
 
     private record Run(String output, int code, String error, Throwable fault) {

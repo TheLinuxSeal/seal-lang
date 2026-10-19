@@ -7,6 +7,7 @@ import static io.github.thelinuxseal.seal.jvm.JvmGen.isNumber;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.isString;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.isValue;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.kind;
+import static io.github.thelinuxseal.seal.jvm.JvmGen.raw;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.replacesReceiver;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.width;
 import static java.lang.constant.ConstantDescs.CD_Object;
@@ -23,6 +24,7 @@ import java.lang.classfile.Label;
 import java.lang.classfile.TypeKind;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.MethodTypeDesc;
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -978,7 +980,7 @@ final class JvmCode {
         }
         c.loadConstant(bitWidth(t));
         c.invokestatic(JvmGen.BLOCK, "load", MethodTypeDesc.of(CD_long, JvmGen.BLOCK, CD_int, CD_int));
-        switch (t) {
+        switch (raw(t)) {
             case IntT it when it.signed() && !it.isChar() -> {
                 int w = width(it);
                 if (w < 64) {
@@ -1030,6 +1032,7 @@ final class JvmCode {
     private static int bitWidth(Type t) {
         return switch (t) {
             case IntT it -> width(it);
+            case FixedT f -> width(f);
             case BitT b -> 1;
             case FloatT f -> 32;
             case DoubleT d -> 64;
@@ -1776,6 +1779,10 @@ final class JvmCode {
         pos = e.pos();
         try {
             Type t = type(e);
+            if (t instanceof FloatConstT fc && fc.value() != null && want instanceof FixedT ft) {
+                fixedConstant(fc.value(), ft); // exact, from the literal's digits, as on the VM
+                return want;
+            }
             if (t instanceof IntConstT || t instanceof FloatConstT
                     || (e instanceof Name n && "value".equals(tb.nameKinds.get(n)))) {
                 Type as = want == null || want instanceof IntConstT || want instanceof FloatConstT || !isNumber(want)
@@ -2255,6 +2262,8 @@ final class JvmCode {
     private void constant(CVal v, Type as, Pos at) {
         switch (v) {
             case IntV i when as instanceof IntT -> intConstant(i.value(), as);
+            case IntV i when as instanceof FixedT ft -> fixedConstant(new BigDecimal(i.value()), ft);
+            case FloatV f when as instanceof FixedT ft -> fixedConstant(new BigDecimal(f.value()), ft);
             case IntV i when as instanceof FloatT -> c.loadConstant(i.value().floatValue());
             case IntV i when as instanceof DoubleT -> c.loadConstant(i.value().doubleValue());
             case FloatV f when as instanceof FloatT -> c.loadConstant(f.value().floatValue());
@@ -2265,12 +2274,21 @@ final class JvmCode {
         }
     }
 
+    /** A constant in a fixed-point type (§37.1): round(v × 2^M), wrapped to the type's width, as on the VM. */
+    private void fixedConstant(BigDecimal v, FixedT t) {
+        intConstant(Checker.fixedRaw(v, frac(t)), raw(t));
+    }
+
+    private static int frac(FixedT t) {
+        return t.fracBits().intValue().intValueExact();
+    }
+
     /** An integer constant wrapped to the type's width, as the VM's constants are. */
     private void intConstant(BigInteger x, Type as) {
         long bits = x.longValue();
         int w = width(as);
         if (w < 64) {
-            bits = ((IntT) as).signed() ? (bits << (64 - w)) >> (64 - w) : bits & ((1L << w) - 1);
+            bits = ((IntT) raw(as)).signed() ? (bits << (64 - w)) >> (64 - w) : bits & ((1L << w) - 1);
         }
         if (kind(as) == TypeKind.LONG) {
             c.loadConstant(bits);
@@ -2315,6 +2333,10 @@ final class JvmCode {
         }
         boolean fromFloat = from instanceof FloatT || from instanceof DoubleT;
         boolean toFloat = to instanceof FloatT || to instanceof DoubleT;
+        if (from instanceof FixedT || to instanceof FixedT) {
+            fixedCast(from, to, fromFloat, toFloat);
+            return;
+        }
         if (from instanceof IntT f && to instanceof IntT t) {
             TypeKind fk = load(f);
             TypeKind tk = load(t);
@@ -2379,6 +2401,77 @@ final class JvmCode {
         throw unsupported(pos, "converting " + from + " to " + to);
     }
 
+    /** Casts involving fixed point (§37.1), as the VM does them; the value is on the stack. */
+    private void fixedCast(Type from, Type to, boolean fromFloat, boolean toFloat) {
+        if (from instanceof FixedT ff && to instanceof FixedT tf) {
+            // A change of scale rounds to nearest; then the value wraps to the new width.
+            asLong(ff);
+            rescale(frac(tf) - frac(ff), ff.signed(), true);
+            fromLong(tf);
+        } else if (from instanceof IntT fi && to instanceof FixedT tf) {
+            asLong(fi);
+            rescale(frac(tf), fi.signed() && !fi.isChar(), true);
+            fromLong(tf);
+        } else if (from instanceof FixedT ff && to instanceof IntT ti) {
+            // As float to int: toward zero, then wrapped.
+            asLong(ff);
+            rescale(-frac(ff), ff.signed(), false);
+            fromLong(ti);
+        } else if (from instanceof FixedT ff && toFloat) {
+            convert(raw(ff), Type.DOUBLE);
+            c.loadConstant(Math.scalb(1.0, -frac(ff)));
+            c.dmul();
+            if (to instanceof FloatT) {
+                c.d2f();
+            }
+        } else if (fromFloat && to instanceof FixedT tf) {
+            // Scaled, then rounded to nearest (ties up) into a long, as the VM's F2IR.
+            if (from instanceof FloatT) {
+                c.f2d();
+            }
+            c.loadConstant(Math.scalb(1.0, frac(tf)));
+            c.dmul();
+            c.loadConstant(0.5);
+            c.dadd();
+            c.invokestatic(ClassDesc.of("java.lang.Math"), "floor", MethodTypeDesc.of(CD_double, CD_double));
+            c.d2l();
+            fromLong(tf);
+        } else {
+            throw unsupported(pos, "converting " + from + " to " + to);
+        }
+    }
+
+    /** The number on the stack, held as an int, as a long: sign-extended if signed. */
+    private void asLong(Type t) {
+        if (load(t) == TypeKind.INT) {
+            toLong((IntT) raw(t));
+        }
+    }
+
+    /** A long on the stack as a value of t: narrowed to an int if t is one, and wrapped to t's width. */
+    private void fromLong(Type t) {
+        if (load(t) == TypeKind.INT) {
+            c.l2i();
+        }
+        normalize(t);
+    }
+
+    /** The long on the stack times 2^shift; a negative shift divides, rounding to nearest or toward zero. */
+    private void rescale(int shift, boolean signed, boolean nearest) {
+        if (shift == 0) {
+            return;
+        }
+        if (shift > 0 && shift < 64) {
+            c.loadConstant(shift);
+            c.lshl();
+            return;
+        }
+        c.loadConstant(shift);
+        c.loadConstant(signed ? 1 : 0);
+        c.loadConstant(nearest ? 1 : 0);
+        c.invokestatic(JvmGen.FIXED_POINT, "rescale", MethodTypeDesc.of(CD_long, CD_long, CD_int, CD_boolean, CD_boolean));
+    }
+
     /** Whether every value of integer type f is a value of t, so converting needs no wrapping. */
     private static boolean fits(IntT f, IntT t) {
         int fw = width(f);
@@ -2396,7 +2489,7 @@ final class JvmCode {
 
     /** Wraps the integer on the stack to its type's width and normalizes it (§3.1). */
     private void normalize(Type t) {
-        if (!(t instanceof IntT it)) {
+        if (!(raw(t) instanceof IntT it)) {
             return;
         }
         int w = width(it);
@@ -2539,13 +2632,26 @@ final class JvmCode {
     /** Seal's <<< (§50): value and amount (an int) on the stack, through the runtime. */
     private void shift(Type t) {
         c.loadConstant(width(t));
-        c.loadConstant(((IntT) t).signed() ? 1 : 0);
+        c.loadConstant(((IntT) raw(t)).signed() ? 1 : 0);
         ClassDesc v = kind(t) == TypeKind.LONG ? CD_long : CD_int;
         c.invokestatic(JvmGen.INTS, "shift", MethodTypeDesc.of(v, v, CD_int, CD_int, CD_boolean));
     }
 
     /** Both operands of type t on the stack: the result, normalized to t. */
     private void arithmetic(BinaryOp op, Type t, Pos at) {
+        if (t instanceof FixedT ft) {
+            if (op == BinaryOp.MUL || op == BinaryOp.DIV) {
+                // The exact product or quotient, rounded to nearest (§37.1), then wrapped.
+                ClassDesc v = load(ft) == TypeKind.LONG ? CD_long : CD_int;
+                c.loadConstant(frac(ft));
+                c.loadConstant(ft.signed() ? 1 : 0);
+                c.invokestatic(JvmGen.FIXED_POINT, op == BinaryOp.MUL ? "mul" : "div",
+                        MethodTypeDesc.of(CD_long, v, v, CD_int, CD_boolean));
+                fromLong(ft);
+                return;
+            }
+            t = raw(ft); // + and - (and %, << on the bits) are its integer's
+        }
         TypeKind k2 = load(t);
         if (t instanceof BitT) {
             switch (op) {
@@ -3266,33 +3372,66 @@ final class JvmCode {
             dst = temp(ret);
         }
         pushResult(ret, dst);
-        pushArgs(ci, args);
-        if (jvm != null) {
-            runtimeCall(jvm, null, ck.paramTypes(null, m, ci.binders()), ret, at);
-            return ret;
-        }
         String nat = Checker.nativeName(md);
-        if (nat != null) {
-            native_(nat, ck.paramTypes(null, m, ci.binders()), ret, at);
+        if (jvm != null || nat != null) {
+            List<Type> params = ck.paramTypes(null, m, ci.binders());
+            pushRuntimeArgs(params, args);
+            if (jvm != null) {
+                runtimeCall(jvm, null, params, ret, at);
+            } else {
+                native_(nat, params, ret, at);
+            }
             return ret;
         }
+        pushArgs(ci, args);
         MethodRef r = g.ref(new FnKey("method", ck.declaringClassOf(m), null, m, ci.binders()), at);
         JvmGen.invoke(c, r);
         return ret;
     }
 
-    /** A native (§8.3): a static method of the runtime's Natives, named as the native is. */
-    private void native_(String name, List<Type> params, Type ret, Pos at) {
-        ClassDesc[] ps = new ClassDesc[params.size()];
-        for (int i = 0; i < ps.length; i++) {
-            ps[i] = erased(params.get(i), at);
+    /**
+     * Arguments to a native or a runtime method, which can't see types: a fixed-point value as a
+     * long, and after them the fraction bits of each, as the VM passes them to its natives.
+     */
+    private void pushRuntimeArgs(List<Type> params, List<Expr> args) {
+        for (int i = 0; i < args.size(); i++) {
+            Type pt = params.get(i);
+            pushArgs(List.of(pt), List.of(args.get(i)));
+            if (pt instanceof FixedT ft) {
+                asLong(ft);
+            }
         }
-        c.invokestatic(JvmGen.NATIVES, name, MethodTypeDesc.of(erased(ret, at), ps));
+        for (Type pt : params) {
+            if (pt instanceof FixedT ft) {
+                c.loadConstant(frac(ft));
+            }
+        }
     }
 
-    /** A type as the runtime, which knows no Seal classes, sees it: an object as java.lang.Object. */
+    /** A native (§8.3): a static method of the runtime's Natives, named as the native is. */
+    private void native_(String name, List<Type> params, Type ret, Pos at) {
+        List<ClassDesc> ps = new ArrayList<>();
+        for (Type p : params) {
+            ps.add(erased(p, at));
+        }
+        addFractions(ps, params);
+        c.invokestatic(JvmGen.NATIVES, name, MethodTypeDesc.of(erased(ret, at), ps.toArray(ClassDesc[]::new)));
+        if (ret instanceof FixedT) {
+            fromLong(ret);
+        }
+    }
+
+    private static void addFractions(List<ClassDesc> ps, List<Type> params) {
+        for (Type p : params) {
+            if (p instanceof FixedT) {
+                ps.add(CD_int);
+            }
+        }
+    }
+
+    /** A type as the runtime, which knows no Seal classes, sees it: an object as java.lang.Object, a fixed-point value as a long. */
     private ClassDesc erased(Type t, Pos at) {
-        return t instanceof HandleT ? CD_Object : g.desc(t, at);
+        return t instanceof HandleT ? CD_Object : t instanceof FixedT ? CD_long : g.desc(t, at);
     }
 
     /** A method marked @jvm: a static method of a runtime class ("Strings.at"), or one this backend generates. */
@@ -3306,9 +3445,13 @@ final class JvmCode {
         for (Type p : params) {
             ps.add(erased(p, at));
         }
+        addFractions(ps, params);
         ClassDesc rd = ret instanceof VoidT && receiver != null && replacesReceiver(receiver) ? erased(receiver, at)
                 : erased(ret, at);
         c.invokestatic(owner, spec.substring(dot + 1), MethodTypeDesc.of(rd, ps.toArray(ClassDesc[]::new)));
+        if (ret instanceof FixedT) {
+            fromLong(ret);
+        }
     }
 
     /** The method an instance call reaches, generated for the class that declares it. */

@@ -15,12 +15,15 @@ import java.util.Random;
 
 import io.github.thelinuxseal.seal.check.Checker;
 import io.github.thelinuxseal.seal.codegen.CodeGen;
+import io.github.thelinuxseal.seal.jvm.JvmGen;
+import io.github.thelinuxseal.seal.jvm.JvmRunner;
 import io.github.thelinuxseal.seal.vm.VM;
 
 /**
  * Differential test for fixed-point types (§37.1): random formats and values
- * are run through the compiler and VM, and every result is compared with a
- * reference implementation using exact integer arithmetic.
+ * are run through the compiler, on the VM and on the JVM (docs/JVM.md §12),
+ * and every result is compared with a reference implementation using exact
+ * integer arithmetic.
  * `java -cp out io.github.thelinuxseal.seal.FixedPointTest`.
  */
 public final class FixedPointTest {
@@ -124,7 +127,31 @@ public final class FixedPointTest {
                 failures.add(described.get(i) + "\n    expected " + expected.get(i) + "\n    got      " + got);
             }
         }
-        System.out.println(passed + " passed, " + failures.size() + " failed");
+
+        // The same program on the JVM, each line against the same reference.
+        int sameOnJvm = 0;
+        JvmGen.Result jvm = JvmGen.generate(checker, "Main");
+        List<String> problems = jvm.errors().isEmpty() ? JvmRunner.verify(jvm) : List.of();
+        if (!jvm.errors().isEmpty() || !problems.isEmpty()) {
+            failures.add("on the JVM: " + (jvm.errors().isEmpty() ? "verification fails: " + problems : jvm.errors()));
+        } else {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            JvmRunner.Outcome o = JvmRunner.run(jvm, new PrintStream(out, true, StandardCharsets.UTF_8),
+                    new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8));
+            String[] jvmLines = out.toString(StandardCharsets.UTF_8).split("\n", -1);
+            if (o.fault() != null) {
+                failures.add("on the JVM: " + JvmRunner.describe(o.fault()));
+            }
+            for (int i = 0; i < CASES; i++) {
+                String got = i < jvmLines.length ? jvmLines[i] : "(missing)";
+                if (got.equals(expected.get(i))) {
+                    sameOnJvm++;
+                } else {
+                    failures.add("on the JVM: " + described.get(i) + "\n    expected " + expected.get(i) + "\n    got      " + got);
+                }
+            }
+        }
+        System.out.println(passed + " passed, " + failures.size() + " failed  (on the JVM: " + sameOnJvm + " the same)");
         failures.stream().limit(10).forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);

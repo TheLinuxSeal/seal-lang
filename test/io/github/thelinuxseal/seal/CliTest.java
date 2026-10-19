@@ -91,7 +91,7 @@ public final class CliTest {
         Path notYet = write(dir, "notyet/Main.seal", """
                 struct Main
                 {
-                    static int main() { fixed<<8, 8>> x = 1.5; System.stdout.println(x); return 0; }
+                    static int main() { addr<int> p = new<int>(1); delete p; return 0; }
                 }
                 """);
         r = run("run", "--jvm", notYet.getParent().toString());
