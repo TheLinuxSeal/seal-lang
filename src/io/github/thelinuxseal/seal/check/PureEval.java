@@ -30,10 +30,12 @@ import io.github.thelinuxseal.seal.runtime.Ints;
 /**
  * Runs pure methods while compiling (§17.2), for a call in `<<...>>`, an array's size or a const
  * field. It runs the method's checked body, as the backends would compile it: numbers of every
- * width, bits, characters, floating and fixed point, strings and fixed arrays, each computed
- * exactly as when the program runs (a value of a width below 64 is kept in a long, sign-extended
- * when signed and zero-extended when not, as the JVM backend keeps it). A call's result is kept,
- * so each call with the same arguments runs once.
+ * width, bits, characters, floating and fixed point, strings, fixed arrays and array<T>, each
+ * computed exactly as when the program runs (a value of a width below 64 is kept in a long,
+ * sign-extended when signed and zero-extended when not, as the JVM backend keeps it). Both kinds
+ * of array are an Object[]: a fixed array, a value, is copied where it is stored; an array<T>,
+ * a unique, is lent and moved, as a pure method only reads the arrays it is given. A call's
+ * result is kept, so each call with the same arguments runs once.
  */
 final class PureEval {
 
@@ -108,6 +110,8 @@ final class PureEval {
     private final Deque<Type> yieldTypes = new ArrayDeque<>();
     private Pos at;
     private String pendingLabel;
+    /** Values worked out ahead of the code the checker rewrote, which reaches them twice: xs[i] += v. */
+    private final Map<Expr, Val> pinned = new IdentityHashMap<>();
 
     PureEval(Checker ck) {
         this.ck = ck;
@@ -177,7 +181,8 @@ final class PureEval {
         pendingLabel = null;
         try {
             for (int i = 0; i < p.method().params().size(); i++) {
-                scopes.peek().put(p.method().params().get(i).name(), new Cell(copy(args.get(i)), p.tb().params.get(i)));
+                Type pt = p.tb().params.get(i);
+                scopes.peek().put(p.method().params().get(i).name(), new Cell(pt instanceof ArrayT ? copy(args.get(i)) : args.get(i), pt));
             }
             Object result = null;
             try {
@@ -223,7 +228,7 @@ final class PureEval {
             if (!tb.errors.isEmpty()) {
                 throw fail("calls " + name + ", which has errors: " + tb.errors.get(0).message());
             }
-            List<Purity.Problem> problems = Purity.of(ck, tb, md.body());
+            List<Purity.Problem> problems = Purity.of(ck, tb, md);
             if (!problems.isEmpty()) {
                 throw fail("calls " + name + ", which breaks the rules: " + problems.get(0).message());
             }
@@ -483,6 +488,18 @@ final class PureEval {
     private void effect(Expr e) {
         Expr rw = fn.tb().rewritten.get(e);
         if (rw != null) {
+            if (e instanceof Assign a && a.target() instanceof Index ix) {
+                // xs[i] += v through []=: xs[i] = xs[i] + v, with i worked out once, as the backends do.
+                boolean held = pin(ix.index()) != null;
+                try {
+                    effect(rw);
+                } finally {
+                    if (held) {
+                        pinned.remove(ix.index());
+                    }
+                }
+                return;
+            }
             effect(rw);
             return;
         }
@@ -617,6 +634,10 @@ final class PureEval {
     }
 
     private Val evalUncast(Expr e, Type want) {
+        Val early = pinned.get(e);
+        if (early != null) {
+            return want == null ? early : widen(early, want);
+        }
         Expr rw = fn.tb().rewritten.get(e);
         if (rw != null) {
             return eval(rw, want);
@@ -640,17 +661,38 @@ final class PureEval {
             }
             return new Val(text, want != null ? want : t);
         }
+        if (t instanceof ArrayT && isArray(want)) {
+            return new Val(copy(array(e)), want); // a fixed array where an array<T> is wanted: copied into one
+        }
         Val v = evalAt(e, t, want);
         return want == null ? v : widen(v, want);
     }
 
     private Val evalAt(Expr e, Type t, Type want) {
-        boolean operator = fn.tb().calls.containsKey(e) && !(e instanceof Call) && !(e instanceof New);
+        boolean operator = fn.tb().calls.containsKey(e) && !(e instanceof Call) && !(e instanceof New)
+                && !(e instanceof Assign);
         if (operator) {
             CallInfo ci = fn.tb().calls.get(e);
+            if (e instanceof Index ix && isArray(ci.owner())) {
+                Object[] items = array(ix.target());
+                int i = arrayIndex((Long) value(ix.index(), Type.INT), items.length);
+                return new Val(items[i], element(ci.owner()));
+            }
             throw fail("uses an operator that calls " + ci.owner() + "." + ci.member().name() + ", which isn't pure");
         }
         switch (e) {
+            case New n when fn.tb().calls.get(n) instanceof CallInfo ci && isArray(ci.owner()) -> {
+                long count = n.args().isEmpty() ? 0 : (Long) value(n.args().get(0), Type.INT);
+                return new Val(newArray(element(ci.owner()), count), ci.owner());
+            }
+            case ArrayLit al when isArray(want != null ? want : t) -> {
+                ClassT at = (ClassT) (want != null ? want : t);
+                Object[] items = new Object[al.elements().size()];
+                for (int i = 0; i < items.length; i++) {
+                    items[i] = stored(al.elements().get(i), element(at));
+                }
+                return new Val(items, at);
+            }
             case BoolLit b -> {
                 return new Val(b.value(), Type.BIT);
             }
@@ -757,6 +799,9 @@ final class PureEval {
 
     private Val call(Call c) {
         CallInfo ci = fn.tb().calls.get(c);
+        if (ci != null && ci.kind() == CallKind.METHOD && isArray(ci.owner()) && c.callee() instanceof Select s) {
+            return arrayMethod(c, ci, s.target());
+        }
         if (ci == null || ci.kind() != CallKind.STATIC || !(ci.member().member instanceof Method md) || !md.modifiers().isPure()) {
             throw fail("calls " + (ci == null || ci.member() == null ? "something" : name(ci.member())) + ", which isn't pure");
         }
@@ -931,7 +976,16 @@ final class PureEval {
     }
 
     private Val assign(Assign a) {
-        if (fn.tb().calls.containsKey(a)) {
+        CallInfo set = fn.tb().calls.get(a);
+        if (set != null && a.op() == null && a.target() instanceof Index ix && isArray(set.owner())) {
+            // xs[i] = v: the array's []= (§46), with its index checked as the library checks it.
+            Object[] items = array(ix.target());
+            long i = (Long) value(ix.index(), Type.INT);
+            Object v = stored(a.value(), element(set.owner()));
+            items[arrayIndex(i, items.length)] = v;
+            return new Val(null, Type.VOID);
+        }
+        if (set != null) {
             throw fail("uses an operator that isn't pure");
         }
         if (a.target() instanceof Slice sl) {
@@ -1014,8 +1068,26 @@ final class PureEval {
     }
 
     private Val incDec(IncDec i) {
-        if (fn.tb().elementSteps.containsKey(i)) {
-            throw fail("uses an operator that isn't pure");
+        Assign step = fn.tb().elementSteps.get(i);
+        if (step != null) {
+            // xs[i]++ through [] and []=: reads xs[i] once, then stores the result, as the backends do.
+            Index ix = (Index) step.target();
+            Expr next = step.value();
+            Expr read = ((Binary) (next instanceof Cast cast ? cast.operand() : next)).left();
+            List<Expr> held = new ArrayList<>();
+            try {
+                for (Expr e : List.of(ix.index(), read, next)) {
+                    if (pin(e) != null) {
+                        held.add(e);
+                    }
+                }
+                Val old = pinned.get(read);
+                Val now = pinned.get(next);
+                assign(step);
+                return i.prefix() ? now : old;
+            } finally {
+                held.forEach(pinned::remove);
+            }
         }
         Type t = type(i.target());
         Ref r = ref(i.target());
@@ -1023,6 +1095,180 @@ final class PureEval {
         Object now = arithmetic(i.op(), t, old, constant(new IntV(BigInteger.ONE), t));
         r.set(now);
         return new Val(i.prefix() ? now : old, t);
+    }
+
+    /** Works out e now, for the rewritten code that uses it twice; null for a constant, which needs no pinning. */
+    private Val pin(Expr e) {
+        Type own = type(e);
+        if (own instanceof IntConstT || own instanceof FloatConstT) {
+            return null;
+        }
+        Val v = evalUncast(e, null);
+        pinned.put(e, v);
+        return v;
+    }
+
+    // ================================================================ array<T>
+
+    private static boolean isArray(Type t) {
+        return Purity.isArray(t);
+    }
+
+    private static Type element(Type arrayType) {
+        return ((ClassT) arrayType).typeArgs().get(0);
+    }
+
+    /** new array<T>(n): n default elements, as the library makes them. */
+    private Object[] newArray(Type element, long n) {
+        if (n < 0) {
+            throw fail("threw IllegalArgumentException: an array can't have length " + n);
+        }
+        Object[] items = new Object[(int) n];
+        for (int i = 0; i < items.length; i++) {
+            items[i] = zero(element);
+        }
+        return items;
+    }
+
+    /** An index into an array<T>, checked as the library checks it. */
+    private int arrayIndex(long i, int length) {
+        if (i < 0 || i >= length) {
+            throw fail("threw IndexOutOfBoundsException: index " + i + " out of range for an array of length " + length);
+        }
+        return (int) i;
+    }
+
+    /** xs.length(), xs.copy(), xs.sort() and the rest of the array's own methods, as stdlib/array.seal has them. */
+    private Val arrayMethod(Call c, CallInfo ci, Expr receiver) {
+        Object[] items = array(receiver);
+        Type t = element(ci.owner());
+        List<Type> params = ck.paramTypes(ci.owner(), ci.member(), ci.binders());
+        List<Object> args = new ArrayList<>();
+        for (int i = 0; i < c.args().size(); i++) {
+            args.add(stored(c.args().get(i), params.get(i)));
+        }
+        Type ret = ck.returnTypeOf(ci.owner(), ci.member(), ci.binders());
+        String name = ci.member().name();
+        Object result = switch (name) {
+            case "length" -> (long) items.length;
+            case "isEmpty" -> items.length == 0;
+            case "get" -> items[arrayIndex((Long) args.get(0), items.length)];
+            case "set" -> {
+                items[arrayIndex((Long) args.get(0), items.length)] = args.get(1);
+                yield null;
+            }
+            case "copy" -> copy(items);
+            case "copyOf" -> {
+                long n = (Long) args.get(0);
+                Object[] out = newArray(t, n);
+                for (int i = 0; i < Math.min(out.length, items.length); i++) {
+                    out[i] = copy(items[i]);
+                }
+                yield out;
+            }
+            case "slice" -> {
+                long from = (Long) args.get(0);
+                long to = (Long) args.get(1);
+                if (from < 0 || to > items.length || from > to) {
+                    throw fail("threw IndexOutOfBoundsException: slice(" + from + ", " + to
+                            + ") out of range for an array of length " + items.length);
+                }
+                yield copy(Arrays.copyOfRange(items, (int) from, (int) to));
+            }
+            case "indexOf", "contains" -> {
+                long found = -1;
+                for (int i = 0; i < items.length && found < 0; i++) {
+                    tick(c.pos());
+                    if (same(t, items[i], args.get(0))) {
+                        found = i;
+                    }
+                }
+                yield name.equals("contains") ? (Object) (found >= 0) : (Object) found;
+            }
+            case "fill" -> {
+                for (int i = 0; i < items.length; i++) {
+                    items[i] = copy(args.get(0));
+                }
+                yield null;
+            }
+            case "swap" -> {
+                swap(items, (Long) args.get(0), (Long) args.get(1));
+                yield null;
+            }
+            case "reverse" -> {
+                for (int i = 0, j = items.length - 1; i < j; i++, j--) {
+                    swap(items, i, j);
+                }
+                yield null;
+            }
+            case "sort" -> {
+                if (!args.isEmpty()) {
+                    throw fail("calls sort(Comparator), which isn't pure");
+                }
+                sort(items, t, c.pos());
+                yield null;
+            }
+            default -> throw fail("calls " + ci.owner() + "." + name + "(), which compile-time evaluation doesn't run");
+        };
+        return new Val(result, ret);
+    }
+
+    /** swap(i, j) as the library's: t = get(i); set(i, get(j)); set(j, t). */
+    private void swap(Object[] items, long i, long j) {
+        Object t = items[arrayIndex(i, items.length)];
+        items[(int) i] = items[arrayIndex(j, items.length)];
+        items[(int) j] = t;
+    }
+
+    /** The library's sort(): heapsort with <, so equal and unordered elements end up as they do when the program runs. */
+    private void sort(Object[] items, Type t, Pos p) {
+        int n = items.length;
+        for (int start = n / 2 - 1; start >= 0; start--) {
+            siftDown(items, t, start, n, p);
+        }
+        for (int end = n - 1; end > 0; end--) {
+            swap(items, 0, end);
+            siftDown(items, t, 0, end, p);
+        }
+    }
+
+    private void siftDown(Object[] items, Type t, int start, int end, Pos p) {
+        int root = start;
+        while (root * 2 + 1 < end) {
+            tick(p);
+            int child = root * 2 + 1;
+            if (child + 1 < end && less(t, items[child], items[child + 1])) {
+                child++;
+            }
+            if (!less(t, items[root], items[child])) {
+                return;
+            }
+            swap(items, root, child);
+            root = child;
+        }
+    }
+
+    /** a < b for elements of type t, as the program compares them. */
+    private boolean less(Type t, Object a, Object b) {
+        return switch (a) {
+            case Long x when isNumber(t) -> fullUnsigned(t) && width(t) == 64 ? Long.compareUnsigned(x, (Long) b) < 0 : x < (Long) b;
+            case Float x -> x < (Float) b;
+            case Double x -> x < (Double) b;
+            case String x -> x.compareTo((String) b) < 0;
+            default -> throw fail("sorts " + t + " values, which compile-time evaluation doesn't support");
+        };
+    }
+
+    /** a == b for elements of type t, as indexOf compares them. */
+    private boolean same(Type t, Object a, Object b) {
+        return switch (a) {
+            case Float x -> x.floatValue() == (Float) b;
+            case Double x -> x.doubleValue() == (Double) b;
+            case Long x -> x.equals(b);
+            case Boolean x -> x.equals(b);
+            case String x -> x.equals(b);
+            default -> throw fail("compares " + t + " values, which compile-time evaluation doesn't support");
+        };
     }
 
     // ================================================================ numbers
@@ -1227,6 +1473,7 @@ final class PureEval {
             case FloatT f -> 0f;
             case DoubleT d -> 0.0;
             case ClassT ct when ct.cls().builtin && ct.cls().name.equals("string") -> "";
+            case ClassT ct when isArray(ct) -> new Object[0];
             case ArrayT arr when arr.size() != null -> {
                 Object[] items = new Object[arr.size().intValue().intValueExact()];
                 for (int i = 0; i < items.length; i++) {

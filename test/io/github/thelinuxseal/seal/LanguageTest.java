@@ -3344,6 +3344,102 @@ struct Main
                     static int main() { array<int><<count(3)>> xs; return 0; }
                 }
                 """), "Main.count isn't pure, so it can't run while compiling; declare it `static pure`");
+        String stats = """
+                struct Stats
+                {
+                    public static pure int sum(array<int> xs) { int s = 0; for (int x : xs) { s += x; } return s; }
+                    public static pure array<int> squares(int n)
+                    {
+                        array<int> out = new array<int>(n);
+                        for (int i = 0; i < n; i++) { out[i] = i * i; }
+                        return out;
+                    }
+                    public static pure int median(array<int> xs) { array<int> sorted = xs.copy(); sorted.sort(); return sorted[sorted.length() / 2]; }
+                    public static pure int primesBelow(int n)
+                    {
+                        array<bit> composite = new array<bit>(n);
+                        int count = 0;
+                        for (int i = 2; i < n; i++) {
+                            if (!composite[i]) { count++; for (int j = i * i; j < n; j += i) { composite[j] = true; } }
+                        }
+                        return count;
+                    }
+                    public static pure int histogram(array<int> xs, int bucket)
+                    {
+                        array<int> counts = new array<int>(10);
+                        for (int x : xs) { counts[x % 10]++; counts[x % 10] += 0; }
+                        return counts[bucket];
+                    }
+                    public static pure int tail(array<int> xs)
+                    {
+                        array<int> t = xs.slice(1, xs.length());
+                        t.reverse();
+                        return t[0] * 100 + t.indexOf(2) + (t.contains(9) ? 1000 : 0);
+                    }
+                    public static pure int grow(int n) { array<int> a = squares(3).copyOf(n); a.fill(7); a.swap(0, 1); return a.length() * 10 + a[n - 1]; }
+                    public static pure double spread(array<double> xs) { array<double> s = xs.copy(); s.sort(); return s[s.length() - 1] - s[0]; }
+                }
+                """;
+        output("pure methods make and use arrays while compiling, as when the program runs", files("Stats", stats, "Main", """
+                struct Main
+                {
+                    const int SUM = Stats.sum([1, 2, 3, 4]);
+                    const int SQ = Stats.sum(Stats.squares(10));
+                    const int MED = Stats.median([9, 1, 7, 3, 5]);
+                    const int PRIMES = Stats.primesBelow(1000);
+                    const int H = Stats.histogram([11, 21, 3, 31, 45], 1);
+                    const int TAIL = Stats.tail([5, 2, 9, 4]);
+                    const int GROW = Stats.grow(5);
+                    const double SPREAD = Stats.spread([2.5, -1.0, 4.25]);
+                    static int main()
+                    {
+                        array<int><<Stats.sum([1, 2, 3])>> six;
+                        System.stdout.println(SUM + " " + SQ + " " + MED + " " + PRIMES + " " + H + " " + TAIL + " " + GROW + " " + SPREAD
+                                + " " + six.length());
+                        System.stdout.println(Stats.sum([1, 2, 3, 4]) + " " + Stats.sum(Stats.squares(10)) + " " + Stats.median([9, 1, 7, 3, 5])
+                                + " " + Stats.primesBelow(1000) + " " + Stats.histogram([11, 21, 3, 31, 45], 1) + " " + Stats.tail([5, 2, 9, 4])
+                                + " " + Stats.grow(5) + " " + Stats.spread([2.5, -1.0, 4.25]));
+                        return 0;
+                    }
+                }
+                """), "10 285 5 168 3 1402 57 5.25 6\n10 285 5 168 3 1402 57 5.25\n");
+        compileError("an index outside an array, while compiling", files("Stats", stats, "Main", main("""
+                        array<int><<Stats.median(Stats.squares(0))>> xs;
+                        """)), "Stats.median(Stats.squares(0)) can't be worked out while compiling: it threw IndexOutOfBoundsException: "
+                + "index 0 out of range for an array of length 0 (Stats.seal:10)");
+        output("a pure method makes arrays and changes them, and reads the arrays it is given", files("Main", """
+                struct Main
+                {
+                    static pure int f(array<int> given)
+                    {
+                        array<int> mine = given.copy();
+                        mine[0] = given[1] + given.length();
+                        mine[1]++;
+                        mine[2] += 3;
+                        mine.sort();
+                        mine.reverse();
+                        int s = 0;
+                        for (int x : given) { s += x; }
+                        array<int> more = new array<int>(4);
+                        more.fill(s);
+                        return mine[0] * 1000 + more.slice(1, 3).length() * 100 + given.indexOf(2) * 10 + more[3];
+                    }
+                    const int F = f([1, 2, 3]);
+                    static int main() { System.stdout.println(F + " " + f([1, 2, 3])); return 0; }
+                }
+                """), "6216 6216\n");
+        compileError("a pure method can't change an array it was given", files("Main", """
+                struct Main { static pure int f(array<int> xs) { xs[0] = 1; return 0; } static int main() { return 0; } }
+                """), "a pure method can't change an array it was given: xs is its caller's, lent to it; change a copy, xs.copy()");
+        compileError("nor change it through its methods", files("Main", """
+                struct Main { static pure int f(array<int> xs) { xs.sort(); return 0; } static int main() { return 0; } }
+                """), "a pure method can't change an array it was given: xs is its caller's");
+        compileError("nor step its elements", files("Main", """
+                struct Main { static pure int f(array<int> xs) { xs[0]++; return 0; } static int main() { return 0; } }
+                """), "a pure method can't change an array it was given: xs is its caller's");
+        compileError("arrays are the one kind of object a pure method uses", files("Main", """
+                struct Main { static pure int f(array<int> xs) { List<int> l = xs.toList(); return l.size(); } static int main() { return 0; } }
+                """), "a pure method can use an array's own methods, but not toList(), which makes a List, a class object");
         compileError("a pure method that never ends is stopped", files("Main", """
                 struct Main
                 {

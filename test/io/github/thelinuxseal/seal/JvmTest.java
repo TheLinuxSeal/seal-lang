@@ -1203,15 +1203,30 @@ public final class JvmTest {
         /** A pure method computing a ret from variables of random types, as program() does, without printing. */
         String pureFunction(String name, String ret) {
             declare();
+            // Sometimes an array<T>, whose elements serve as more variables, and which it sorts, reverses and swaps.
+            int length = rnd.nextBoolean() ? 2 + rnd.nextInt(5) : 0;
+            if (length > 0) {
+                String et = numberType();
+                out.append("        array<").append(et).append("> a = new array<").append(et).append(">(").append(length).append(");\n");
+                for (int i = 0; i < length; i++) {
+                    out.append("        a[").append(i).append("] = ").append(expr(et, 1)).append(";\n");
+                }
+                for (int i = 0; i < length; i++) {
+                    vars.add("a[" + i + "]");
+                    types.add(et);
+                }
+            }
             int statements = 3 + rnd.nextInt(6);
             for (int i = 0; i < statements; i++) {
                 int pick = rnd.nextInt(vars.size());
                 String v = vars.get(pick);
                 String t = types.get(pick);
-                switch (rnd.nextInt(3)) {
+                switch (rnd.nextInt(length > 0 ? 4 : 3)) {
                     case 0 -> out.append("        ").append(v).append(" = ").append(expr(t, 3)).append(";\n");
                     case 1 -> out.append("        ").append(compound(v, t)).append(";\n");
-                    default -> out.append("        ").append(canStep(t) ? v + "++" : v + " = " + expr(t, 1)).append(";\n");
+                    case 2 -> out.append("        ").append(canStep(t) ? v + "++" : v + " = " + expr(t, 1)).append(";\n");
+                    default -> out.append("        a.").append(pickOf("sort()", "reverse()", "swap(0, " + (length - 1) + ")"))
+                            .append(";\n");
                 }
             }
             return "    static pure " + ret + " " + name + "()\n    {\n" + out + "        return (" + ret + ")("

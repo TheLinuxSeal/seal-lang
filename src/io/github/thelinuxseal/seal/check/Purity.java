@@ -1,7 +1,9 @@
 package io.github.thelinuxseal.seal.check;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import io.github.thelinuxseal.seal.ast.Ast;
 import io.github.thelinuxseal.seal.ast.Ast.*;
@@ -15,15 +17,23 @@ import io.github.thelinuxseal.seal.check.Type.*;
  * The rules a pure method's body keeps (§17.2), so that its result depends only on its arguments
  * and it can run while compiling: it reads no field but its arguments' and `const` ones, changes
  * no class object, calls only pure methods (it may `throw new` an exception), and uses no
- * addresses. Lambdas inside it keep the same rules.
+ * addresses. Arrays are the one object it may make and use: `new array<T>(n)`, indexing, and the
+ * array's own methods; an array it was given, which its caller lent it, it only reads. Lambdas
+ * inside it keep the same rules.
  */
 final class Purity {
 
     record Problem(Pos pos, String message) {
     }
 
+    /** The methods of array<T> a pure method may call on any array, and those it may call only on its own. */
+    static final Set<String> ARRAY_READS = Set.of("length", "isEmpty", "get", "copy", "copyOf", "slice", "indexOf", "contains");
+    static final Set<String> ARRAY_CHANGES = Set.of("set", "fill", "swap", "reverse", "sort");
+
     private final Checker ck;
     private final TypedBody tb;
+    /** The method's parameters, and its lambdas': what its caller gave it. */
+    private final Set<String> given = new HashSet<>();
     private final List<Problem> problems = new ArrayList<>();
 
     private Purity(Checker ck, TypedBody tb) {
@@ -32,12 +42,18 @@ final class Purity {
     }
 
     /** What in a pure method's body breaks the rules; empty if nothing does. */
-    static List<Problem> of(Checker ck, TypedBody tb, Block body) {
+    static List<Problem> of(Checker ck, TypedBody tb, Method md) {
         Purity p = new Purity(ck, tb);
-        if (body != null) {
-            p.stmt(body);
+        md.params().forEach(param -> p.given.add(param.name()));
+        if (md.body() != null) {
+            p.stmt(md.body());
         }
         return p.problems;
+    }
+
+    /** array<T>, the run-time-sized array (§21.3). */
+    static boolean isArray(Type t) {
+        return t instanceof ClassT ct && ct.cls().builtin && ct.cls().name.equals("array") && ct.valueArgs().isEmpty();
     }
 
     private void problem(Pos at, String message) {
@@ -126,17 +142,21 @@ final class Purity {
         }
         CallInfo ci = tb.calls.get(e);
         if (ci != null) {
-            call(e, ci);
+            call(e, ci, receiver(e));
         }
         switch (e) {
             case Name n when "field".equals(tb.nameKinds.get(n)) -> field(n.pos(), n.name(), tb.fieldOf.get(n));
             case Select s when tb.selected.get(s) instanceof MemberInfo m && m.member instanceof Field -> field(s.pos(), s.name(), m);
             case Assign a -> changes(a.target());
-            case IncDec i -> changes(i.target());
+            case IncDec i -> {
+                changes(i.target());
+                expr(tb.elementSteps.get(i)); // xs[i]++ on an array: xs[i] = xs[i] + 1
+            }
             case Unary u when u.op() == UnaryOp.ADDRESS_OF || u.op() == UnaryOp.DEREF ->
                     problem(u.pos(), "can't use addresses: they reach memory outside its arguments");
             case NewArray n -> problem(n.pos(), "can't use addresses: new<T>(n) makes memory outside its arguments");
             case Lambda l -> {
+                l.params().forEach(param -> given.add(param.name()));
                 expr(l.expr());
                 stmt(l.block());
             }
@@ -152,10 +172,24 @@ final class Purity {
         }
     }
 
-    /** A call, `new` or overloaded operator: only to a pure method, or a string literal made into a string. */
-    private void call(Expr at, CallInfo ci) {
+    /** What a method or operator is called on: the array of xs.length() and xs[i]; null for others. */
+    private static Expr receiver(Expr e) {
+        return switch (e) {
+            case Call c when c.callee() instanceof Select s -> s.target();
+            case Index ix -> ix.target();
+            case Assign a when a.target() instanceof Index ix -> ix.target();
+            default -> null;
+        };
+    }
+
+    /** A call, `new` or overloaded operator: only to a pure method, an array's, or a string literal made into a string. */
+    private void call(Expr at, CallInfo ci, Expr receiver) {
         MemberInfo m = ci.member();
         if (ci.kind() == CallKind.STATIC && m != null && m.member instanceof Method md && md.modifiers().isPure()) {
+            return;
+        }
+        if (isArray(ci.owner())) {
+            arrayCall(at, ci, receiver);
             return;
         }
         if (ci.kind() == CallKind.CONSTRUCTOR && ci.owner() != null && ci.owner().cls().builtin
@@ -174,6 +208,36 @@ final class Purity {
                     + what + " belongs to an object");
             default -> problem(at.pos(), "can only call pure methods, and " + what + " isn't pure; declare it `static pure`");
         }
+    }
+
+    /** new array<T>(n), xs[i], xs[i] = v and the array's own methods; those that change it only on its own arrays. */
+    private void arrayCall(Expr at, CallInfo ci, Expr receiver) {
+        if (ci.kind() == CallKind.CONSTRUCTOR) {
+            return;
+        }
+        String name = ci.member() == null ? "?" : ci.member().name();
+        int params = ci.member() != null && ci.member().member instanceof Method md ? md.params().size() : 0;
+        boolean changes = ARRAY_CHANGES.contains(name) && !(name.equals("sort") && params > 0);
+        if (!changes && !ARRAY_READS.contains(name)) {
+            problem(at.pos(), "can use an array's own methods, but not " + name + (name.equals("sort") ? "(Comparator)" : "()")
+                    + ", which " + (name.equals("toList") ? "makes a List, a class object" : "calls code that isn't pure"));
+            return;
+        }
+        String root = changes ? root(receiver) : null;
+        if (root != null && given.contains(root)) {
+            problem(at.pos(), "can't change an array it was given: " + root + " is its caller's, lent to it; change a copy, "
+                    + root + ".copy()");
+        }
+    }
+
+    /** The variable at the root of x, x.f, x[i]: the one a change to them changes. */
+    private String root(Expr e) {
+        return switch (e) {
+            case Name n when "local".equals(tb.nameKinds.get(n)) -> n.name();
+            case Select s -> root(s.target());
+            case Index i -> root(i.target());
+            case null, default -> null;
+        };
     }
 
     private void field(Pos at, String name, MemberInfo m) {
