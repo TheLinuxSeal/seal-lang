@@ -39,7 +39,7 @@ Point[x=3, y=9]  is 9.49 from the origin
 
 - **Java's comforts:** classes, interfaces, abstract classes, generics, lambdas, exceptions, enums,
   records, switch expressions, labeled `break`/`continue`, text blocks, try-with-resources, packages
-  with imports and static imports, immutable strings with `StringBuilder`, and
+  with imports and static imports (renamed with `as` if need be), immutable strings with `StringBuilder`, and
   `string.format`/`printf`.
 - **Values and objects.** A `struct` is a value that is copied. A `unique` is a value that can't be
   copied, so its destructor runs exactly once, when its scope ends. A `class` is a shared object, as in

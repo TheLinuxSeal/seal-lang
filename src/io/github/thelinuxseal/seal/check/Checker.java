@@ -712,7 +712,7 @@ public final class Checker {
         for (Map.Entry<String, String> e : sources.entrySet()) {
             ClassInfo info = load(e.getKey(), e.getValue(), false);
             if (info != null) {
-                if (libraryNames.contains(info.name)) {
+                if (libraryNames.contains(info.name) && info.pkg.isEmpty()) {
                     file = e.getKey();
                     report(info.decl.pos(), info.kind.keyword + " " + info.name + " is part of the standard library ("
                             + classes.get(info.name).file + "); choose another name");
@@ -853,7 +853,7 @@ public final class Checker {
         String pkg = from == null ? "" : from.pkg;
         List<Import> imports = from == null ? List.of() : from.imports;
         for (Import i : imports) {
-            if (!i.all() && i.name().endsWith("." + name) && classes.get(i.name()) instanceof ClassInfo c) {
+            if (!i.all() && i.bound().equals(name) && importedType(i, from) instanceof ClassInfo c) {
                 return c;
             }
         }
@@ -867,6 +867,18 @@ public final class Checker {
         // The standard library's types are seen everywhere; other types outside packages only outside packages.
         ClassInfo c = classes.get(name);
         return c != null && (c.builtin || pkg.isEmpty()) ? c : null;
+    }
+
+    /**
+     * The type an import by name brings: one in a package, or with `as`, one in no package too (a
+     * library type renamed, `import HashMap as SealHashMap;`); null if none.
+     */
+    private ClassInfo importedType(Import i, ClassInfo from) {
+        ClassInfo t = classes.get(i.name());
+        if (t == null || (t.pkg.isEmpty() && (i.alias() == null || i.isStatic() || (!t.builtin && from != null && !from.pkg.isEmpty())))) {
+            return null;
+        }
+        return t;
     }
 
     /** A static member and the type it is in. */
@@ -889,14 +901,15 @@ public final class Checker {
                 continue;
             }
             String type = i.all() ? i.name() : i.name().substring(0, i.name().lastIndexOf('.'));
-            if (!i.all() && !i.name().endsWith("." + name)) {
+            if (!i.all() && !i.bound().equals(name)) {
                 continue;
             }
             ClassInfo c = classes.get(type);
             if (c == null || (c.pkg.isEmpty() && !c.builtin && !from.pkg.isEmpty())) {
                 continue; // reported by checkImports
             }
-            for (MemberInfo m : c.members.getOrDefault(name, List.of())) {
+            String member = i.all() ? name : i.name().substring(i.name().lastIndexOf('.') + 1); // max, for maximum
+            for (MemberInfo m : c.members.getOrDefault(member, List.of())) {
                 boolean isStatic = m.member.modifiers().isStatic() || (m.member instanceof Field f && f.modifiers().isConst());
                 if (isStatic && !m.guarded && canAccess(from, c, m.member.modifiers())) {
                     (i.all() ? all : named).add(new StaticMember(c, m));
@@ -933,10 +946,31 @@ public final class Checker {
         return found;
     }
 
+    /** "; this file imports Math.max as biggest": when the name is one the file imported under another (§2.4). */
+    private static String renamedHint(ClassInfo from, String name, boolean member) {
+        if (from == null) {
+            return "";
+        }
+        for (Import i : from.imports) {
+            boolean original = i.name().endsWith("." + name) || (!member && i.name().equals(name)); // HashMap as SealHashMap
+            if (i.alias() != null && i.isStatic() == member && original) {
+                return "; this file imports " + i.name() + " as " + i.alias();
+            }
+        }
+        return "";
+    }
+
     /** Why a type name means nothing where {@code from} is written, when there is more to say, as "; ...". */
     private String unknownTypeHint(String name, ClassInfo from) {
         if (name.indexOf('.') >= 0) {
             return "";
+        }
+        String renamed = renamedHint(from, name, false);
+        if (renamed.isEmpty()) {
+            renamed = renamedHint(from, name, true); // a static field imported as another name
+        }
+        if (!renamed.isEmpty()) {
+            return renamed;
         }
         List<ClassInfo> brought = imported(name, from == null ? List.of() : from.imports);
         if (brought.size() > 1) {
@@ -1003,21 +1037,29 @@ public final class Checker {
                 }
                 continue;
             }
-            ClassInfo t = classes.get(i.name());
+            ClassInfo t = importedType(i, c);
             String simple = i.name().substring(i.name().lastIndexOf('.') + 1);
-            if (t == null || t.pkg.isEmpty()) {
+            String bound = i.bound();
+            String what = "import " + i.name() + (i.alias() == null ? "" : " as " + i.alias());
+            if (t == null) {
                 ClassInfo library = classes.get(simple);
+                ClassInfo outside = classes.get(i.name());
                 report(i.pos(), "no type " + i.name() + " to import"
-                        + (library != null && library.builtin ? "; " + simple + " is in the standard library, which needs no import"
+                        + (outside != null && !outside.builtin && outside.pkg.isEmpty() && !c.pkg.isEmpty()
+                                ? "; " + i.name() + " is in no package, and as in Java, a type in a package can't use one that isn't"
+                        : library != null && library.builtin ? "; " + simple + " is in the standard library, which needs no import"
+                                + " (to give it another name, import " + simple + " as Other" + simple + ";)"
                                 : unknownTypeHint(simple, c)));
             } else if (!canSeeType(c, t)) {
                 report(i.pos(), t.name + " is private to " + t.outer.name);
-            } else if (simple.equals(c.simpleName) && t != c) {
-                report(i.pos(), "import " + i.name() + " clashes with " + c.qualifiedName() + ", declared in this file");
-            } else if (named.containsKey(simple) && named.get(simple) != t) {
-                report(i.pos(), "import " + i.name() + " clashes with the import of " + named.get(simple).qualifiedName());
+            } else if (bound.equals(c.simpleName) && t != c) {
+                report(i.pos(), what + " clashes with " + c.qualifiedName() + ", declared in this file");
+            } else if (named.containsKey(bound) && named.get(bound) != t) {
+                ClassInfo other = named.get(bound);
+                report(i.pos(), what + " clashes with the import of " + other.qualifiedName()
+                        + (other.simpleName.equals(bound) ? "" : " as " + bound));
             } else {
-                named.put(simple, t);
+                named.put(bound, t);
             }
         }
     }
@@ -2299,7 +2341,7 @@ public final class Checker {
                     return evalConstField(env.cls, f, n.pos());
                 }
                 for (StaticMember sm : staticImports(env.cls, n.name())) {
-                    if (sm.m().member instanceof Field cf && constField(sm.cls(), n.name()) == cf) {
+                    if (sm.m().member instanceof Field cf && constField(sm.cls(), cf.name()) == cf) {
                         return evalConstField(sm.cls(), cf, n.pos()); // import static Integer.MAX_INT;
                     }
                 }
@@ -5097,7 +5139,7 @@ public final class Checker {
         if (!imported.isEmpty()) {
             // import static Math.PI; and then PI (§2.4)
             if (imported.stream().map(StaticMember::cls).distinct().count() > 1) {
-                report(n.pos(), n.name() + " could be " + imported.stream().map(sm -> sm.cls().qualifiedName() + "." + n.name())
+                report(n.pos(), n.name() + " could be " + imported.stream().map(sm -> sm.cls().qualifiedName() + "." + sm.m().name())
                         .distinct().collect(Collectors.joining(" or ")) + ", which static imports bring; write the one you mean");
                 return Type.ERROR;
             }
@@ -5468,7 +5510,8 @@ public final class Checker {
                     if (!imported.isEmpty()) {
                         return new Candidates(n.name(), null, imported, true, false);
                     }
-                    report(n.pos(), "unknown method " + n.name() + staticMethodHint(n.name()));
+                    String renamed = renamedHint(b.cls, n.name(), true);
+                    report(n.pos(), "unknown method " + n.name() + (renamed.isEmpty() ? staticMethodHint(n.name()) : renamed));
                     return null;
                 }
                 if (f.error) {

@@ -65,6 +65,7 @@ public final class LanguageTest {
         arraysOfObjects();
         pureMethods();
         powersAndCompileTimeOperators();
+        importsAs();
 
         String jvm = ON_JVM.finish(failures);
         System.out.println(passed + " passed, " + failures.size() + " failed" + jvm);
@@ -3229,6 +3230,69 @@ struct Main
     }
 
     // ================================================================ helpers
+
+    private static void importsAs() {
+        String util = """
+                package some.util;
+
+                class HashMap
+                {
+                    public static int made = 0;
+                    public new() { made++; }
+                    public int size() { return 42; }
+                    public static int twice(int x) { return 2 * x; }
+                    public const int LIMIT = 7;
+                    public struct Entry { public int k; }
+                }
+                """;
+        output("import ... as and import static ... as: two types of one name, and members renamed (§2.4)", files(
+                "some/util/HashMap", util,
+                "Main", """
+                        import HashMap as SealHashMap;
+                        import some.util.HashMap as UtilHashMap;
+                        import static some.util.HashMap.twice as double2;
+                        import static some.util.HashMap.LIMIT as MAX;
+                        import static Math.max as biggest;
+                        import static some.util.HashMap.made as count;
+
+                        struct Main
+                        {
+                            static int main()
+                            {
+                                SealHashMap<string, int> ages = new SealHashMap();
+                                ages.put("ada", 36);
+                                UtilHashMap mine = new UtilHashMap();
+                                UtilHashMap.Entry e;
+                                e.k = 3;
+                                array<int><<MAX>> xs;
+                                count += 10;
+                                HashMap<string, int> plain = new HashMap(); // still the library's
+                                plain.put("x", 1);
+                                System.stdout.println(ages.get("ada") + " " + mine.size() + " " + double2(21) + " " + MAX + " " + xs.length()
+                                        + " " + biggest(3, 9) + " " + e.k + " " + count + " " + UtilHashMap.made + " " + plain.size());
+                                return 0;
+                            }
+                        }
+                        """), "36 42 42 7 7 9 3 11 11 1\n");
+        compileError("a renamed import doesn't bring its own name", files("Main", """
+                import static Math.max as biggest;
+
+                struct Main { static int main() { return max(1, 2); } }
+                """), "unknown method max; this file imports Math.max as biggest");
+        compileError("two imports can't take one name", files("some/util/HashMap", util, "Main", """
+                import some.util.HashMap as Map;
+                import HashMap as Map;
+
+                struct Main { static int main() { return 0; } }
+                """), "import HashMap as Map clashes with the import of some.util.HashMap as Map");
+        compileError("nor the file's own type's", files("some/util/HashMap", util, "Main", """
+                import some.util.HashMap as Main;
+
+                struct Main { static int main() { return 0; } }
+                """), "import some.util.HashMap as Main clashes with Main, declared in this file");
+        compileError("a type in no package still can't take a library type's name", files("HashMap", "class HashMap { }",
+                "Main", main("")), "class HashMap is part of the standard library");
+    }
 
     private static void powersAndCompileTimeOperators() {
         output("** is a power: it wraps as * does, and works on floating point", files("Main", main("""

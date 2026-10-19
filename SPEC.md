@@ -125,12 +125,28 @@ class Player
 
 * A file without `package` is in no package, as small programs are. A file in package `com.example.game` goes in a folder `com/example/game`, which is checked, as the file name is.
 * A type is named in full (`com.example.util.Vec2`) in types and in expressions: `com.example.util.Tools.zero()`, `new org.other.Point(1, 2)`. A nested type adds its own name: `com.example.util.Vec2.Unit`. In an expression, a name that is a variable, field or type comes first, as in Java.
-* A plain name is looked up in this order: the type itself and the types around it (§2.3), the types the file imports by name, the types of its own package, the types `*` imports bring, then the standard library. If two `*` imports bring a type of the same name, using it is an error that names both; import the one meant by name.
-* The standard library's types need no import, as `java.lang`'s don't, and are in no package. A program's type can't have a library type's name in any package.
+* A plain name is looked up in this order: the type itself and the types around it (§2.3), the types the file imports by name (by the names it imports them as, below), the types of its own package, the types `*` imports bring, then the standard library. If two `*` imports bring a type of the same name, using it is an error that names both; import the one meant by name.
+* The standard library's types need no import, as `java.lang`'s don't, and are in no package. A type in no package can't have a library type's name. A type in a package can, as Java's `com.example.String` can: in its own package, and in a file that imports it, its name means it; elsewhere the name means the library's.
 * As in Java, a type in a package can't use one that is in no package.
 * `import a.b.Outer;` also makes `Outer.Inner` usable, and `import a.b.Outer.Inner;` and `import a.b.Outer.*;` import nested types themselves. Private nested types can't be imported.
 * Packages don't change access (§17): members are private unless declared otherwise, and top-level types are public, so another package can use any top-level type and its public members.
 * Two packages may have types of the same name (`a.Tools`, `b.Tools`). Stack traces and run-time errors name types in full: `at com.example.game.Main.main (Main.seal:12)`.
+
+### Renaming imports
+
+`import ... as` imports a type under another name, so a file can use two types of the same name:
+
+```text
+import HashMap as SealHashMap;                       // the standard library's
+import some.util.HashMap as UtilHashMap;             // another one
+
+SealHashMap<string, int> ages = new SealHashMap();
+UtilHashMap.Entry e;                                 // its nested types come with it
+```
+
+* The file knows the type by the new name only: `HashMap` above still means the library's, and using a renamed type by its own name says so (`unknown type Widget; this file imports other.Widget as W`).
+* A library type, in no package, is imported this way only, to rename it: `import HashMap;` is an error, as it needs no import.
+* `as` renames one name, so `import some.util.* as U;` is an error. Two imports can't take one name, nor the name of the file's own type. `as` is a word only here: it is still a name everywhere else.
 
 ### Static imports
 
@@ -147,6 +163,7 @@ array<int><<SIZE>> cells;                   // an imported constant is a compile
 ```
 
 * `import static T.name;` brings every static member of T so named (all overloads of a method), and a nested type so named; `import static T.*;` brings all of them. T is named in full; the standard library's types (`Math`, `Integer`, `Char`, `Fixed`, ...) are in no package, so their full names are their names.
+* `import static T.name as other;` brings them under another name: after `import static Math.max as biggest;`, `biggest(a, b)` calls `Math.max`, and `max` isn't imported. Fields and constants too (`import static Units.count as total;`, then `total += 1` changes `Units.count`).
 * Where a plain name is used, local variables and the type's own members (and those it inherits) come first; then members imported by name; then those `*` static imports bring. A method name brings the overloads of every type imported with it, and the call picks among them as usual.
 * An imported static field can be assigned (`count = 10;` changes `Units.count`). Private and instance members can't be imported.
 * If two `*` static imports bring a field of the same name, using it is an error that names both; write the one meant, as `Math.PI`.

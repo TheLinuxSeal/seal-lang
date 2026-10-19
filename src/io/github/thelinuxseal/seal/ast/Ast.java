@@ -22,9 +22,18 @@ public final class Ast {
      * `import com.example.Vec2;`, or `import com.example.*;` ({@code all}) for every type of a
      * package (§2.4). With {@code isStatic}, `import static Math.max;` brings the static members
      * named max of Math, and `import static Math.*;` all of them; then {@code name} is the type
-     * and the member, or the type alone.
+     * and the member, or the type alone. With {@code alias}, `import com.example.Vec2 as V;` and
+     * `import static Math.max as biggest;`, the file knows what it imports by that name instead.
      */
-    public record Import(Pos pos, String name, boolean all, boolean isStatic) {
+    public record Import(Pos pos, String name, boolean all, boolean isStatic, String alias) {
+        public Import(Pos pos, String name, boolean all, boolean isStatic) {
+            this(pos, name, all, isStatic, null);
+        }
+
+        /** The name the file knows the type or member by: its alias, or its own. */
+        public String bound() {
+            return alias != null ? alias : name.substring(name.lastIndexOf('.') + 1);
+        }
     }
 
     /**
