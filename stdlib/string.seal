@@ -10,8 +10,12 @@
 // On the VM, copies of a bare string share its buffer (a StringChars), and a
 // string literal's characters stay in static data. `s += x` adds to the
 // buffer in place when s ends where the buffer's used part ends, which no
-// other string can see; otherwise it copies into a new buffer. On the JVM a
-// bare string is a java.lang.String.
+// other string can see; otherwise it copies into a new buffer.
+//
+// On the JVM a string is a java.lang.String (docs/JVM.md §8.2): reading size
+// is its length(), and the methods marked @jvm are the runtime's Strings
+// methods named, as their bodies here use the VM's memory. A method here that
+// changes a string being made (put, room) returns the new String there.
 struct string<<>>
 struct string<<int N>>
 {
@@ -55,6 +59,7 @@ struct string<<int N>>
     }
 
     /** The n characters the last file operation produced, as a new bare string (§42.1). */
+    @jvm("Natives.takeText")
     private<Files, Reader> static string takeText(int n)
     {
         string s;
@@ -103,17 +108,15 @@ struct string<<int N>>
 
     // ------------------------------------------------------------ characters
 
-    public char charAt<<int N>>(int i)
+    public char charAt(int i)
     {
         if (i < 0 || i >= size) { throw new IndexOutOfBoundsException("string index " + i + " out of range for length " + size); }
-        return chars[i];
+        return at(i);
     }
 
-    public char charAt<<>>(int i)
-    {
-        if (i < 0 || i >= size) { throw new IndexOutOfBoundsException("string index " + i + " out of range for length " + size); }
-        return &(chars + (int<<64>>)i * 16);
-    }
+    /** The character at i, which is in range. */
+    @jvm("Strings.at") char at<<int N>>(int i) { return chars[i]; }
+    @jvm("Strings.at") char at<<>>(int i) { return &(chars + (int<<64>>)i * 16); }
 
     /** The characters as an array of exactly length() chars. */
     public array<char> toCharArray<<>>()
@@ -142,6 +145,7 @@ struct string<<int N>>
     // string adds to its buffer in place only past the end of what any other
     // string uses of it, so none of them changes.
 
+    @jvm("Strings.put")
     void put<<int N>>(char c)
     {
         if (size >= N) { throw new IllegalStateException("string<<" + N + ">> is full"); }
@@ -149,6 +153,7 @@ struct string<<int N>>
         size++;
     }
 
+    @jvm("Strings.put")
     void put<<>>(char c)
     {
         room(size + 1);
@@ -157,22 +162,26 @@ struct string<<int N>>
         owner.used = size;
     }
 
+    @jvm("Strings.put")
     void put<<int N>>(string other)
     {
         for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
     }
 
+    @jvm("Strings.put")
     void put<<>>(string other)
     {
         room(size + other.length());
         for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
     }
 
+    @jvm("Strings.put")
     void put<<int N>>(string<<int K>> other)
     {
         for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
     }
 
+    @jvm("Strings.put")
     void put<<>>(string<<int K>> other)
     {
         room(size + other.length());
@@ -184,6 +193,7 @@ struct string<<int N>>
      * if nothing uses that buffer past this string's end and it is big enough;
      * otherwise a new one, with the characters copied, at least twice as big.
      */
+    @jvm("Strings.room")
     void room<<>>(int n)
     {
         if (owner != null && owner.used == size && n <= owner.data.length()) { return; }
@@ -202,7 +212,7 @@ struct string<<int N>>
     public string<<N + K>> add<<int N>>(string<<int K>> other)
     {
         string<<N + K>> result;
-        for (int i = 0; i < size; i++) { result.put(chars[i]); }
+        for (int i = 0; i < size; i++) { result.put(at(i)); }
         result.put(other);
         return result;
     }
@@ -258,6 +268,7 @@ struct string<<int N>>
     // ------------------------------------------------------------ comparison
 
     @overload(Operator.EQUALS)
+    @jvm("Strings.equals")
     public bit equals(string other)
     {
         if (size != other.length()) { return false; }
@@ -268,6 +279,7 @@ struct string<<int N>>
     }
 
     @overload(Operator.EQUALS)
+    @jvm("Strings.equals")
     public bit equals(string<<int K>> other)
     {
         if (size != other.length()) { return false; }
@@ -278,6 +290,7 @@ struct string<<int N>>
     }
 
     /** Negative, zero or positive as this string sorts before, equal to, or after the other. */
+    @jvm("Strings.compare")
     public int compare(string other)
     {
         int n = size;
@@ -290,6 +303,7 @@ struct string<<int N>>
         return size - other.length();
     }
 
+    @jvm("Strings.compare")
     public int compare(string<<int K>> other)
     {
         int n = size;
@@ -417,9 +431,16 @@ struct string<<int N>>
     public string substring(int from, int to)
     {
         if (from < 0 || to > size || from > to) { throw new IndexOutOfBoundsException("substring(" + from + ", " + to + ") out of range for length " + size); }
+        return slice(from, to);
+    }
+
+    /** substring's characters, which are in range. */
+    @jvm("Strings.substring")
+    string slice(int from, int to)
+    {
         string result;
         result.room(to - from);
-        for (int i = from; i < to; i++) { result.put(charAt(i)); }
+        for (int i = from; i < to; i++) { result.put(at(i)); }
         return result;
     }
 
@@ -427,6 +448,7 @@ struct string<<int N>>
     public string copy() { return substring(0, size); }
 
     /** The string with every letter in upper case: s = s.toUpper(); as Java's toUpperCase. */
+    @jvm("Strings.toUpper")
     public string<<N>> toUpper<<int N>>()
     {
         string<<N>> r;
@@ -434,6 +456,7 @@ struct string<<int N>>
         return r;
     }
 
+    @jvm("Strings.toUpper")
     public string toUpper<<>>()
     {
         string r;
@@ -443,6 +466,7 @@ struct string<<int N>>
     }
 
     /** The string with every letter in lower case, as Java's toLowerCase. */
+    @jvm("Strings.toLower")
     public string<<N>> toLower<<int N>>()
     {
         string<<N>> r;
@@ -450,6 +474,7 @@ struct string<<int N>>
         return r;
     }
 
+    @jvm("Strings.toLower")
     public string toLower<<>>()
     {
         string r;
@@ -459,6 +484,7 @@ struct string<<int N>>
     }
 
     /** The string with every old character replaced by new, as Java's replace(char, char). */
+    @jvm("Strings.replace")
     public string replace(char old, char replacement)
     {
         string r;
@@ -474,6 +500,12 @@ struct string<<int N>>
     public string repeat(int n)
     {
         if (n < 0) { throw new IllegalArgumentException("repeat count is negative: " + n); }
+        return times(n);
+    }
+
+    @jvm("Strings.repeat")
+    string times(int n)
+    {
         string r;
         r.room(size * n);
         for (int k = 0; k < n; k++) {

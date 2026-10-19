@@ -117,7 +117,7 @@ public final class Main {
             return errors.isEmpty() ? 0 : 1;
         }
         if (jvm) {
-            return runOnJvm(command, checker, mainClass, classDir, out, err);
+            return runOnJvm(command, checker, mainClass, classDir, in, out, err);
         }
         CodeGen.Result result = CodeGen.generate(checker, mainClass);
         if (!result.errors().isEmpty()) {
@@ -143,8 +143,8 @@ public final class Main {
     }
 
     /** `seal build`, and `seal run --jvm`: the program as JVM class files, written or run (docs/JVM.md). */
-    private static int runOnJvm(String command, Checker checker, String mainClass, Path classDir, PrintStream out,
-                                PrintStream err) throws IOException {
+    private static int runOnJvm(String command, Checker checker, String mainClass, Path classDir, java.io.InputStream in,
+                                PrintStream out, PrintStream err) throws IOException {
         JvmGen.Result result = JvmGen.generate(checker, mainClass);
         if (!result.errors().isEmpty()) {
             result.errors().forEach(err::println);
@@ -158,7 +158,7 @@ public final class Main {
             err.println(command + " has no JVM form; use run --jvm or build");
             return 2;
         }
-        JvmRunner.Outcome o = JvmRunner.run(result, out, err);
+        JvmRunner.Outcome o = JvmRunner.run(result, in, out, err, true);
         if (o.fault() != null) {
             err.println(JvmRunner.describe(o.fault()));
         }

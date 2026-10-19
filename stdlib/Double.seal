@@ -2,6 +2,7 @@
 struct Double
 {
     /** The shortest decimal text that reads back as the same double, as in Java: 0.1, 1.0E10, NaN. */
+    @jvm("Strings.of")
     public static string toString(double x)
     {
         addr<char> buf = new<char>(32);

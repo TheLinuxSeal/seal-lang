@@ -2785,6 +2785,8 @@ and, in the standard library only, implicit conversions. Programs make objects w
 * A conversion is not an exact match in overload resolution, so an overload taking the value's own type wins.
 * Only structs and uniques can have one: a class object would be created without `new`.
 
+Two more decorators are for the standard library's own code: `@native("name")` marks a method the runtime implements (the VM's natives, or the JVM runtime's `Natives`), and `@jvm("Strings.at")` names what stands for a method on the JVM, where its Seal body uses the VM's memory (docs/JVM.md §8). A program can use neither.
+
 Possible future decorators include:
 
 ```text

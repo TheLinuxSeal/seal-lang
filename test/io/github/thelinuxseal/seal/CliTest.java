@@ -91,11 +91,12 @@ public final class CliTest {
         Path notYet = write(dir, "notyet/Main.seal", """
                 struct Main
                 {
-                    static int main() { List<int> xs = new List(); return 0; }
+                    int x;
+                    static int main() { Main m; m.x = 1; return 0; }
                 }
                 """);
         r = run("run", "--jvm", notYet.getParent().toString());
-        check(r.code() == 1 && r.err().contains("Main.seal:3:") && r.err().contains("not available on the JVM yet"),
+        check(r.code() == 1 && r.err().contains("Main.seal:4:") && r.err().contains("not available on the JVM yet"),
                 "run --jvm: what the JVM backend can't do yet is an error " + r);
 
         Path bad = write(dir, "bad/Main.seal", """

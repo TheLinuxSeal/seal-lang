@@ -19,6 +19,8 @@ public final class ExamplesTest {
 
     public static void main(String[] args) throws IOException {
         int passed = 0;
+        int jvmSame = 0;
+        int jvmNotYet = 0;
         List<String> failures = new ArrayList<>();
         List<Path> dirs;
         try (Stream<Path> s = Files.list(Path.of("examples"))) {
@@ -42,8 +44,23 @@ public final class ExamplesTest {
                 failures.add(dir + ": exit " + code + firstDifference(expected, got)
                         + (err.size() == 0 ? "" : "\n    stderr: " + err.toString(StandardCharsets.UTF_8).strip()));
             }
+            // On the JVM too (docs/JVM.md §12): the same output, or an error saying it isn't available yet.
+            ByteArrayOutputStream jout = new ByteArrayOutputStream();
+            ByteArrayOutputStream jerr = new ByteArrayOutputStream();
+            int jcode = Main.run(new String[]{"run", "--jvm", dir.toString()},
+                    new PrintStream(jout, true, StandardCharsets.UTF_8), new PrintStream(jerr, true, StandardCharsets.UTF_8));
+            String jerrText = jerr.toString(StandardCharsets.UTF_8);
+            if (jcode == 1 && !jerrText.isEmpty() && jerrText.lines().allMatch(l -> l.contains("not available on the JVM"))) {
+                jvmNotYet++;
+            } else if (jcode == 0 && jout.toString(StandardCharsets.UTF_8).equals(expected) && jerrText.isEmpty()) {
+                jvmSame++;
+            } else {
+                failures.add("on the JVM: " + dir + ": exit " + jcode + firstDifference(expected, jout.toString(StandardCharsets.UTF_8))
+                        + (jerrText.isEmpty() ? "" : "\n    stderr: " + jerrText.strip()));
+            }
         }
-        System.out.println(passed + " passed, " + failures.size() + " failed");
+        System.out.println(passed + " passed, " + failures.size() + " failed  (on the JVM: " + jvmSame + " the same, "
+                + jvmNotYet + " not available yet)");
         failures.forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);

@@ -1,8 +1,10 @@
 # Seal on the JVM: design
 
-**Status:** design agreed. M0, the language changes the backend needs, is done on the VM, and M1, the
-backend's first milestone, is done (§13): `seal run --jvm` and `seal build` compile static methods,
-numbers of every width, control flow and printing. Choices made on review are marked **Decided**; the rest were
+**Status:** design agreed. M0, the language changes the backend needs, is done on the VM, and the
+backend's M1 and M2 are done (§13): `seal run --jvm` and `seal build` compile numbers of every
+width, control flow, classes and interfaces, generics over them, exceptions, lambdas, strings,
+`array<T>`, the collections and files. Structs, uniques, enums, records and fixed arrays come next
+(M3). Choices made on review are marked **Decided**; the rest were
 **Proposed** and accepted with the design, and stand unless revisited.
 
 Seal today compiles to bytecode for its own register VM (`vm/`), written in Java. This document
@@ -179,9 +181,18 @@ version.
 
 ## 5. Classes and interfaces
 
-- **A Seal class becomes a JVM class**, a subclass of a runtime root `SealObject` (Seal's `Object`,
-  with `hash()`), or of its Seal parent. Methods are JVM instance methods; overriding is the JVM's,
-  so virtual calls are `invokevirtual` and interface calls `invokeinterface`.
+- **A Seal class becomes a JVM class**, a subclass of its Seal parent's. Methods are JVM instance
+  methods; overriding is the JVM's, so virtual calls are `invokevirtual` and interface calls
+  `invokeinterface`.
+- **Done in M2: Seal's root, `Object`, is a JVM interface**, `io.github.thelinuxseal.seal.lang.Object`,
+  which every class implements, with `hash()` as a default method. A runtime root class could not
+  work: Seal's `Exception` has to extend Java's `RuntimeException` (§7), and a JVM class has one
+  parent. A class without a Seal parent extends `java.lang.Object` (or `RuntimeException`, for
+  `Exception`). `new Object()` makes an `Object$Plain`, a class that implements it and adds nothing.
+- Done in M2: fields are JVM fields; constructors are `<init>`, which call the parent's (the one
+  `super(...)` names, or its no-argument one), then run the field initializers, then the body;
+  strings start as `""` and arrays as empty ones, as Seal's default values. Methods and fields are
+  all public on the JVM; the checker has already enforced Seal's access rules.
 - **Decided: struct fields of a class object live in a block of the object's own.** Numbers of
   every width, bits and handles become JVM fields of the matching type: an `int<<17>>` or a
   `uint<<32>>` field is a JVM `int`, normalized when it is computed (§3.1), like a local. Struct,
@@ -191,10 +202,16 @@ version.
 - **Operators** stay what they are in Seal, ordinary methods called directly (they aren't virtual).
 - **Interfaces become JVM interfaces.** Default methods are the JVM's own default methods. Abstract
   and default fields already compile to `get name()`/`set name(value)` accessor methods (§30.4 of the
-  spec), which is how the JVM wants interface properties anyway; their JVM names will be
-  `getName`/`setName`-style, so Java can call them.
+  spec), which is how the JVM wants interface properties anyway; their JVM names are `getName` and
+  `setName`, so Java can call them.
 - **Lambdas** become small generated classes implementing the functional interface, with captured
-  values as fields; `invokedynamic` and the JDK's lambda factory are a possible later refinement.
+  values as fields (and the enclosing object, if the lambda uses it); `invokedynamic` and the JDK's
+  lambda factory are a possible later refinement. Done in M2: `Main$lambda$1`, and so on.
+- Done in M2: a class's JVM class lists every method its objects can run, including those no code
+  calls, so that a call through a parent or an interface always finds one. A method that can't be
+  generated for some type arguments (`sort()` on a `List<Exception>`, which has no `<`) is an error
+  only if the program can run it, following calls from `main` and virtual calls to every override;
+  otherwise it becomes one that stops the program, as on the VM.
 - **Enums and records** are structs (§4) with their generated methods, as today.
 
 ### 5.1 Generics and shapes
@@ -223,8 +240,15 @@ compiled with the values in place:
 - A method with value binders, as `Math.abs(int<<int W>> x)`, gets one JVM method per value used:
   `abs$8` for an `int<<8>>`, `abs$32` for an `int`. Binders bound to the same values share one.
 - The bare shape `<<>>` adds nothing to a name: a bare `string` is `string`.
-- Seal overloads can share a JVM descriptor (`f(int<<8>>)` and `f(int)` are both `(I)I`): the
-  first one reached keeps the name, and the others get a number, `f$2`.
+- Done in M2: a method with binders or type parameters gets its parameter types in its name, and
+  for type parameters only in the result, the types they stand for: `abs$int8`, `print$uint8`,
+  `make$$Point`. The values alone would not do: `print(int<<int W>>)` and `print(uint<<int W>>)`
+  both bind W = 8.
+- Static Seal overloads can share a JVM descriptor (`f(int<<8>>)` and `f(int)` are both `(I)I`):
+  the first one reached keeps the name, and the others get a number, `f$2`. Instance methods are
+  named by the slot's first declaration, the topmost class or interface that declares the method;
+  if two methods visible there would share a name and descriptor, the slot's name gets its
+  parameter types, `f$int8`, so that every override has the same name.
 - Values that JVM names can't hold are spelled out: a negative number `-1` is `n1`; a string value,
   as in `Quantity<<"m">>`, keeps its letters and digits and writes others as `_` and their hex code.
   A name longer than a few hundred characters keeps its start and adds a hash of the rest.
@@ -277,8 +301,8 @@ The library is Seal code and stays so. What changes:
 ### 8.1 `array<T>` becomes built in
 
 `array<T>` is the language's own type, with no destructor, so classes may hold one. On the JVM it
-is a Java array (`int[]`, `double[]`, `SealObject[]`, or for structs a `Block` holding the elements
-back to back). Done in M0: `List`, `Queue`, `IntMap` and `StringBuilder` are built on `array<T>`
+is a Java array (`int[]`, `double[]`, `String[]`, `Animal[]`, or for structs a `Block` holding the
+elements back to back). Done in M0: `List`, `Queue`, `IntMap` and `StringBuilder` are built on `array<T>`
 (growing with `copyOf(n)`, as Java's `Arrays.copyOf`) instead of `addr<T>`, so the collections use no
 pointers and free nothing.
 
@@ -287,6 +311,14 @@ destructor frees: the one place in the library, with the natives' text buffers, 
 pointers. `JvmGen` compiles its core (`new array<T>(n)`, `length`, `[]`, `[]=`) to JVM array
 instructions, and the rest of `array.seal` (`fill`, `copy`, `copyOf`, `slice`, `sort`, ...) as
 ordinary Seal code over that core.
+
+Done in M2. A library method whose Seal body uses the VM's memory says what stands for it on the
+JVM with **`@jvm`** (library code only, as `@native`): `@jvm("Strings.at")` is a static method of
+the runtime's `Strings`, and `@jvm("array.get")` is one `JvmGen` generates itself. Checks that throw
+Seal exceptions stay in Seal, around them: `array.get` runs `array`'s own `check(i)`, then reads the
+Java array, and `string.charAt` checks the index, then calls `at`, which is `@jvm("Strings.at")`.
+Reading `len`, an array's length field, is `arraylength`. An array's methods are static methods
+taking the Java array first, in a class per element type (`lang.array$int`).
 
 ### 8.2 Strings are immutable
 
@@ -314,6 +346,15 @@ language (part of M0):
   storage blocks like other values, and are immutable too. Joining two of them still makes a
   `string<<N + K>>` without allocating, and the conversion of a `string<<N>>` to a bare `string`
   (today an `@implicit` constructor) makes a `java.lang.String` from its characters.
+- Done in M2: a string, of either shape, is a `java.lang.String`. Until there are storage blocks
+  (M3), a `string<<N>>` is one too, which no program can tell, as strings never change. A string's
+  methods are static methods taking the `String` first, in a class per instantiation
+  (`lang.string$5` for a `string<<5>>`); most compile from `string.seal` as they are. Reading
+  `size` is `length()`, and the few whose bodies use the VM's buffer are `@jvm` (§8.1): `at`, `put`,
+  `room`, `substring`, `toUpper`, `toLower`, `replace`, `repeat`, `equals`, `compare`, and
+  `Double.toString` and `Float.toString`. A `void` method of a string (`put`, `room`, `+=`) returns
+  the new `String`, which the caller stores where the string came from; a constructor starts from
+  `""` and returns the string it made.
 
 ### 8.3 Natives
 
@@ -321,8 +362,12 @@ The 55 `@native` methods (printing, files and folders, math, number text, time, 
 become static methods of the runtime library, written in Java with the JDK: `System.out`,
 `java.nio.file`, `Math`, `String.format` for `%f`. The VM's implementations show what each must do.
 Each is a static method of the runtime's `Natives` named as the native is (`io_write_int`, `sqrt`),
-so a call to a native method compiles to a call to it; M1 has those for the standard streams,
-math, time and exiting.
+so a call to a native method compiles to a call to it; a Seal object reaches it as a
+`java.lang.Object`. Done in M2: the standard streams, files and folders (with the VM's status codes
+and error texts, and the text a file operation produces kept for `string.takeText`), math, time,
+identity hashes and exiting; `System`, `Writer`, `Reader`, `Files` and `File` compile from the
+library as they are. Still to come: the natives that take `addr` buffers (byte files, `Fixed`'s
+text, `Format`'s places), with M3 to M5.
 
 **Decided:** the standard library moves into a package of its own on the JVM,
 `io.github.thelinuxseal.seal.lang`, still visible everywhere without imports, as `java.lang` is. In
@@ -333,13 +378,15 @@ in the default package at all.
 
 A small Java package, `io.github.thelinuxseal.seal.runtime`, shipped with every compiled program:
 
-- `Block` and `Ptr` (§4), and copying, zeroing and comparing values in blocks;
-- `SealObject`, the root class;
-- integer helpers: unsigned division, remainder and text, the shift operator, float-to-integer
-  conversion with Seal's rules;
-- fixed-point multiplication, division, text and conversions;
-- the natives (§8.3);
-- the entry point (§10).
+- `Block` and `Ptr` (§4), and copying, zeroing and comparing values in blocks (M3);
+- `Ints`: the shift operator, truncation, unsigned-to-double (done; unsigned division and text use
+  the JDK's `Integer` and `Long` directly);
+- fixed-point multiplication, division, text and conversions (M4);
+- `Strings`: what the library's `@jvm("Strings...")` methods stand for (§8.2);
+- `Natives`: the natives (§8.3), and the entry point (§10);
+- `Exit` (`System.exit`) and `Trap` (what stops a program, as a VM trap does).
+
+Seal's `Object` is not in the runtime: it is generated from the library like any class (§5).
 
 ## 10. Programs
 
@@ -352,7 +399,11 @@ A small Java package, `io.github.thelinuxseal.seal.runtime`, shipped with every 
   compiler's own JVM, running a program with `seal run --jvm`, isn't ended by it.
 - Static initialization: Seal initializes static fields before `main` runs, in a defined order;
   the JVM initializes a class when it is first used. The generated `main` initializes Seal's
-  classes in Seal's order first, so programs behave the same.
+  classes in Seal's order first, so programs behave the same. Done in M2: each class's static
+  fields are set by a `$init` method of its own (so that their lines name its file), which
+  `$run` calls in Seal's order before `main`. They are every program class's, and the library
+  classes' that the program uses: the library's `Operator` holds enum constants for decorators,
+  which no program reads at run time.
 - `-Wassert` keeps deciding at compile time whether asserts are generated, as now.
 
 ## 11. What maps easily, and what doesn't
@@ -381,6 +432,12 @@ frames correctly for every control-flow shape (the class-file API does this, giv
   random programs over random integer widths, chars and floating point (casts, arithmetic, shifts,
   comparisons, compound assignments, `++`); `java -cp out io.github.thelinuxseal.seal.JvmTest 1000 7`
   runs more, with another seed. `CliTest` runs what `seal build` writes with `java`.
+- Done in M2: `LanguageTest`, `RunTest`, `StdlibTest`, `ExamplesTest` and a quarter of `FuzzTest`'s
+  mutants run every program on the JVM too (`OnJvm`). A program the JVM backend compiles must pass
+  the verifier and end as on the VM: the same output, and the same exit code, the same uncaught
+  exception, or a fault where the VM traps. One it doesn't compile yet must say so, at a line, and
+  is counted: each suite's line in `./test.sh` reads, say, `(on the JVM: 36 the same, 78 not
+  available yet)`.
 
 ## 13. Order of work
 
@@ -388,7 +445,7 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 | --------- | -------- | --------- |
 | **M0** (on the VM), **done** | §6's language changes: no class destructors, `close()` and try-with-resources, `delete` only on `addr`; `array<T>` built in, and the collections on it (§8.1); immutable strings and `StringBuilder` (§8.2) | all suites pass on the VM |
 | **M1**, **done** | `JvmGen` skeleton: static methods, `int`/`int<<64>>`/`double`/`bit`/`char`, control flow, calls, recursion, printing; `seal run --jvm` | `examples/01-basics` runs |
-| **M2** | classes, interfaces, virtual and interface calls, fields, exceptions, lambdas, strings, the runtime's natives | most of `LanguageTest` |
+| **M2**, **done** | classes, interfaces, virtual and interface calls, fields, exceptions, lambdas, strings, the runtime's natives | everything in the suites that uses only these runs the same; most of `LanguageTest` also needs structs (M3) |
 | **M3** | storage blocks: structs, uniques and their destructors, records, enums, fixed arrays, operators | `RunTest`, `RefCountTest`'s unique cases |
 | **M4** | generics and shapes with naming, all integer widths, fixed point, packages | `FixedPointTest`, all examples but pointers |
 | **M5** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires |
@@ -417,9 +474,11 @@ Not designed here, but the design keeps the door open:
 - Instantiations are named from their arguments, `List$int`, `Matrix$double$3$3` (§5.1, §5.2).
 - Each method call that has struct locals gets a frame block of its own (§4.2).
 
-No questions are open. M0 and M1 are done (§13); the next step is M2, classes.
+No questions are open. M0, M1 and M2 are done (§13); the next step is M3, storage blocks.
 
 M1 went further than its row: every integer width already works (§3.1, planned for M4), and so do
-switch statements and labeled loops. It also left one stopgap for M2 to remove: until `Writer` can
-be compiled as the class it is, `System.stdout.print(x)` and its kin (on `stdout` and `stderr`, for
-numbers, chars, bits and string literals) become direct calls to the runtime's natives.
+switch statements and labeled loops. M2 removed M1's stopgap for printing: `Writer` compiles as the
+class it is. Its "done when" was too hopeful: most of `LanguageTest`'s programs use structs,
+uniques, enums or fixed arrays, so they wait for M3 (at M2's end: 36 the same on the JVM, 78 not
+yet, almost all for storage). What M2 covers, every suite's programs that use only it, runs the
+same.

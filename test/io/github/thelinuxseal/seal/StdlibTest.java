@@ -51,7 +51,8 @@ public final class StdlibTest {
         files();
         filesOutsideTheProgram();
 
-        System.out.println(passed + " passed, " + failures.size() + " failed");
+        String jvm = ON_JVM.finish(failures);
+        System.out.println(passed + " passed, " + failures.size() + " failed" + jvm);
         failures.forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);
@@ -826,6 +827,10 @@ public final class StdlibTest {
     private record Result(String output, String trap, String errors, int live) {
     }
 
+    /** Every program that runs here runs on the JVM too (docs/JVM.md §12). */
+    private static final OnJvm ON_JVM = new OnJvm();
+    private static String current = "";
+
     private static Result execute(String body) {
         Map<String, String> files = new LinkedHashMap<>();
         files.put("Thing.seal", "class Thing { }");
@@ -850,16 +855,25 @@ public final class StdlibTest {
         VM vm = new VM(gen.program(), new PrintStream(bytes, true, StandardCharsets.UTF_8));
         vm.setMaxSteps(50_000_000);
         try {
-            vm.run();
-            return new Result(bytes.toString(StandardCharsets.UTF_8), null, null, vm.liveObjects());
+            long code = vm.run();
+            String text = bytes.toString(StandardCharsets.UTF_8);
+            if (!OnJvm.usesVmOnly(files)) {
+                ON_JVM.compare(current, checker, "Main", java.io.InputStream.nullInputStream(), true, text, code, null);
+            }
+            return new Result(text, null, null, vm.liveObjects());
         } catch (Trap t) {
-            return new Result(bytes.toString(StandardCharsets.UTF_8), t.getMessage(), null, vm.liveObjects());
+            String text = bytes.toString(StandardCharsets.UTF_8);
+            if (!OnJvm.usesVmOnly(files)) {
+                ON_JVM.compare(current, checker, "Main", java.io.InputStream.nullInputStream(), true, text, -1, t);
+            }
+            return new Result(text, t.getMessage(), null, vm.liveObjects());
         } catch (RuntimeException e) {
             return new Result(bytes.toString(StandardCharsets.UTF_8), "crash: " + e, null, vm.liveObjects());
         }
     }
 
     private static void run(String name, String body, String expected) {
+        current = name;
         Result r = execute(body);
         check(r.errors() == null && r.trap() == null && r.output().equals(expected) && r.live() == 0,
                 name + "\n    expected " + show(expected) + "\n    got      " + show(r.output())
@@ -870,6 +884,7 @@ public final class StdlibTest {
 
     /** Expects an uncaught exception with this report, or ("error:") a compile error. */
     private static void trap(String name, String body, String expected) {
+        current = name;
         Result r = execute(body);
         boolean ok = expected.startsWith("error:") ? r.errors() != null : expected.equals(r.trap());
         check(ok, name + "\n    expected " + show(expected) + "\n    got      output " + show(r.output())

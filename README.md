@@ -109,9 +109,10 @@ says what each one shows.
 Seal is young and still changing. Programs compile to bytecode for Seal's own virtual machine,
 which is written in Java. A backend that compiles to JVM class files is under way, with Minecraft
 modding as one of its goals; [`docs/JVM.md`](docs/JVM.md) is its design. The language changes it
-needs (no class destructors, try-with-resources, immutable strings) are done, and so is its first
-milestone: static methods, numbers of every width, control flow and printing, which is enough for
-[`examples/01-basics`](examples/01-basics/Main.seal):
+needs (no class destructors, try-with-resources, immutable strings) are done, and so are its first
+two milestones: numbers of every width, control flow, classes and interfaces, generics over them,
+exceptions, lambdas, strings, arrays, the collections and files. `examples/01-basics`, `05-classes`,
+`08-strings` and `16-files` run on it:
 
 ```sh
 ./seal run --jvm examples/01-basics          # compile to class files and run them in this JVM
@@ -119,8 +120,8 @@ milestone: static methods, numbers of every width, control flow and printing, wh
 java -cp classes Main                        # and run them with plain java
 ```
 
-What the JVM backend can't compile yet (classes, strings built at run time, arrays) is reported as
-an error, with its line.
+What the JVM backend can't compile yet (structs, uniques, enums and records, fixed arrays, fixed
+point, pointers) is reported as an error, with its line.
 
 ## Layout
 

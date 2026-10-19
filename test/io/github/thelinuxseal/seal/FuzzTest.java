@@ -42,8 +42,16 @@ public final class FuzzTest {
     private record Program(String name, Map<String, String> files, List<String> mutable) {
     }
 
-    private record Outcome(String error, String trap, int live, boolean compiled) {
+    private record Outcome(String error, String trap, int live, boolean compiled, Checker checker, String output,
+                           long exit, Trap fault) {
+        Outcome(String error, String trap, int live, boolean compiled) {
+            this(error, trap, live, compiled, null, "", 0, null);
+        }
     }
+
+    /** A share of the mutants runs on the JVM too, and must end as on the VM (docs/JVM.md §12). */
+    private static final OnJvm ON_JVM = new OnJvm();
+    private static final int JVM_EVERY = 4;
 
     private static final String[] NUMBERS = {"0", "1", "2", "3", "7", "8", "-1", "64", "100"};
     private static final String[][] SWAPS = {{"+", "-"}, {"<", "<="}, {">", ">="}, {"==", "!="}, {"&&", "||"}, {"+=", "-="}};
@@ -90,6 +98,10 @@ public final class FuzzTest {
                 Outcome o = run(files, library);
                 if (o.compiled()) {
                     compiled++;
+                    if (compiled % JVM_EVERY == 0 && o.checker() != null) {
+                        ON_JVM.compare(p.name() + ", a mutant of " + target + ":\n" + mutated, o.checker(), "Main",
+                                java.io.InputStream.nullInputStream(), false, o.output(), o.exit(), o.fault());
+                    }
                 }
                 String problem = judge(o, mutated);
                 if (problem != null && failures.size() < 20) {
@@ -99,8 +111,11 @@ public final class FuzzTest {
                 }
             }
         }
+        List<String> jvmFailures = new ArrayList<>();
+        String jvm = ON_JVM.finish(jvmFailures);
+        failures.addAll(jvmFailures);
         System.out.println((runs - failures.size()) + " passed, " + failures.size() + " failed"
-                + "  (" + runs + " mutants, " + compiled + " compiled and ran, " + skippedBaselines + " programs skipped)");
+                + "  (" + runs + " mutants, " + compiled + " compiled and ran, " + skippedBaselines + " programs skipped)" + jvm);
         failures.stream().limit(5).forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);
@@ -145,15 +160,18 @@ public final class FuzzTest {
             if (!g.errors().isEmpty()) {
                 return new Outcome(null, null, 0, false);
             }
-            VM vm = new VM(g.program(), new PrintStream(OutputStream.nullOutputStream()));
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            VM vm = new VM(g.program(), new PrintStream(bytes, true, java.nio.charset.StandardCharsets.UTF_8));
             vm.setMaxSteps(40_000_000);   // enough for the heaviest example; mutants that loop forever still stop
             vm.setFileAccess(false);      // a mutant must not write or delete real files
             vm.setError(new PrintStream(OutputStream.nullOutputStream()));
             try {
-                vm.run();
-                return new Outcome(null, null, vm.liveObjects(), true);
+                long code = vm.run();
+                return new Outcome(null, null, vm.liveObjects(), true, c,
+                        bytes.toString(java.nio.charset.StandardCharsets.UTF_8), code, null);
             } catch (Trap t) {
-                return new Outcome(null, t.getMessage(), vm.liveObjects(), true);
+                return new Outcome(null, t.getMessage(), vm.liveObjects(), true, c,
+                        bytes.toString(java.nio.charset.StandardCharsets.UTF_8), -1, t);
             }
         } catch (Throwable t) {
             StringBuilder where = new StringBuilder(t.toString());

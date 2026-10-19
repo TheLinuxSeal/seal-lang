@@ -19,9 +19,11 @@
 //
 // array<T> is the language's own type, which classes may hold although it is
 // a unique: it has no destructor of its own, as its memory goes with it. On
-// the JVM it is a Java array; this is its implementation on the VM, and the
-// one place in the library that still uses pointers. The collections (List,
-// Queue, IntMap, HashMap, StringBuilder) are built on it.
+// the JVM it is a Java array, whose length len reads, and the methods marked
+// @jvm are what the JVM backend generates for them; the rest compile as they
+// are. This is its implementation on the VM, and the one place in the library
+// that still uses pointers. The collections (List, Queue, IntMap, HashMap,
+// StringBuilder) are built on it.
 unique array<T>
 {
     addr<T> items;   // len elements on the heap
@@ -33,6 +35,13 @@ unique array<T>
     public new(int n)
     {
         if (n < 0) { throw new IllegalArgumentException("an array can't have length " + n); }
+        allocate(n);
+    }
+
+    /** Room for n elements, each a default T. */
+    @jvm("array.allocate")
+    void allocate(int n)
+    {
         items = new<T>(n > 0 ? n : 1);
         len = n;
         T blank; // a default T for each element
@@ -47,6 +56,7 @@ unique array<T>
     public bit isEmpty() { return length() == 0; }
 
     @overload(Operator.INDEX)
+    @jvm("array.get")
     public T get(int i)
     {
         check(i);
@@ -54,6 +64,7 @@ unique array<T>
     }
 
     @overload(Operator.INDEX_SET)
+    @jvm("array.set")
     public void set(int i, T value)
     {
         check(i);

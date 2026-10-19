@@ -37,7 +37,8 @@ public final class RunTest {
         entryPoints();
         traps();
 
-        System.out.println(passed + " passed, " + failures.size() + " failed");
+        String jvm = ON_JVM.finish(failures);
+        System.out.println(passed + " passed, " + failures.size() + " failed" + jvm);
         failures.forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);
@@ -797,6 +798,10 @@ public final class RunTest {
     private record Run(String output, long exit, String error) {
     }
 
+    /** Every program that runs here runs on the JVM too (docs/JVM.md §12). */
+    private static final OnJvm ON_JVM = new OnJvm();
+    private static String current = "";
+
     private static Run execute(Map<String, String> files) {
         Checker checker = Checker.analyze(files);
         List<Diagnostic> errors = checker.diagnostics();
@@ -813,9 +818,13 @@ public final class RunTest {
         vm.setMaxSteps(5_000_000);
         try {
             long code = vm.run();
-            return new Run(bytes.toString(StandardCharsets.UTF_8), code, null);
+            String text = bytes.toString(StandardCharsets.UTF_8);
+            ON_JVM.compare(current, checker, "Main", java.io.InputStream.nullInputStream(), true, text, code, null);
+            return new Run(text, code, null);
         } catch (Trap t) {
-            return new Run(bytes.toString(StandardCharsets.UTF_8), -1, t.getMessage());
+            String text = bytes.toString(StandardCharsets.UTF_8);
+            ON_JVM.compare(current, checker, "Main", java.io.InputStream.nullInputStream(), true, text, -1, t);
+            return new Run(text, -1, t.getMessage());
         } catch (RuntimeException e) {
             return new Run(bytes.toString(StandardCharsets.UTF_8), -1, "crash: " + e);
         }
@@ -826,6 +835,7 @@ public final class RunTest {
     }
 
     private static void output(String name, Map<String, String> files, String expected, long exit) {
+        current = name;
         Run r = execute(files);
         boolean ok = exit == -1 ? r.error() != null && r.error().contains(expected.replace("error: ", ""))
                 : r.error() == null && r.output().equals(expected) && r.exit() == exit;
@@ -835,6 +845,7 @@ public final class RunTest {
     }
 
     private static void trap(String name, Map<String, String> files, String expectedTrap) {
+        current = name;
         Run r = execute(files);
         check(r.error() != null && r.error().contains(expectedTrap),
                 name + "\n    expected trap containing " + show(expectedTrap) + "\n    got      "

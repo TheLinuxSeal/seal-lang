@@ -64,7 +64,8 @@ public final class LanguageTest {
         temporariesOnSkippedPaths();
         arraysOfObjects();
 
-        System.out.println(passed + " passed, " + failures.size() + " failed");
+        String jvm = ON_JVM.finish(failures);
+        System.out.println(passed + " passed, " + failures.size() + " failed" + jvm);
         failures.forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);
@@ -3242,6 +3243,10 @@ struct Main
     private record Result(String output, String trap, String errors) {
     }
 
+    /** Every program that runs here runs on the JVM too (docs/JVM.md §12). */
+    private static final OnJvm ON_JVM = new OnJvm();
+    private static String current = "";
+
     private static Result execute(Map<String, String> files) {
         Checker checker = Checker.analyze(files, LIBRARY);
         if (!checker.diagnostics().isEmpty()) {
@@ -3255,16 +3260,25 @@ struct Main
         VM vm = new VM(gen.program(), new PrintStream(bytes, true, StandardCharsets.UTF_8));
         vm.setMaxSteps(10_000_000);
         try {
-            vm.run();
-            return new Result(bytes.toString(StandardCharsets.UTF_8), null, null);
+            long code = vm.run();
+            String out = bytes.toString(StandardCharsets.UTF_8);
+            if (!OnJvm.usesVmOnly(files)) {
+                ON_JVM.compare(current, checker, "Main", java.io.InputStream.nullInputStream(), true, out, code, null);
+            }
+            return new Result(out, null, null);
         } catch (Trap t) {
-            return new Result(bytes.toString(StandardCharsets.UTF_8), t.getMessage(), null);
+            String out = bytes.toString(StandardCharsets.UTF_8);
+            if (!OnJvm.usesVmOnly(files)) {
+                ON_JVM.compare(current, checker, "Main", java.io.InputStream.nullInputStream(), true, out, -1, t);
+            }
+            return new Result(out, t.getMessage(), null);
         } catch (RuntimeException e) {
             return new Result(bytes.toString(StandardCharsets.UTF_8), "crash: " + e, null);
         }
     }
 
     private static void output(String name, Map<String, String> files, String expected) {
+        current = name;
         Result r = execute(files);
         check(r.errors() == null && r.trap() == null && r.output().equals(expected),
                 name + "\n    expected " + show(expected) + "\n    got      " + show(r.output())
@@ -3279,6 +3293,7 @@ struct Main
     }
 
     private static void trap(String name, Map<String, String> files, String expected) {
+        current = name;
         Result r = execute(files);
         check(r.trap() != null && r.trap().contains(expected),
                 name + "\n    expected trap containing " + show(expected) + "\n    got trap " + r.trap()

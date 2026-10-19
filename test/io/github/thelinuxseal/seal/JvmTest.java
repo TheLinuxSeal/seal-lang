@@ -3,7 +3,6 @@ package io.github.thelinuxseal.seal;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.lang.classfile.ClassFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,6 +43,11 @@ public final class JvmTest {
         calls();
         floatsAndBits();
         programs();
+        classes();
+        exceptions();
+        lambdas();
+        strings();
+        collections();
         notYet();
         random(randomPrograms, seed);
 
@@ -374,16 +378,350 @@ public final class JvmTest {
                         + (jvm.fault() == null ? "" : "\n    " + JvmRunner.describe(jvm.fault())));
     }
 
+    private static void classes() {
+        same("inheritance, constructors, super and virtual calls", """
+                Animal a = new Dog("Rex");
+                Animal b = new Animal("Thing");
+                pr(a.describe()); pr(b.describe()); pr(Animal.count); pr(a.legs);
+                Dog d = (Dog)a;
+                pr(d.fetch()); pr(a instanceof Dog); pr(b instanceof Dog);
+                if (a instanceof Dog dog) { pr(dog.fetch()); }
+                Animal none = null;
+                pr(none == null); pr(a != b); pr(a == d);
+                """, "", "Animal", """
+                class Animal
+                {
+                    public static int count = 0;
+                    public string name;
+                    public int legs = 4;
+                    public new(string n) { name = n; count++; }
+                    public string sound() { return "..."; }
+                    public string describe() { return name + " says " + sound() + " on " + legs + " legs"; }
+                }
+                """, "Dog", """
+                class Dog extends(Animal)
+                {
+                    public new(string n) { super(n); legs = 4; }
+                    public string sound() { return "woof, " + super.sound(); }
+                    public string fetch() { return name + " fetches"; }
+                }
+                """);
+        same("interfaces, default methods, abstract classes and abstract fields", """
+                Shape s = new Square(3);
+                Named n = new Square(2);
+                pr(s.area()); pr(s.describe()); pr(n.label()); pr(n.name);
+                Circle c = new Circle();
+                c.r = 2;
+                pr(c.area()); pr(c.describe()); pr(c.label());
+                """, "", "Named", """
+                interface Named
+                {
+                    string name;
+                    default string label() { return "<" + name + ">"; }
+                }
+                """, "Shape", """
+                abstract class Shape implements(Named)
+                {
+                    public abstract int area();
+                    public string describe() { return name + " of area " + area(); }
+                }
+                """, "Square", """
+                class Square extends(Shape)
+                {
+                    public string name = "square";
+                    int side;
+                    public new(int s) { side = s; }
+                    public int area() { return side * side; }
+                }
+                """, "Circle", """
+                class Circle extends(Shape)
+                {
+                    public string name = "circle";
+                    public int r;
+                    public int area() { return 3 * r * r; }
+                    public string label() { return "(" + name + ")"; }
+                }
+                """);
+        same("generic classes, instantiated per type", """
+                Box<int> a = new Box(); a.value = 5;
+                Box<string> b = new Box(); b.value = "five";
+                Box<Box<int>> c = new Box(); c.value = a;
+                pr(a.get() + 1); pr(b.get() + "!"); pr(c.get().get()); pr(a.twice()); pr(b.twice());
+                pr(Pair.of(3, "x").second);
+                """, "", "Box", """
+                class Box<T>
+                {
+                    public T value;
+                    public T get() { return value; }
+                    public T twice() { return value + value; }
+                }
+                """, "Pair", """
+                class Pair<A, B>
+                {
+                    public A first;
+                    public B second;
+                    public static <X, Y> Pair<X, Y> of(X x, Y y) { Pair<X, Y> p = new Pair(); p.first = x; p.second = y; return p; }
+                }
+                """);
+        same("operators and casts to string on classes", """
+                Money a = new Money(150);
+                Money b = new Money(275);
+                Money c = a + b;
+                pr((string)c); pr("total: " + c); pr(a < b); pr(a > b); pr(a == new Money(150)); pr(a != b);
+                c += a;
+                pr(c.cents);
+                """, "", "Money", """
+                class Money
+                {
+                    public int cents;
+                    public new(int c) { cents = c; }
+                    @overload(Operator.ADD) public Money plus(Money o) { return new Money(cents + o.cents); }
+                    @overload(Operator.ADD_ASSIGN) public void add(Money o) { cents += o.cents; }
+                    @overload(Operator.LESS) public bit less(Money o) { return cents < o.cents; }
+                    @overload(Operator.EQUALS) public bit same(Money o) { return cents == o.cents; }
+                    @overload(Operator.CAST) public string text() { return "$" + cents / 100 + "." + cents % 100; }
+                }
+                """);
+        program("an instance main runs on a new main object", Map.of("Main.seal", """
+                class Main
+                {
+                    int count = 2;
+                    new() { count += 3; }
+                    int main() { count++; System.stdout.println("count " + count); return count; }
+                }
+                """), "count 6\n", 6);
+        Map<String, String> ordered = new LinkedHashMap<>(); // the files in this order: Main's static fields first
+        ordered.put("Main.seal", """
+                class Main
+                {
+                    static int a = Other.b + 1;
+                    static string s = "s" + a;
+                    static int main() { System.stdout.println(a + " " + Other.b + " " + s); return 0; }
+                }
+                """);
+        ordered.put("Other.seal", """
+                class Other
+                {
+                    public static int b = 41;
+                }
+                """);
+        program("static fields are initialized before main, in order", ordered, "1 41 s1\n", 0);
+        program("a failed cast stops the program", Map.of("Main.seal", """
+                class Main
+                {
+                    static int main() { Object o = new Main(); System.stdout.print("x"); Other t = (Other)o; return 0; }
+                }
+                """, "Other.seal", "class Other { }"), "x", 70);
+    }
+
+    private static void exceptions() {
+        same("try, catch and finally, with every way out", """
+                pr(f(0)); pr(f(1)); pr(f(2)); pr(f(3));
+                for (int i = 0; i < 4; i++) {
+                    try {
+                        if (i == 1) { continue; }
+                        if (i == 3) { break; }
+                        System.stdout.print("body" + i + " ");
+                    } finally {
+                        System.stdout.print("fin" + i + " ");
+                    }
+                }
+                try {
+                    try { throw new IllegalStateException("inner"); }
+                    finally { System.stdout.print("inner-fin "); }
+                } catch (IllegalStateException e) {
+                    System.stdout.print("caught " + e.getMessage() + " ");
+                }
+                try { nested(); } catch (Bad e) { pr(e.code); pr(e.getMessage()); }
+                """, """
+                static int f(int n)
+                {
+                    try {
+                        if (n == 0) { return 10; }
+                        if (n == 1) { throw new IllegalArgumentException("one"); }
+                        if (n == 2) { throw new Bad("two", 2); }
+                        return 30;
+                    } catch (IllegalArgumentException e) {
+                        System.stdout.print(e.getMessage() + " ");
+                        return 11;
+                    } catch (Exception e) {
+                        System.stdout.print("other " + e.getMessage() + " ");
+                        return 12;
+                    } finally {
+                        System.stdout.print("finally" + n + " ");
+                    }
+                }
+                static void nested()
+                {
+                    try {
+                        try { throw new Bad("deep", 7); }
+                        catch (IllegalArgumentException e) { System.stdout.print("not this "); }
+                    } finally {
+                        System.stdout.print("outer-fin ");
+                    }
+                }
+                """, "Bad", """
+                class Bad extends(Exception)
+                {
+                    public int code;
+                    public new(string m, int c) { super(m); code = c; }
+                }
+                """);
+        same("try-with-resources closes, in reverse, and keeps what close throws", """
+                try (Res a = new Res("a", false); Res b = new Res("b", false)) { pr(1); }
+                try (Res a = new Res("c", true)) {
+                    throw new IllegalArgumentException("body");
+                } catch (IllegalArgumentException e) {
+                    pr(e.getMessage() + " " + e.getSuppressed().length() + " " + e.getSuppressed()[0].getMessage());
+                }
+                """, "", "Res", """
+                class Res implements(AutoCloseable)
+                {
+                    string name;
+                    bit fails;
+                    public new(string n, bit f) { name = n; fails = f; System.stdout.print("open " + n + " "); }
+                    public void close()
+                    {
+                        System.stdout.print("close " + name + " ");
+                        if (fails) { throw new IllegalStateException("close " + name); }
+                    }
+                }
+                """);
+        program("an uncaught exception ends the program, as on the VM", Map.of("Main.seal", """
+                struct Main
+                {
+                    static int main() { System.stdout.print("a"); throw new IllegalStateException("broken"); }
+                }
+                """), "a", 70);
+    }
+
+    private static void lambdas() {
+        same("lambdas capture copies, and this", """
+                int base = 10;
+                Function<int, int> add = x -> x + base;
+                base = 99;
+                pr(add.apply(5));
+                Counter c = new Counter();
+                Supplier<int> next = c.nextOne();
+                pr(next.get()); pr(next.get()); pr(c.n);
+                BiFunction<int, int, int> mul = (a, b) -> a * b;
+                pr(mul.apply(6, 7));
+                Runnable hi = () -> System.stdout.print("hi ");
+                hi.run();
+                Function<int, Function<int, int>> adder = a -> b -> a + b;
+                pr(adder.apply(2).apply(3));
+                List<int> xs = new List();
+                for (int i = 0; i < 6; i++) { xs.add(i * 7 % 5); }
+                xs.sort((a, b) -> b - a);
+                xs.forEach(x -> System.stdout.print(x));
+                pr(xs.removeIf(x -> x % 2 == 0));
+                pr(xs.size());
+                """, "", "Counter", """
+                class Counter
+                {
+                    public int n;
+                    public Supplier<int> nextOne() { return () -> { n++; return n * 100; }; }
+                }
+                """);
+    }
+
+    private static void strings() {
+        same("strings: joining, comparing, searching, building", """
+                string s = "Hello";
+                s += ", world";
+                s += 42;
+                s += '!';
+                pr(s); pr(s.length()); pr(s.charAt(4)); pr(s.indexOf("world")); pr(s.contains('w'));
+                pr(s.substring(7, 12)); pr(s.toUpper()); pr(s.toLower()); pr(s.replace('l', 'L')); pr("ab".repeat(3));
+                pr("  trim me  ".trim() + "|"); pr("b" < "a"); pr("apple" == "apple"); pr("x".compare("y"));
+                pr(s.startsWith("Hell")); pr(s.endsWith("42!")); pr(s.lastIndexOf('o'));
+                List<string> parts = "a,b,,c".split(',');
+                pr(parts.size()); pr(parts.get(3));
+                pr(Integer.toString(255, 16)); pr(Integer.parse("-1234") + 1); pr("123".toInt() * 2);
+                pr("" + 1.5 + " " + (float)2.5 + " " + true + " " + 'c' + " " + (uint<<8>>)200 + " " + (int<<64>>)-5);
+                StringBuilder b = new StringBuilder();
+                for (int i = 0; i < 5; i++) { b.append(i).append(','); }
+                b.setLength(b.length() - 1);
+                pr(b.toString()); pr(b.reverse().toString());
+                string<<5>> word = "fixed";
+                pr(word + " and " + word.length());
+                string abc = "abc";
+                array<char> cs = abc.toCharArray();
+                cs[0] = 'z';
+                pr(new string(cs));
+                try { pr(s.charAt(100)); } catch (IndexOutOfBoundsException e) { pr(e.getMessage()); }
+                try { pr(Integer.parse("12x")); } catch (NumberFormatException e) { pr(e.getMessage()); }
+                """);
+    }
+
+    private static void collections() {
+        same("lists, queues, maps and arrays", """
+                List<string> names = new List();
+                names.add("cy"); names.add("al"); names.add("bo");
+                names.sort();
+                for (string n : names) { System.stdout.print(n + " "); }
+                pr(names.indexOf("bo")); pr(names.contains("zz"));
+                names.insert(1, "ab"); pr(names.removeAt(0)); pr(names.removeLast()); pr(names.size());
+                Queue<int> q = new Queue();
+                for (int i = 0; i < 20; i++) { q.push(i * i); }
+                int sum = 0;
+                while (!q.isEmpty()) { sum += q.pop(); }
+                pr(sum);
+                IntMap<string> m = new IntMap();
+                for (int i = 0; i < 50; i++) { m.put((int<<64>>)i * 31, "v" + i); }
+                m.remove(31);
+                pr(m.size()); pr(m.get(62)); pr(m.has(31));
+                HashMap<string, int> ages = new HashMap();
+                ages.put("ada", 36); ages.put("bob", 40); ages.put("ada", 37);
+                pr(ages.get("ada")); pr(ages.getOrDefault("cy", -1)); pr(ages.size());
+                for (string k : ages.keys()) { System.stdout.print(k + "=" + ages.get(k) + " "); }
+                array<int> xs = new array<int>(5);
+                for (int i = 0; i < 5; i++) { xs[i] = 5 - i; }
+                xs.sort();
+                for (int x : xs) { System.stdout.print(x); }
+                array<int> ys = [9, 8, 7];
+                pr(ys.length()); pr(ys[1]); pr(xs.copyOf(7).length()); pr(xs.slice(1, 3)[0]);
+                array<string> words = new array<string>(2);
+                pr(words[0].length()); pr(words.contains(""));
+                try { xs[9] = 1; } catch (IndexOutOfBoundsException e) { pr(e.getMessage()); }
+                try { List<int> empty = new List(); empty.removeLast(); } catch (NoSuchElementException e) { pr(e.getMessage()); }
+                """);
+        same("++ and += on elements, through [] and []=", """
+                array<int> counts = new array<int>(3);
+                string word = "abcabca";
+                for (int i = 0; i < word.length(); i++) { counts[word.charAt(i) - 'a']++; }
+                pr(counts[0]); pr(counts[1]); pr(counts[2]);
+                array<int> xs = new array<int>(1);
+                xs[0] = 5;
+                int before = xs[0]++;
+                int after = ++xs[0];
+                pr(before); pr(after); pr(xs[0]--); pr(--xs[0]);
+                array<char> cs = new array<char>(1);
+                cs[0] = 'a';
+                cs[0]++;
+                counts[1] += 10;
+                counts[2] *= counts[1];
+                pr(cs[0]); pr(counts[1]); pr(counts[2]);
+                """);
+        same("files, read and written", """
+                string dir = Files.createTempDirectory("seal-jvm");
+                Files.writeString(dir + "/a.txt", "one\\ntwo\\n");
+                try (FileWriter w = new FileWriter(dir + "/a.txt", true)) { w.println("three"); }
+                pr(Files.readString(dir + "/a.txt").length()); pr(Files.readAllLines(dir + "/a.txt").size());
+                for (string line : new FileReader(dir + "/a.txt")) { System.stdout.print(line + ";"); }
+                pr(new File(dir + "/a.txt").exists()); pr(new File(dir + "/a.txt").getExtension());
+                try { Files.readString(dir + "/missing"); } catch (FileNotFoundException e) { pr(e.getMessage().startsWith("no such file")); }
+                Files.deleteRecursively(dir);
+                pr(Files.exists(dir));
+                """);
+    }
+
     /** What isn't on the JVM yet is reported, at its line, rather than generated wrong. */
     private static void notYet() {
-        unsupported("strings joined at run time", "int n = 3; System.stdout.println(\"n = \" + n);", "not available on the JVM yet");
-        unsupported("objects", "List<int> xs = new List();", "not available on the JVM yet");
+        unsupported("structs", "Vec v = new Vec(); System.stdout.println(v.x);", "not available on the JVM yet");
         unsupported("fixed arrays", "array<int><<3>> xs; xs[0] = 1;", "not available on the JVM yet");
         unsupported("fixed point", "fixed<<8, 8>> x = 1.5; System.stdout.println(x);", "not available on the JVM yet");
-        unsupported("exceptions", "try { pr(1); } catch (IllegalStateException e) { }", "try is not available on the JVM yet");
-        Map<String, String> instance = Map.of("Main.seal", "class Main { void main() { } }");
-        JvmGen.Result r = JvmGen.generate(Checker.analyze(instance, LIBRARY), "Main");
-        check(r.errors().toString().contains("an instance main() comes with classes"), "instance main: " + r.errors());
+        unsupported("addresses", "addr<int> p = new<int>(1); delete p;", "not available on the JVM yet");
     }
 
     // ================================================================ random programs
@@ -570,8 +908,9 @@ public final class JvmTest {
 
     // ================================================================ running
 
-    /** Helpers every program gets: pr(x) prints x and a space, for every kind of number and bit. */
+    /** Helpers every program gets: pr(x) prints x and a space, for every kind of number, bit and string. */
     private static final String HELPERS = """
+                static void pr(string x) { System.stdout.print(x); System.stdout.print(' '); }
                 static void pr(int<<int W>> x) { System.stdout.print(x); System.stdout.print(' '); }
                 static void pr(uint<<int W>> x) { System.stdout.print(x); System.stdout.print(' '); }
                 static void pr(int x) { System.stdout.print(x); System.stdout.print(' '); }
@@ -618,7 +957,7 @@ public final class JvmTest {
 
     private static void unsupported(String name, String body, String expected) {
         Map<String, String> files = Map.of("Main.seal", "struct Main\n{\n" + HELPERS + "    static int main()\n    {\n"
-                + body + "\n        return 0;\n    }\n}\n");
+                + body + "\n        return 0;\n    }\n}\n", "Vec.seal", "struct Vec { public int x; }");
         Checker checker = Checker.analyze(files, LIBRARY);
         if (!checker.diagnostics().isEmpty()) {
             failures.add(name + ": doesn't compile: " + checker.diagnostics());
@@ -663,11 +1002,9 @@ public final class JvmTest {
         if (!gen.errors().isEmpty()) {
             return new Run("", -1, "errors: " + gen.errors(), null);
         }
-        for (Map.Entry<String, byte[]> e : gen.classes().entrySet()) {
-            List<VerifyError> problems = ClassFile.of().verify(e.getValue());
-            if (!problems.isEmpty()) {
-                return new Run("", -1, "class " + e.getKey() + " fails verification: " + problems, null);
-            }
+        List<String> problems = JvmRunner.verify(gen);
+        if (!problems.isEmpty()) {
+            return new Run("", -1, "verification fails: " + problems, null);
         }
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         PrintStream err = new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8);

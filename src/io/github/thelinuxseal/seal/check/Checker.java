@@ -516,6 +516,20 @@ public final class Checker {
         return null;
     }
 
+    /**
+     * What stands for a library method on the JVM (docs/JVM.md §8): `@jvm("Strings.at")`, a static
+     * method of the runtime's class Strings, or `@jvm("array.get")`, which the JVM backend generates
+     * itself; null if the method compiles as it is.
+     */
+    public static String jvmName(Method md) {
+        for (Decorator d : md.modifiers().decorators()) {
+            if (d.name().equals("jvm") && d.args().size() == 1 && d.args().get(0) instanceof StringLit s) {
+                return s.value();
+            }
+        }
+        return null;
+    }
+
     public ClassInfo declaringClassOf(MemberInfo m) {
         return declaringClass(m);
     }
@@ -1560,6 +1574,12 @@ public final class Checker {
     private void checkDecorators(ClassInfo c, Method md, int shape) {
         for (Decorator d : md.modifiers().decorators()) {
             if (d.name().equals("native") && c.builtin) {
+                continue;
+            }
+            if (d.name().equals("jvm") && c.builtin) {
+                if (jvmName(md) == null) {
+                    report(d.pos(), "@jvm takes the runtime method that stands for this one on the JVM, as a string");
+                }
                 continue;
             }
             if (!d.name().equals("overload")) {

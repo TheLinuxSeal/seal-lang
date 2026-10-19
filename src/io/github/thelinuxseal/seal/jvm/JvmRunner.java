@@ -29,12 +29,22 @@ public final class JvmRunner {
 
     /** Runs the program with its standard output and error going to {@code out} and {@code err}. */
     public static Outcome run(JvmGen.Result program, PrintStream out, PrintStream err) {
+        return run(program, InputStream.nullInputStream(), out, err, true);
+    }
+
+    /** As above, with standard input, and whether the program may use files. */
+    public static Outcome run(JvmGen.Result program, InputStream in, PrintStream out, PrintStream err, boolean files) {
+        InputStream oldIn = Natives.in;
         PrintStream oldOut = Natives.out;
         PrintStream oldErr = Natives.err;
+        boolean oldFiles = Natives.fileAccess;
+        Natives.reset();
+        Natives.in = in;
         Natives.out = out;
         Natives.err = err;
+        Natives.fileAccess = files;
         try {
-            Class<?> main = new Loader(program.classes(), JvmRunner.class.getClassLoader()).loadClass(program.mainClass());
+            Class<?> main = Class.forName(program.mainClass(), true, new Loader(program.classes(), JvmRunner.class.getClassLoader()));
             MethodHandle run = MethodHandles.publicLookup().findStatic(main, JvmGen.RUN_METHOD,
                     MethodType.methodType(int.class));
             int code;
@@ -47,10 +57,11 @@ public final class JvmRunner {
         } catch (Throwable t) {
             return new Outcome(70, t);
         } finally {
-            out.flush();
-            err.flush();
+            Natives.finish();
+            Natives.in = oldIn;
             Natives.out = oldOut;
             Natives.err = oldErr;
+            Natives.fileAccess = oldFiles;
         }
     }
 
@@ -59,15 +70,40 @@ public final class JvmRunner {
      * the line numbers the class files carry.
      */
     public static String describe(Throwable t) {
+        String seal = sealException(t.getClass());
+        if (seal != null) {
+            // A Seal exception nothing caught (§41.4): its class and message, as the VM reports it.
+            String message = t.getMessage();
+            return frames(t, new StringBuilder("uncaught " + seal + (message == null || message.isEmpty() ? "" : ": " + message)));
+        }
         String what = switch (t) {
             case Trap trap -> trap.getMessage();
             case ArithmeticException a when "/ by zero".equals(a.getMessage()) -> "division by zero";
             case StackOverflowError s -> "call stack overflow";
+            case LinkageError l -> "the generated classes are wrong (a fault in the JVM backend): " + l;
+            case NullPointerException n -> "null handle";
+            case ClassCastException cc -> "cannot cast: " + cc.getMessage();
             default -> t.toString();
         };
-        StringBuilder sb = new StringBuilder("trap: " + what);
+        return frames(t, new StringBuilder("trap: " + what));
+    }
+
+    /** The Seal name of a Seal exception's class, or null for a Java one: io.github...lang.IllegalStateException is IllegalStateException. */
+    private static String sealException(Class<?> c) {
+        for (Class<?> k = c; k != null; k = k.getSuperclass()) {
+            if (k.getName().equals(JvmGen.LIBRARY_PACKAGE + ".Exception")) {
+                String name = c.getName();
+                return (name.startsWith(JvmGen.LIBRARY_PACKAGE + ".") ? name.substring(JvmGen.LIBRARY_PACKAGE.length() + 1) : name)
+                        .replace('$', '.');
+            }
+        }
+        return null;
+    }
+
+    private static String frames(Throwable t, StringBuilder sb) {
         for (StackTraceElement e : t.getStackTrace()) {
-            if (e.getFileName() != null && e.getFileName().endsWith(".seal")) {
+            // Seal's own methods only: not the generated entry points ($run, $init), which have no Seal line.
+            if (e.getFileName() != null && e.getFileName().endsWith(".seal") && e.getLineNumber() > 0) {
                 String cls = e.getClassName();
                 if (cls.startsWith(JvmGen.LIBRARY_PACKAGE + ".")) {
                     cls = cls.substring(JvmGen.LIBRARY_PACKAGE.length() + 1);
@@ -77,6 +113,36 @@ public final class JvmRunner {
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * Runs the JVM's bytecode verifier on every class, knowing the program's own classes; gives
+     * each problem with the class it is in (none for a correct program).
+     */
+    public static java.util.List<String> verify(JvmGen.Result program) {
+        java.lang.classfile.ClassFile plain = java.lang.classfile.ClassFile.of();
+        java.util.Set<java.lang.constant.ClassDesc> interfaces = new java.util.HashSet<>();
+        Map<java.lang.constant.ClassDesc, java.lang.constant.ClassDesc> supers = new java.util.HashMap<>();
+        for (byte[] bytes : program.classes().values()) {
+            java.lang.classfile.ClassModel m = plain.parse(bytes);
+            java.lang.constant.ClassDesc self = m.thisClass().asSymbol();
+            if (m.flags().has(java.lang.reflect.AccessFlag.INTERFACE)) {
+                interfaces.add(self);
+            } else {
+                supers.put(self, m.superclass().map(e -> e.asSymbol()).orElse(null));
+            }
+        }
+        java.lang.classfile.ClassFile cf = java.lang.classfile.ClassFile.of(
+                java.lang.classfile.ClassFile.ClassHierarchyResolverOption.of(
+                        java.lang.classfile.ClassHierarchyResolver.of(interfaces, supers)
+                                .orElse(java.lang.classfile.ClassHierarchyResolver.defaultResolver())));
+        java.util.List<String> problems = new java.util.ArrayList<>();
+        for (Map.Entry<String, byte[]> e : program.classes().entrySet()) {
+            for (VerifyError v : cf.verify(e.getValue())) {
+                problems.add(e.getKey() + ": " + v.getMessage());
+            }
+        }
+        return problems;
     }
 
     /**
