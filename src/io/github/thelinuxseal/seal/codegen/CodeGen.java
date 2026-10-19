@@ -26,6 +26,8 @@ import io.github.thelinuxseal.seal.check.Checker.TypedBody;
 import io.github.thelinuxseal.seal.check.ClassInfo;
 import io.github.thelinuxseal.seal.check.ClassInfo.MemberInfo;
 import io.github.thelinuxseal.seal.check.Diagnostic;
+import io.github.thelinuxseal.seal.check.Layouts;
+import io.github.thelinuxseal.seal.check.Layouts.Layout;
 import io.github.thelinuxseal.seal.check.Type;
 import io.github.thelinuxseal.seal.check.Type.*;
 import io.github.thelinuxseal.seal.vm.Op;
@@ -73,9 +75,6 @@ public final class CodeGen {
         }
     }
 
-    /** Field offsets of a concrete class instance, in bits. Dynamic classes start with their parent's fields. */
-    private record Layout(long size, long align, Map<MemberInfo, Long> offsets, Map<MemberInfo, Type> types) {
-    }
 
     private final Checker ck;
     private final Program prog = new Program();
@@ -90,7 +89,7 @@ public final class CodeGen {
     private final Map<FnKey, Integer> closureIds = new HashMap<>();
     private final Map<String, Integer> nativeIds = new HashMap<>();
     private final Map<String, Integer> stringIds = new HashMap<>();
-    private final Map<ClassT, Layout> layouts = new HashMap<>();
+    private final Layouts layouts;
     private final Map<Field, Long> staticOffsets = new HashMap<>();
     private final Map<Field, Type> staticTypes = new HashMap<>();
     private final Map<Type, Boolean> destroyCache = new HashMap<>();
@@ -101,6 +100,7 @@ public final class CodeGen {
 
     private CodeGen(Checker ck) {
         this.ck = ck;
+        this.layouts = new Layouts(ck);
     }
 
     /** Thrown for programs the generator cannot handle; reported as an error. */
@@ -503,73 +503,23 @@ public final class CodeGen {
     }
 
     private Layout layoutOf(ClassT t) {
-        Layout cached = layouts.get(t);
-        if (cached != null) {
-            return cached;
-        }
-        Map<MemberInfo, Long> offsets = new HashMap<>();
-        Map<MemberInfo, Type> types = new HashMap<>();
-        long end = 0;
-        long align = 1;
-        if (t.cls().dynamic) {
-            ClassT parent = ck.parentType(t);
-            if (parent != null) {
-                Layout p = layoutOf(parent);
-                offsets.putAll(p.offsets());
-                types.putAll(p.types());
-                end = p.size();
-                align = p.align();
-            }
-        }
-        for (MemberInfo m : t.cls().storedFields(t.header())) {
-            Type ft = ck.fieldTypeOf(t, m);
-            long size = ft instanceof ArrayT a && a.size() == null ? 0 : sizeOf(ft);
-            long al = alignOf(ft);
-            long off = roundUp(end, al);
-            offsets.put(m, off);
-            types.put(m, ft);
-            end = off + size;
-            align = Math.max(align, al);
-        }
-        Layout l = new Layout(roundUp(end, align), align, offsets, types);
-        layouts.put(t, l);
-        return l;
+        return layouts.of(t);
     }
 
     private long sizeOf(Type t) {
-        if (t instanceof ClassT ct) {
-            return layoutOf(ct).size();
-        }
-        if (t instanceof ArrayT a) {
-            if (a.size() == null) {
-                return 0;
-            }
-            return a.size().intValue().longValueExact() * stride(a.element());
-        }
-        long s = ck.sizeBits(t);
-        if (s < 0) {
-            throw new IllegalStateException("no size for " + t);
-        }
-        return s;
+        return layouts.sizeOf(t);
     }
 
     private long alignOf(Type t) {
-        if (t instanceof ClassT ct) {
-            return layoutOf(ct).align();
-        }
-        if (t instanceof ArrayT a) {
-            return alignOf(a.element());
-        }
-        long a = ck.alignBits(t);
-        return a < 0 ? 1 : a;
+        return layouts.alignOf(t);
     }
 
     private long stride(Type element) {
-        return roundUp(sizeOf(element), alignOf(element));
+        return layouts.stride(element);
     }
 
     private static long roundUp(long v, long a) {
-        return a <= 1 ? v : (v + a - 1) / a * a;
+        return Layouts.roundUp(v, a);
     }
 
     private static boolean isAggregate(Type t) {

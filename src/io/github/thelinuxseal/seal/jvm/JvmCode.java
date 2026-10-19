@@ -13,6 +13,7 @@ import static java.lang.constant.ConstantDescs.CD_Object;
 import static java.lang.constant.ConstantDescs.CD_String;
 import static java.lang.constant.ConstantDescs.CD_boolean;
 import static java.lang.constant.ConstantDescs.CD_double;
+import static java.lang.constant.ConstantDescs.CD_float;
 import static java.lang.constant.ConstantDescs.CD_int;
 import static java.lang.constant.ConstantDescs.CD_long;
 import static java.lang.constant.ConstantDescs.CD_void;
@@ -42,6 +43,7 @@ import io.github.thelinuxseal.seal.check.Checker.TypedBody;
 import io.github.thelinuxseal.seal.check.ClassInfo;
 import io.github.thelinuxseal.seal.check.ClassInfo.MemberInfo;
 import io.github.thelinuxseal.seal.check.Diagnostic;
+import io.github.thelinuxseal.seal.check.Layouts;
 import io.github.thelinuxseal.seal.check.Type;
 import io.github.thelinuxseal.seal.check.Type.*;
 import io.github.thelinuxseal.seal.jvm.JvmGen.FieldSpec;
@@ -80,9 +82,24 @@ final class JvmCode {
     /** In a lambda: where the enclosing object is kept, if it uses it. */
     private FieldSpec lambdaThis;
     private JClass lambdaClass;
+    /** In a struct's or unique's method or constructor: `this`, a value in a block. */
+    private Mem thisMem;
+    /** For a method returning a struct: where the caller wants it (§4.2). */
+    private Mem retMem;
+    /** The method's frame block (§4.2), in this local, and how much of it the method uses so far. */
+    private int frameSlot = -1;
+    private long frameEnd;
+    /** Uniques made for the statement being generated, destroyed at its end (§16). */
+    private List<Temp> stmtTemps = new ArrayList<>();
+
+    /** A unique made for a statement, and a flag in the frame set when it is: code may skip making it (`a && f()`). */
+    private record Temp(Stored value, Mem made) {
+    }
 
     /** Variables by name, innermost scope first. */
     private final Deque<Map<String, Var>> scopes = new ArrayDeque<>();
+    /** For each scope, the uniques declared in it that it destroys at its end, as finally blocks do. */
+    private final Deque<List<Fin>> scopeFins = new ArrayDeque<>();
     private final Deque<Loop> loops = new ArrayDeque<>();
     /** The try statements with a finally block that code is inside, innermost first. */
     private final Deque<Fin> fins = new ArrayDeque<>();
@@ -97,12 +114,26 @@ final class JvmCode {
      */
     private final Map<Expr, Local> pinned = new java.util.IdentityHashMap<>();
 
-    sealed interface Var permits Local, Captured {
+    sealed interface Var permits Local, Captured, Stored {
         Type type();
     }
 
     /** A local variable: its type and JVM slot. */
     record Local(Type type, int slot) implements Var {
+    }
+
+    /** A struct, unique or fixed array variable: its value in a block (§4.2). */
+    record Stored(Type type, Mem mem) implements Var {
+    }
+
+    /**
+     * A place in a block: the block in a local, and an offset in bits: a constant, plus the value of
+     * a local int if offSlot isn't -1.
+     */
+    record Mem(int block, int offSlot, long off) {
+        Mem at(long bits) {
+            return new Mem(block, offSlot, off + bits);
+        }
     }
 
     /** A variable a lambda captured: a field of its class. */
@@ -113,22 +144,31 @@ final class JvmCode {
     record Loop(Label breakTo, Label continueTo, String name, int fins) {
     }
 
-    record SwitchOut(Loop loop, int slot, Type type) {
+    record SwitchOut(Loop loop, int slot, Type type, Mem into) {
     }
 
-    /** A try with a finally block: where jumps out of it run the finally block first. */
+    /**
+     * Code that runs however a part of the method is left: a try's finally block, or the destruction
+     * of a unique, from its declaration to the end of its scope. Jumps out go through its pads.
+     */
     private static final class Fin {
         final Block block;
+        final Stored destroyed;
+        Label start;
         final List<Exit> exits = new ArrayList<>();
         int returnSlot = -1;
 
-        Fin(Block block) {
+        Fin(Block block, Stored destroyed) {
             this.block = block;
+            this.destroyed = destroyed;
         }
     }
 
-    /** A jump out of a try with a finally block: to a loop (break or continue) or out of the method. */
-    private record Exit(Label pad, String kind, Loop loop) {
+    /**
+     * A jump out of code a Fin covers: to a loop (break or continue) or out of the method; moved is a
+     * unique local that the return hands to the caller, so it isn't destroyed.
+     */
+    private record Exit(Label pad, String kind, Loop loop, Stored moved) {
     }
 
     JvmCode(JvmGen g, CodeBuilder c, FnKey k, MethodRef self, List<Diagnostic> found) {
@@ -144,12 +184,19 @@ final class JvmCode {
 
     void generate() {
         try {
+            openFrame();
             switch (k.kind()) {
                 case "init" -> allStatics();
                 case "class-init" -> staticInit();
+                case "fini" -> staticFini();
+                case "start" -> start();
+                case "destroy" -> destroy();
+                case "dtor" -> userDestructor();
                 case "ctor", "default-ctor" -> {
                     if (isValue(k.owner())) {
                         valueConstructor();
+                    } else if (g.isAggregate(k.owner())) {
+                        structConstructor();
                     } else {
                         constructor();
                     }
@@ -157,6 +204,7 @@ final class JvmCode {
                 case "lambda" -> lambda();
                 default -> method();
             }
+            closeFrame();
         } catch (Unsupported u) {
             if (u.getMessage() != null) {
                 // Reported here, so that it names the file the code is in (a static field's, a library method's).
@@ -187,19 +235,43 @@ final class JvmCode {
         if (k.owner() != null && isValue(k.owner())) {
             thisLocal = new Local(k.owner(), c.parameterSlot(0));
             first = 1;
+        } else if (k.owner() != null && g.isAggregate(k.owner())) {
+            thisMem = new Mem(c.parameterSlot(0), c.parameterSlot(1), 0);
+            first = 2;
         } else if (k.owner() != null) {
             thisType = k.owner();
         }
-        for (int i = 0; i < md.params().size(); i++) {
-            params.put(md.params().get(i).name(), new Local(tb.params.get(i), c.parameterSlot(i + first)));
-        }
-        scopes.push(params);
+        first = bindParams(md.params(), tb.params, first, params);
+        openScope(params);
         block(md.body());
         endOfMethod();
     }
 
+    /**
+     * The parameters from JVM parameter {@code first} on, after the place a struct result goes:
+     * a struct takes two, its block and offset (§4.2). Gives the index after them.
+     */
+    private int bindParams(List<Param> ps, List<Type> types, int first, Map<String, Var> into) {
+        int j = first;
+        if (g.isAggregate(returnType)) {
+            retMem = new Mem(c.parameterSlot(j), c.parameterSlot(j + 1), 0);
+            j += 2;
+        }
+        for (int i = 0; i < ps.size(); i++) {
+            Type t = types.get(i);
+            if (g.isAggregate(t)) {
+                into.put(ps.get(i).name(), new Stored(t, new Mem(c.parameterSlot(j), c.parameterSlot(j + 1), 0)));
+                j += 2;
+            } else {
+                into.put(ps.get(i).name(), new Local(t, c.parameterSlot(j)));
+                j++;
+            }
+        }
+        return j;
+    }
+
     private void endOfMethod() {
-        if (returnType instanceof VoidT) {
+        if (!returnsValue()) {
             returnVoid();
         } else {
             // The checker makes sure every path returns; this end can't be reached.
@@ -209,7 +281,7 @@ final class JvmCode {
 
     /** `return;`, which in a string's method gives back the string it made. */
     private void returnVoid() {
-        if (thisLocal != null && replacesReceiver(thisLocal.type()) && self.type().returnType() != CD_void
+        if (thisLocal != null && replacesReceiver(thisLocal.type()) && !self.type().returnType().equals(CD_void)
                 && !self.name().equals("<init>")) {
             c.aload(thisLocal.slot());
             c.areturn();
@@ -237,12 +309,10 @@ final class JvmCode {
         List<Stmt> body = List.of();
         if (ctor != null) {
             tb = typed(k.cls(), t, k.member(), k.binders());
-            for (int i = 0; i < ctor.params().size(); i++) {
-                params.put(ctor.params().get(i).name(), new Local(tb.params.get(i), c.parameterSlot(i)));
-            }
+            bindParams(ctor.params(), tb.params, 0, params);
             body = ctor.body().stmts();
         }
-        scopes.push(params);
+        openScope(params);
         int start = 0;
         if (!body.isEmpty() && body.get(0) instanceof ExprStmt es && es.expr() instanceof Call call
                 && call.callee() instanceof SuperRef) {
@@ -250,6 +320,13 @@ final class JvmCode {
             start = 1;
         } else {
             superDefault(t);
+        }
+        JClass jc = g.instance(t);
+        if (jc.valuesBits > 0) {
+            // The block for the object's struct fields (§5).
+            c.aload(0);
+            newBlock(jc.valuesBits);
+            c.putfield(jc.desc, JvmGen.VALUES, JvmGen.BLOCK);
         }
         initFields(t);
         for (int i = start; i < body.size(); i++) {
@@ -286,7 +363,17 @@ final class JvmCode {
             Field f = (Field) m.member;
             Type ft = ck.fieldTypeOf(t, m);
             pos = f.pos();
-            if (f.init() != null) {
+            if (g.isAggregate(ft)) {
+                c.aload(0);
+                Mem fm = objectFieldMem(t, m);
+                if (f.init() != null) {
+                    tb = typed(t.cls(), t, m, Map.of());
+                    into(fm, f.init(), ft);
+                    tb = saved;
+                } else {
+                    initZeroed(fm, ft);
+                }
+            } else if (f.init() != null) {
                 tb = typed(t.cls(), t, m, Map.of());
                 c.aload(0);
                 value(f.init(), ft);
@@ -312,19 +399,151 @@ final class JvmCode {
         Map<String, Var> params = new HashMap<>();
         if (ctor != null) {
             tb = typed(k.cls(), t, k.member(), k.binders());
-            for (int i = 0; i < ctor.params().size(); i++) {
-                params.put(ctor.params().get(i).name(), new Local(tb.params.get(i), c.parameterSlot(i)));
-            }
+            bindParams(ctor.params(), tb.params, 0, params);
         }
         thisLocal = new Local(t, c.allocateLocal(TypeKind.REFERENCE));
         zero(t);
         c.astore(thisLocal.slot());
-        scopes.push(params);
+        openScope(params);
         if (ctor != null) {
             block(ctor.body());
         }
         c.aload(thisLocal.slot());
         c.areturn();
+    }
+
+    /** A struct's or unique's constructor (§15): it makes the value in the place it is given, zeroed. */
+    private void structConstructor() {
+        ClassT t = k.owner();
+        Constructor ctor = k.member() == null ? null : (Constructor) k.member().member;
+        pos = ctor != null ? ctor.pos() : t.cls().decl.pos();
+        returnType = Type.VOID;
+        thisMem = new Mem(c.parameterSlot(0), c.parameterSlot(1), 0);
+        Map<String, Var> params = new HashMap<>();
+        if (ctor != null) {
+            tb = typed(k.cls(), t, k.member(), k.binders());
+            bindParams(ctor.params(), tb.params, 2, params);
+        }
+        openScope(params);
+        structFields(t);
+        if (ctor != null) {
+            block(ctor.body());
+        }
+        c.return_();
+    }
+
+    /** A struct's field initializers, and the default construction of its struct fields, as declared. */
+    private void structFields(ClassT t) {
+        TypedBody saved = tb;
+        for (MemberInfo m : t.cls().storedFields(t.header())) {
+            Field f = (Field) m.member;
+            Type ft = g.layouts.of(t).types().get(m);
+            pos = f.pos();
+            Mem fm = fieldMem(thisMem, t, m);
+            if (f.init() != null) {
+                tb = typed(t.cls(), t, m, Map.of());
+                if (g.isAggregate(ft)) {
+                    into(fm, f.init(), ft);
+                } else {
+                    push(fm);
+                    value(f.init(), ft);
+                    storePushed(ft);
+                }
+                tb = saved;
+            } else if (g.isAggregate(ft)) {
+                initZeroed(fm, ft);
+            }
+        }
+        tb = saved;
+    }
+
+    /** Destroys a unique (§16): its destructor's body, then its fields, the last first. */
+    private void destroy() {
+        ClassT t = k.owner();
+        returnType = Type.VOID;
+        thisMem = new Mem(c.parameterSlot(0), c.parameterSlot(1), 0);
+        for (MemberInfo m : t.cls().destructors) {
+            if (m.existsIn(t.header())) {
+                push(thisMem);
+                JvmGen.invoke(c, g.ref(new FnKey("dtor", t.cls(), t, m, Map.of()), pos));
+            }
+        }
+        List<MemberInfo> fields = new ArrayList<>(t.cls().storedFields(t.header()));
+        java.util.Collections.reverse(fields);
+        for (MemberInfo m : fields) {
+            destroyValue(fieldMem(thisMem, t, m), g.layouts.of(t).types().get(m));
+        }
+        c.return_();
+    }
+
+    /** A unique's own destructor body. */
+    private void userDestructor() {
+        ClassT t = k.owner();
+        Destructor d = (Destructor) k.member().member;
+        pos = d.pos();
+        returnType = Type.VOID;
+        tb = typed(k.cls(), t, k.member(), Map.of());
+        thisMem = new Mem(c.parameterSlot(0), c.parameterSlot(1), 0);
+        openScope(new HashMap<>());
+        block(d.body());
+        c.return_();
+    }
+
+    /**
+     * Uniques in static fields, destroyed as main returns (§26.1): the last made first, the
+     * program's classes before the library's, and System last.
+     */
+    private void staticFini() {
+        returnType = Type.VOID;
+        List<ClassInfo> order = new ArrayList<>(ck.allClasses());
+        java.util.Collections.reverse(order);
+        order.sort(java.util.Comparator.comparingInt(cls -> cls.builtin ? (cls.name.equals("System") ? 2 : 1) : 0));
+        for (ClassInfo cls : order) {
+            if (!g.initialized.contains(cls)) {
+                continue;
+            }
+            List<MemberInfo> members = new ArrayList<>(cls.all);
+            java.util.Collections.reverse(members);
+            for (MemberInfo m : members) {
+                if (m.member instanceof Field f && f.modifiers().isStatic() && !f.modifiers().isConst()) {
+                    Type t = ck.staticFieldType(cls, f);
+                    if (g.needsDestroy(t)) {
+                        destroyValue(staticMem(m), t);
+                    }
+                }
+            }
+        }
+        c.return_();
+    }
+
+    /**
+     * Runs an instance main() of a struct or unique (§56.1): makes the value with its no-argument
+     * constructor, calls main() on it, and destroys it before the static fields are.
+     */
+    private void start() {
+        ClassT t = k.owner();
+        pos = k.member().member.pos();
+        returnType = ck.returnTypeOf(t, k.member(), Map.of());
+        openScope(new HashMap<>());
+        Mem m = temp(t);
+        initZeroed(m, t);
+        if (g.needsDestroy(t)) {
+            destroyLater(new Stored(t, m));
+        }
+        push(m);
+        JvmGen.invoke(c, g.ref(new FnKey("method", k.cls(), t, k.member(), Map.of()), pos));
+        int result = -1;
+        if (!(returnType instanceof VoidT)) {
+            result = c.allocateLocal(load(returnType));
+            c.storeLocal(load(returnType), result);
+        }
+        closeScope();
+        if (result < 0) {
+            c.return_();
+        } else {
+            c.loadLocal(load(returnType), result);
+            c.return_(load(returnType));
+        }
     }
 
     /** Every static field, in Seal's order: the classes as the program lists them, the fields as declared (§10). */
@@ -341,16 +560,37 @@ final class JvmCode {
     /** One class's static fields, as declared. */
     private void staticInit() {
         returnType = Type.VOID;
-        scopes.push(new HashMap<>());
+        openScope(new HashMap<>());
         for (ClassInfo cls : List.of(k.cls())) {
+            JClass home = g.staticClass(cls);
+            for (MemberInfo m : cls.all) {
+                if (m.member instanceof Field f && f.modifiers().isStatic() && !f.modifiers().isConst()) {
+                    g.staticOffset(cls, f); // lays out the class's static block
+                    break;
+                }
+            }
+            if (home.staticBits > 0) {
+                newBlock(home.staticBits);
+                c.putstatic(home.desc, JvmGen.STATICS, JvmGen.BLOCK);
+            }
             for (MemberInfo m : cls.all) {
                 if (!(m.member instanceof Field f) || !f.modifiers().isStatic() || f.modifiers().isConst()) {
                     continue;
                 }
                 Type t = ck.staticFieldType(cls, f);
                 pos = f.pos();
+                if (g.isAggregate(t)) {
+                    Mem sm = staticMem(m);
+                    if (f.init() != null) {
+                        tb = typed(cls, null, m, Map.of());
+                        at(f.init().pos());
+                        into(sm, f.init(), t);
+                    } else {
+                        initZeroed(sm, t);
+                    }
+                    continue;
+                }
                 ClassDesc fd = g.desc(t, f.pos());
-                JClass home = g.staticClass(cls);
                 home.fields.putIfAbsent(f.name(), new FieldSpec(f.name(), fd, java.lang.classfile.ClassFile.ACC_PUBLIC
                         | java.lang.classfile.ClassFile.ACC_STATIC));
                 if (f.init() != null) {
@@ -382,17 +622,23 @@ final class JvmCode {
             thisType = li.thisType();
         }
         for (int n = 0; n < li.captureNames().size(); n++) {
-            captured.put(li.captureNames().get(n), new Captured(li.captureTypes().get(n), lambdaClass.captures.get(i++)));
+            Type ct = li.captureTypes().get(n);
+            FieldSpec f = lambdaClass.captures.get(i++);
+            if (g.isAggregate(ct)) {
+                // A struct it captured: a copy in a block of its own, which the lambda's code uses in place.
+                c.aload(0);
+                c.getfield(lambdaClass.desc, f.name(), f.type());
+                int slot = c.allocateLocal(TypeKind.REFERENCE);
+                c.astore(slot);
+                captured.put(li.captureNames().get(n), new Stored(ct, new Mem(slot, -1, 0)));
+            } else {
+                captured.put(li.captureNames().get(n), new Captured(ct, f));
+            }
         }
-        scopes.push(captured);
+        openScope(captured);
         Map<String, Var> params = new HashMap<>();
-        for (int n = 0; n < lam.params().size(); n++) {
-            Type pt = li.params().get(n);
-            int slot = c.parameterSlot(n);
-            // The interface's parameter types may be wider (an Object for a T): take the lambda's own.
-            params.put(lam.params().get(n).name(), new Local(pt, slot));
-        }
-        scopes.push(params);
+        bindParams(lam.params(), li.params(), 0, params);
+        openScope(params);
         Block body = lam.block() != null ? lam.block() : new Block(lam.pos(), List.of(returnType instanceof VoidT
                 ? new ExprStmt(lam.pos(), lam.expr()) : new Return(lam.pos(), lam.expr())));
         block(body);
@@ -432,6 +678,7 @@ final class JvmCode {
                 c.aload(0);
                 c.getfield(lambdaClass.desc, cp.field().name(), cp.field().type());
             }
+            case Stored st -> throw new IllegalStateException("a struct variable used as a single value: " + st.type());
         }
     }
 
@@ -450,6 +697,9 @@ final class JvmCode {
     }
 
     private Type thisValueType() {
+        if (thisMem != null) {
+            return k.owner();
+        }
         return thisLocal != null ? thisLocal.type() : new HandleT(thisType);
     }
 
@@ -473,8 +723,48 @@ final class JvmCode {
         }
     }
 
-    /** A new Java array of the length on the stack, whose elements start as their default: "" for strings. */
+    /**
+     * A new Java array of the length on the stack, whose elements start as their default: "" for
+     * strings. For structs, a block of that many in a row, each made as a variable without an
+     * initializer is (§8.1).
+     */
     private void newArray(Type element) {
+        if (g.isAggregate(element)) {
+            long stride = g.layouts.stride(element);
+            int n = c.allocateLocal(TypeKind.INT);
+            c.istore(n);
+            c.new_(JvmGen.BLOCK);
+            c.dup();
+            c.iload(n);
+            c.i2l();
+            c.loadConstant(stride);
+            c.lmul();
+            c.iload(n);
+            c.invokespecial(JvmGen.BLOCK, "<init>", MethodTypeDesc.of(CD_void, CD_long, CD_int));
+            if (g.needsInit(element)) {
+                int block = c.allocateLocal(TypeKind.REFERENCE);
+                c.dup();
+                c.astore(block);
+                int off = c.allocateLocal(TypeKind.INT);
+                int i = c.allocateLocal(TypeKind.INT);
+                c.iconst_0();
+                c.istore(off);
+                c.iconst_0();
+                c.istore(i);
+                Label top = c.newLabel();
+                Label end = c.newLabel();
+                c.labelBinding(top);
+                c.iload(i);
+                c.iload(n);
+                c.if_icmpge(end);
+                initZeroed(new Mem(block, off, 0), element);
+                c.iinc(off, (int) stride);
+                c.iinc(i, 1);
+                c.goto_(top);
+                c.labelBinding(end);
+            }
+            return;
+        }
         ClassDesc ed = g.desc(element, pos);
         TypeKind ek = kind(element);
         if (ek == TypeKind.REFERENCE) {
@@ -489,21 +779,518 @@ final class JvmCode {
         }
     }
 
-    // ================================================================ statements
+    // ================================================================ blocks (§4)
 
-    private void block(Block b) {
-        scopes.push(new HashMap<>());
-        for (Stmt s : b.stmts()) {
-            stmt(s);
+    private void openScope(Map<String, Var> vars) {
+        scopes.push(vars);
+        scopeFins.push(new ArrayList<>());
+    }
+
+    /** Ends a scope: the uniques declared in it are destroyed, the last first, on each way out (§16). */
+    private void closeScope() {
+        List<Fin> ending = scopeFins.pop();
+        for (int i = ending.size() - 1; i >= 0; i--) {
+            finishDestroy(ending.get(i));
         }
         scopes.pop();
     }
 
+    /** The frame block, made as the method starts if it holds any values (§4.2): its size is what the first pass used. */
+    private void openFrame() {
+        frameSlot = c.allocateLocal(TypeKind.REFERENCE);
+        if (g.writing) {
+            long size = g.frameSizes.getOrDefault(k, 0L);
+            if (size > 0) {
+                newBlock(size);
+                c.astore(frameSlot);
+            }
+        }
+    }
+
+    private void closeFrame() {
+        if (!g.writing) {
+            g.frameSizes.put(k, frameEnd);
+        } else if (frameEnd > g.frameSizes.getOrDefault(k, 0L)) {
+            throw new IllegalStateException("the frame of " + g.describe(k) + " grew between passes");
+        }
+    }
+
+    private void newBlock(long bits) {
+        c.new_(JvmGen.BLOCK);
+        c.dup();
+        c.loadConstant(bits);
+        c.invokespecial(JvmGen.BLOCK, "<init>", MethodTypeDesc.of(CD_void, CD_long));
+    }
+
+    /** Room in the frame for a value of this type: values start on a 64-bit boundary, as on the VM. */
+    private Mem temp(Type t) {
+        long off = Layouts.roundUp(frameEnd, 64);
+        frameEnd = off + Math.max(1, g.layouts.sizeOf(t));
+        return new Mem(frameSlot, -1, off);
+    }
+
+    /** Pushes a place's block and offset, as a method taking a value receives them. */
+    private void push(Mem m) {
+        c.aload(m.block());
+        pushOffset(m);
+    }
+
+    private void pushOffset(Mem m) {
+        if (m.offSlot() < 0) {
+            c.loadConstant((int) m.off());
+        } else {
+            c.iload(m.offSlot());
+            if (m.off() != 0) {
+                c.loadConstant((int) m.off());
+                c.iadd();
+            }
+        }
+    }
+
+    /** A block and offset on the stack, kept in locals as a place. */
+    private Mem storeMem() {
+        int off = c.allocateLocal(TypeKind.INT);
+        c.istore(off);
+        int block = c.allocateLocal(TypeKind.REFERENCE);
+        c.astore(block);
+        return new Mem(block, off, 0);
+    }
+
+    private void copy(Mem dst, Mem src, Type t) {
+        long bits = g.layouts.sizeOf(t);
+        if (bits == 0) {
+            return;
+        }
+        push(dst);
+        push(src);
+        c.loadConstant((int) bits);
+        c.invokestatic(JvmGen.BLOCK, "copy", MethodTypeDesc.of(CD_void, JvmGen.BLOCK, CD_int, JvmGen.BLOCK, CD_int, CD_int));
+    }
+
+    private void zeroMem(Mem m, Type t) {
+        long bits = g.layouts.sizeOf(t);
+        if (bits == 0) {
+            return;
+        }
+        push(m);
+        c.loadConstant((int) bits);
+        c.invokestatic(JvmGen.BLOCK, "zero", MethodTypeDesc.of(CD_void, JvmGen.BLOCK, CD_int, CD_int));
+    }
+
+    /** A field of a value in a block. */
+    private Mem fieldMem(Mem object, ClassT owner, MemberInfo m) {
+        return object.at(g.layouts.of(owner).offsets().get(m));
+    }
+
+    /** A struct field of a class object, whose block the object on the stack holds (§5). */
+    private Mem objectFieldMem(ClassT objectType, MemberInfo m) {
+        ClassT owner = g.declaringType(objectType, m);
+        c.getfield(g.instance(owner).desc, JvmGen.VALUES, JvmGen.BLOCK);
+        int block = c.allocateLocal(TypeKind.REFERENCE);
+        c.astore(block);
+        return new Mem(block, -1, g.layouts.of(owner).offsets().get(m));
+    }
+
+    /** A static field of a struct type, in its class's static block (§4.2). */
+    private Mem staticMem(MemberInfo m) {
+        ClassInfo cls = ck.declaringClassOf(m);
+        long off = g.staticOffset(cls, (Field) m.member);
+        c.getstatic(g.staticClass(cls).desc, JvmGen.STATICS, JvmGen.BLOCK);
+        int block = c.allocateLocal(TypeKind.REFERENCE);
+        c.astore(block);
+        return new Mem(block, -1, off);
+    }
+
+    /**
+     * Checks the index on the stack, leaving it, against a fixed array's length: out of range, it
+     * throws an IndexOutOfBoundsException through the library's FixedArray.outOfBounds, as on the
+     * VM, or (without the library) stops the program.
+     */
+    private void boundsCheck(int n, Pos at) {
+        ClassInfo fa = ck.classNamed("FixedArray");
+        MemberInfo thrower = fa == null || !fa.builtin ? null
+                : fa.all.stream().filter(m -> m.member instanceof Method md && md.name().equals("outOfBounds")).findFirst().orElse(null);
+        if (thrower == null) {
+            c.loadConstant(n);
+            c.invokestatic(JvmGen.INTS, "bounds", MethodTypeDesc.of(CD_int, CD_int, CD_int));
+            return;
+        }
+        Label fine = c.newLabel();
+        c.dup();
+        c.loadConstant(n);
+        c.invokestatic(CD_Integer, "compareUnsigned", MethodTypeDesc.of(CD_int, CD_int, CD_int));
+        c.iflt(fine); // a negative index is a huge unsigned one
+        c.dup();
+        c.loadConstant(n);
+        JvmGen.invoke(c, g.ref(new FnKey("method", fa, null, thrower, Map.of()), at));
+        c.labelBinding(fine);
+    }
+
+    /** An element of a fixed array (§21.1), its index checked as the VM does. */
+    private Mem elementMem(Mem array, ArrayT at, Expr index) {
+        long stride = g.layouts.stride(at.element());
+        long n = at.size().intValue().longValueExact();
+        Type it = type(index);
+        if (it instanceof IntConstT) {
+            long i = ck.constantIn(tb, index).intValue().longValueExact();
+            if (i >= 0 && i < n) {
+                return array.at(i * stride);
+            }
+        }
+        value(index, Type.INT);
+        boundsCheck((int) n, index.pos());
+        c.loadConstant((int) stride);
+        c.imul();
+        if (array.offSlot() >= 0) {
+            c.iload(array.offSlot());
+            c.iadd();
+        }
+        int slot = c.allocateLocal(TypeKind.INT);
+        c.istore(slot);
+        return new Mem(array.block(), slot, array.off());
+    }
+
+    /** Pushes the value of type t stored at m. */
+    private void loadFrom(Mem m, Type t) {
+        push(m);
+        loadPushed(t);
+    }
+
+    /** With a block and offset on the stack: the value of type t stored there. */
+    private void loadPushed(Type t) {
+        if (isString(t)) {
+            c.invokestatic(JvmGen.BLOCK, "string", MethodTypeDesc.of(CD_String, JvmGen.BLOCK, CD_int));
+            return;
+        }
+        if (kind(t) == TypeKind.REFERENCE) {
+            c.invokestatic(JvmGen.BLOCK, "ref", MethodTypeDesc.of(CD_Object, JvmGen.BLOCK, CD_int));
+            c.checkcast(g.desc(t, pos));
+            if (isArray(t)) {
+                // An array never stored is the empty one, as a zeroed array is on the VM.
+                Label set = c.newLabel();
+                c.dup();
+                c.ifnonnull(set);
+                c.pop();
+                zero(t);
+                c.labelBinding(set);
+            }
+            return;
+        }
+        c.loadConstant(bitWidth(t));
+        c.invokestatic(JvmGen.BLOCK, "load", MethodTypeDesc.of(CD_long, JvmGen.BLOCK, CD_int, CD_int));
+        switch (t) {
+            case IntT it when it.signed() && !it.isChar() -> {
+                int w = width(it);
+                if (w < 64) {
+                    c.loadConstant(64 - w);
+                    c.lshl();
+                    c.loadConstant(64 - w);
+                    c.lshr();
+                }
+                if (load(it) == TypeKind.INT) {
+                    c.l2i();
+                }
+            }
+            case IntT it -> {
+                if (load(it) == TypeKind.INT) {
+                    c.l2i();
+                }
+            }
+            case BitT b -> c.l2i();
+            case FloatT f -> {
+                c.l2i();
+                c.invokestatic(ClassDesc.of("java.lang.Float"), "intBitsToFloat", MethodTypeDesc.of(CD_float, CD_int));
+            }
+            case DoubleT d -> c.invokestatic(ClassDesc.of("java.lang.Double"), "longBitsToDouble",
+                    MethodTypeDesc.of(CD_double, CD_long));
+            default -> throw unsupported(pos, "values of type " + t + " in a block");
+        }
+    }
+
+    /** With a block, an offset and a value of type t on the stack: stores the value there. */
+    private void storePushed(Type t) {
+        if (kind(t) == TypeKind.REFERENCE) {
+            c.invokestatic(JvmGen.BLOCK, "setRef", MethodTypeDesc.of(CD_void, JvmGen.BLOCK, CD_int, CD_Object));
+            return;
+        }
+        switch (load(t)) {
+            case INT -> c.i2l();
+            case FLOAT -> {
+                c.invokestatic(ClassDesc.of("java.lang.Float"), "floatToRawIntBits", MethodTypeDesc.of(CD_int, CD_float));
+                c.i2l();
+            }
+            case DOUBLE -> c.invokestatic(ClassDesc.of("java.lang.Double"), "doubleToRawLongBits",
+                    MethodTypeDesc.of(CD_long, CD_double));
+            default -> { }
+        }
+        c.loadConstant(bitWidth(t));
+        c.invokestatic(JvmGen.BLOCK, "store", MethodTypeDesc.of(CD_void, JvmGen.BLOCK, CD_int, CD_long, CD_int));
+    }
+
+    private static int bitWidth(Type t) {
+        return switch (t) {
+            case IntT it -> width(it);
+            case BitT b -> 1;
+            case FloatT f -> 32;
+            case DoubleT d -> 64;
+            default -> 64;
+        };
+    }
+
+    /** Makes a value in a place where nothing was: a struct's no-argument constructor, and each element of an array of them. */
+    private void initZeroed(Mem m, Type t) {
+        if (!g.needsInit(t)) {
+            return;
+        }
+        if (t instanceof ClassT ct) {
+            MemberInfo noArgs = null;
+            for (MemberInfo ctor : ct.cls().constructors) {
+                if (ctor.existsIn(ct.header()) && ((Constructor) ctor.member).params().isEmpty()) {
+                    noArgs = ctor;
+                }
+            }
+            push(m);
+            JvmGen.invoke(c, g.constructor(ct, noArgs, Map.of(), pos));
+        } else if (t instanceof ArrayT a) {
+            eachElement(m, a, e -> initZeroed(e, a.element()));
+        }
+    }
+
+    /** Runs body on each element of a fixed array, first to last. */
+    private void eachElement(Mem m, ArrayT a, java.util.function.Consumer<Mem> body) {
+        eachElement(m, a, false, body);
+    }
+
+    /** As above; reverse goes last to first, as destruction does (§16). */
+    private void eachElement(Mem m, ArrayT a, boolean reverse, java.util.function.Consumer<Mem> body) {
+        long n = a.size().intValue().longValueExact();
+        long stride = g.layouts.stride(a.element());
+        if (n <= 8) {
+            for (long j = 0; j < n; j++) {
+                long i = reverse ? n - 1 - j : j;
+                body.accept(m.at(i * stride));
+            }
+            return;
+        }
+        int off = c.allocateLocal(TypeKind.INT);
+        pushOffset(m);
+        if (reverse) {
+            c.loadConstant((int) ((n - 1) * stride));
+            c.iadd();
+        }
+        c.istore(off);
+        int i = c.allocateLocal(TypeKind.INT);
+        c.iconst_0();
+        c.istore(i);
+        Label top = c.newLabel();
+        Label end = c.newLabel();
+        c.labelBinding(top);
+        c.iload(i);
+        c.loadConstant((int) n);
+        c.if_icmpge(end);
+        body.accept(new Mem(m.block(), off, 0));
+        c.iinc(off, (int) (reverse ? -stride : stride));
+        c.iinc(i, 1);
+        c.goto_(top);
+        c.labelBinding(end);
+    }
+
+    /** Destroys a value (§16): a unique's destructor, then its fields', last first; each element of an array of them. */
+    private void destroyValue(Mem m, Type t) {
+        if (!g.needsDestroy(t)) {
+            return;
+        }
+        if (t instanceof ClassT ct) {
+            push(m);
+            JvmGen.invoke(c, g.ref(new FnKey("destroy", ct.cls(), ct, null, Map.of()), pos));
+        } else if (t instanceof ArrayT a) {
+            eachElement(m, a, true, e -> destroyValue(e, a.element()));
+        }
+    }
+
+    /** A local unique with a destructor: destroyed however its scope is left, from here on. */
+    private void destroyLater(Stored s) {
+        Fin f = new Fin(null, s);
+        f.start = c.newLabel();
+        c.labelBinding(f.start);
+        c.nop(); // so that the code it covers is never empty
+        fins.push(f);
+        scopeFins.peek().add(f);
+    }
+
+    /** At the end of a unique's scope: destroyed there, on each jump out, and when an exception passes. */
+    private void finishDestroy(Fin f) {
+        Label end = c.newLabel();
+        Label after = c.newLabel();
+        c.labelBinding(end);
+        if (fins.peek() != f) {
+            throw new IllegalStateException("scopes and finally blocks out of order");
+        }
+        fins.pop();
+        destroyValue(f.destroyed.mem(), f.destroyed.type());
+        c.goto_(after);
+        ClassInfo exception = ck.classNamed("Exception");
+        if (exception != null && exception.builtin) {
+            Label handler = c.newLabel();
+            c.exceptionCatch(f.start, end, handler, g.instance(new ClassT(exception, List.of(), List.of(), 0)).desc);
+            c.labelBinding(handler);
+            int slot = c.allocateLocal(TypeKind.REFERENCE);
+            c.astore(slot);
+            destroyValue(f.destroyed.mem(), f.destroyed.type());
+            c.aload(slot);
+            c.athrow();
+        }
+        for (Exit e : f.exits) {
+            c.labelBinding(e.pad());
+            if (e.moved() != f.destroyed) {
+                destroyValue(f.destroyed.mem(), f.destroyed.type());
+            }
+            if (e.kind().equals("return") && returnsValue()) {
+                c.loadLocal(load(returnType), f.returnSlot);
+            }
+            jump(e.kind(), e.loop(), e.moved());
+        }
+        c.labelBinding(after);
+    }
+
+    private boolean returnsValue() {
+        return !(returnType instanceof VoidT) && !g.isAggregate(returnType);
+    }
+
+    /** Destroys the uniques made for the statement just generated (§16), those it made. */
+    private void flushTemps() {
+        destroyTemps(stmtTemps);
+        stmtTemps.clear();
+    }
+
+    private void destroyTemps(List<Temp> temps) {
+        for (int i = temps.size() - 1; i >= 0; i--) {
+            Temp t = temps.get(i);
+            Label skip = c.newLabel();
+            push(t.made());
+            c.iconst_1();
+            c.invokestatic(JvmGen.BLOCK, "load", MethodTypeDesc.of(CD_long, JvmGen.BLOCK, CD_int, CD_int));
+            c.l2i();
+            c.ifeq(skip);
+            destroyValue(t.value().mem(), t.value().type());
+            setFlag(t.made(), 0);
+            c.labelBinding(skip);
+        }
+    }
+
+    /**
+     * Ends the code from start that made uniques for its statement: an exception it throws destroys
+     * those made so far, then goes on to whatever catches it, as on the VM (§16).
+     */
+    private void guardTemps(Label start, List<Temp> made) {
+        ClassInfo exception = ck.classNamed("Exception");
+        if (made.isEmpty() || exception == null || !exception.builtin) {
+            return;
+        }
+        Label end = c.newLabel();
+        Label handler = c.newLabel();
+        Label on = c.newLabel();
+        c.labelBinding(end);
+        c.goto_(on);
+        c.exceptionCatch(start, end, handler, g.instance(new ClassT(exception, List.of(), List.of(), 0)).desc);
+        c.labelBinding(handler);
+        int slot = c.allocateLocal(TypeKind.REFERENCE);
+        c.astore(slot);
+        destroyTemps(made);
+        c.aload(slot);
+        c.athrow();
+        c.labelBinding(on);
+    }
+
+    private Label here() {
+        Label l = c.newLabel();
+        c.labelBinding(l);
+        return l;
+    }
+
+    private void setFlag(Mem flag, long v) {
+        push(flag);
+        c.loadConstant(v);
+        c.iconst_1();
+        c.invokestatic(JvmGen.BLOCK, "store", MethodTypeDesc.of(CD_void, JvmGen.BLOCK, CD_int, CD_long, CD_int));
+    }
+
+    /** A unique just made for the statement: destroyed at its end. */
+    private void madeTemp(Type t, Mem m) {
+        Mem flag = temp(Type.BIT);
+        setFlag(flag, 1);
+        stmtTemps.add(new Temp(new Stored(t, m), flag));
+    }
+
+    /**
+     * Jumps to no unless the condition holds; uniques it makes for itself are destroyed right after
+     * it, on both ways on (§16).
+     */
+    private void condition(Expr cond, Label no) {
+        if (!mayMakeTemps(cond)) {
+            branchFalse(cond, no);
+            return;
+        }
+        List<Temp> outer = stmtTemps;
+        stmtTemps = new ArrayList<>();
+        Label failed = c.newLabel();
+        Label on = c.newLabel();
+        Label start = here();
+        branchFalse(cond, failed);
+        List<Temp> made = stmtTemps;
+        stmtTemps = outer;
+        guardTemps(start, made);
+        destroyTemps(made);
+        c.goto_(on);
+        c.labelBinding(failed);
+        destroyTemps(made);
+        c.goto_(no);
+        c.labelBinding(on);
+    }
+
+    /** Whether evaluating e may make a unique with a destructor that only the statement holds. */
+    private boolean mayMakeTemps(Expr e) {
+        if (e == null) {
+            return false;
+        }
+        if (tb.rewritten.containsKey(e) && mayMakeTemps(tb.rewritten.get(e))) {
+            return true;
+        }
+        Type t = tb.types.get(e);
+        if (t != null && (e instanceof Call || e instanceof New || e instanceof Binary || e instanceof Unary
+                || e instanceof Cast) && g.isAggregate(t) && g.needsDestroy(t)) {
+            return true;
+        }
+        return switch (e) {
+            case Binary b -> mayMakeTemps(b.left()) || mayMakeTemps(b.right());
+            case Unary u -> mayMakeTemps(u.operand());
+            case Call call -> mayMakeTemps(call.callee()) || call.args().stream().anyMatch(this::mayMakeTemps);
+            case Select s -> mayMakeTemps(s.target());
+            case Index ix -> mayMakeTemps(ix.target()) || mayMakeTemps(ix.index());
+            case Conditional cd -> mayMakeTemps(cd.cond()) || mayMakeTemps(cd.then()) || mayMakeTemps(cd.otherwise());
+            case Cast cast -> mayMakeTemps(cast.operand());
+            case Assign a -> mayMakeTemps(a.target()) || mayMakeTemps(a.value());
+            case InstanceOf io -> mayMakeTemps(io.operand());
+            case New n -> n.args().stream().anyMatch(this::mayMakeTemps);
+            default -> false;
+        };
+    }
+
+    // ================================================================ statements
+
+    private void block(Block b) {
+        openScope(new HashMap<>());
+        for (Stmt s : b.stmts()) {
+            stmt(s);
+        }
+        closeScope();
+    }
+
     /** A statement that forms its own scope: the body of an if, while or for. */
     private void scoped(Stmt s) {
-        scopes.push(new HashMap<>());
+        openScope(new HashMap<>());
         stmt(s);
-        scopes.pop();
+        closeScope();
     }
 
     private void stmt(Stmt s) {
@@ -516,21 +1303,46 @@ final class JvmCode {
             case Block b -> block(b);
             case VarDecl v -> {
                 Type t = tb.locals.get(v);
+                if (g.isAggregate(t)) {
+                    Stored st = new Stored(t, temp(t));
+                    Label start = here();
+                    if (v.init() != null) {
+                        into(st.mem(), v.init(), t);
+                    } else {
+                        zeroMem(st.mem(), t);
+                        initZeroed(st.mem(), t);
+                    }
+                    guardTemps(start, stmtTemps);
+                    flushTemps();
+                    scopes.peek().put(v.name(), st);
+                    if (g.needsDestroy(t)) {
+                        destroyLater(st);
+                    }
+                    return;
+                }
                 int slot = c.allocateLocal(kind(t));
+                Label start = here();
                 if (v.init() != null) {
                     value(v.init(), t);
                 } else {
                     zero(t);
                 }
+                guardTemps(start, stmtTemps);
+                flushTemps();
                 c.storeLocal(load(t), slot);
                 scopes.peek().put(v.name(), new Local(t, slot));
             }
-            case ExprStmt e -> effect(e.expr());
+            case ExprStmt e -> {
+                Label start = here();
+                effect(e.expr());
+                guardTemps(start, stmtTemps);
+                flushTemps();
+            }
             case ForEach fe -> stmt(tb.desugared.get(fe));
             case If i -> {
                 Label otherwise = c.newLabel();
                 Label end = c.newLabel();
-                branchFalse(i.cond(), otherwise);
+                condition(i.cond(), otherwise);
                 scoped(i.then());
                 if (i.otherwise() != null) {
                     c.goto_(end);
@@ -546,7 +1358,7 @@ final class JvmCode {
                 Label top = c.newLabel();
                 Label end = c.newLabel();
                 c.labelBinding(top);
-                branchFalse(w.cond(), end);
+                condition(w.cond(), end);
                 loops.push(new Loop(end, top, name, fins.size()));
                 scoped(w.body());
                 loops.pop();
@@ -555,7 +1367,7 @@ final class JvmCode {
             }
             case For f -> {
                 String name = takeLabel();
-                scopes.push(new HashMap<>());
+                openScope(new HashMap<>());
                 if (f.init() != null) {
                     stmt(f.init());
                 }
@@ -564,7 +1376,7 @@ final class JvmCode {
                 Label end = c.newLabel();
                 c.labelBinding(top);
                 if (f.cond() != null) {
-                    branchFalse(f.cond(), end);
+                    condition(f.cond(), end);
                 }
                 loops.push(new Loop(end, next, name, fins.size()));
                 scoped(f.body());
@@ -575,7 +1387,7 @@ final class JvmCode {
                 }
                 c.goto_(top);
                 c.labelBinding(end);
-                scopes.pop();
+                closeScope();
             }
             case Labeled l -> {
                 pendingLabel = l.label();
@@ -586,10 +1398,23 @@ final class JvmCode {
                     ? loops.stream().filter(x -> x.continueTo() != null).findFirst().orElseThrow()
                     : labeled(co.label()));
             case Return r -> {
-                if (r.value() != null) {
+                Stored moved = null;
+                Label start = here();
+                if (r.value() != null && g.isAggregate(returnType)) {
+                    // A struct or unique result goes where the caller said; a local unique returned is moved, not destroyed.
+                    if (r.value() instanceof Name n && "local".equals(tb.nameKinds.get(n)) && lookup(n.name()) instanceof Stored st
+                            && Checker.isUnique(returnType)) {
+                        moved = st;
+                        copy(retMem, st.mem(), returnType);
+                    } else {
+                        into(retMem, r.value(), returnType);
+                    }
+                } else if (r.value() != null) {
                     value(r.value(), returnType);
                 }
-                jump("return", null);
+                guardTemps(start, stmtTemps);
+                flushTemps();
+                jump("return", null, moved);
             }
             case Switch sw -> switchStatement(sw);
             case Assert a -> {
@@ -606,8 +1431,12 @@ final class JvmCode {
             }
             case Yield y -> {
                 SwitchOut out = switchOuts.peek();
-                value(y.value(), out.type());
-                c.storeLocal(load(out.type()), out.slot());
+                if (out.into() != null) {
+                    into(out.into(), y.value(), out.type());
+                } else {
+                    value(y.value(), out.type());
+                    c.storeLocal(load(out.type()), out.slot());
+                }
                 jump("break", out.loop());
             }
             case DeleteStmt d -> throw unsupported(d.pos(), "delete");
@@ -635,11 +1464,16 @@ final class JvmCode {
      * and then goes on with the jump.
      */
     private void jump(String kind, Loop loop) {
+        jump(kind, loop, null);
+    }
+
+    /** As above; moved is a local unique a return hands to the caller, which isn't destroyed. */
+    private void jump(String kind, Loop loop, Stored moved) {
         int crossing = kind.equals("return") ? fins.size() : fins.size() - loop.fins();
         if (crossing == 0) {
             switch (kind) {
                 case "return" -> {
-                    if (returnType instanceof VoidT) {
+                    if (!returnsValue()) {
                         returnVoid();
                     } else {
                         c.return_(load(returnType));
@@ -651,19 +1485,19 @@ final class JvmCode {
             return;
         }
         Fin f = fins.peek();
-        if (kind.equals("return") && !(returnType instanceof VoidT)) {
+        if (kind.equals("return") && returnsValue()) {
             if (f.returnSlot < 0) {
                 f.returnSlot = c.allocateLocal(kind(returnType));
             }
             c.storeLocal(load(returnType), f.returnSlot);
         }
         for (Exit e : f.exits) {
-            if (e.kind().equals(kind) && e.loop() == loop) {
+            if (e.kind().equals(kind) && e.loop() == loop && e.moved() == moved) {
                 c.goto_(e.pad());
                 return;
             }
         }
-        Exit e = new Exit(c.newLabel(), kind, loop);
+        Exit e = new Exit(c.newLabel(), kind, loop, moved);
         f.exits.add(e);
         c.goto_(e.pad());
     }
@@ -671,7 +1505,7 @@ final class JvmCode {
     /** A switch statement: the subject in a hidden local, then each case's tests in order (§41.3). */
     private void switchStatement(Switch sw) {
         Checker.SwitchInfo info = tb.switches.get(sw);
-        scopes.push(new HashMap<>());
+        openScope(new HashMap<>());
         stmt(info.subject());
         Label end = c.newLabel();
         List<Label> starts = new ArrayList<>();
@@ -702,15 +1536,20 @@ final class JvmCode {
         }
         loops.pop();
         c.labelBinding(end);
-        scopes.pop();
+        closeScope();
     }
 
     /** A switch expression (§41.3): as a switch statement, with each yield storing the value. */
     private Type switchExpr(SwitchExpr se, Type t) {
+        return switchExpr(se, t, null);
+    }
+
+    /** As above; a struct value goes to dst. */
+    private Type switchExpr(SwitchExpr se, Type t, Mem dst) {
         Checker.SwitchInfo info = tb.switchExprs.get(se);
         Type vt = concrete(t);
-        int slot = c.allocateLocal(kind(vt));
-        scopes.push(new HashMap<>());
+        int slot = dst != null ? -1 : c.allocateLocal(kind(vt));
+        openScope(new HashMap<>());
         stmt(info.subject());
         Label end = c.newLabel();
         List<Label> starts = new ArrayList<>();
@@ -736,7 +1575,7 @@ final class JvmCode {
         }
         Loop loop = new Loop(end, null, null, fins.size());
         loops.push(loop);
-        switchOuts.push(new SwitchOut(loop, slot, vt));
+        switchOuts.push(new SwitchOut(loop, slot, vt, dst));
         for (int i = 0; i < se.cases().size(); i++) {
             Case cs = se.cases().get(i);
             c.labelBinding(starts.get(i));
@@ -748,8 +1587,10 @@ final class JvmCode {
         switchOuts.pop();
         loops.pop();
         c.labelBinding(end);
-        scopes.pop();
-        c.loadLocal(load(vt), slot);
+        closeScope();
+        if (dst == null) {
+            c.loadLocal(load(vt), slot);
+        }
         return vt;
     }
 
@@ -761,7 +1602,7 @@ final class JvmCode {
      */
     private void tryStatement(Try t) {
         Block finBlock = t.finallyBlock();
-        Fin fin = finBlock == null ? null : new Fin(finBlock);
+        Fin fin = finBlock == null ? null : new Fin(finBlock, null);
         Label start = c.newLabel();
         Label bodyEnd = c.newLabel();
         Label after = c.newLabel();
@@ -787,7 +1628,7 @@ final class JvmCode {
             Label catchEnd = c.newLabel();
             c.exceptionCatch(start, bodyEnd, handler, g.instance(ct).desc);
             c.labelBinding(handler);
-            scopes.push(new HashMap<>());
+            openScope(new HashMap<>());
             int slot = c.allocateLocal(TypeKind.REFERENCE);
             c.astore(slot);
             scopes.peek().put(cl.name(), new Local(new HandleT(ct), slot));
@@ -798,7 +1639,7 @@ final class JvmCode {
             if (fin != null) {
                 fins.pop();
             }
-            scopes.pop();
+            closeScope();
             c.labelBinding(catchEnd);
             guarded.add(new Label[]{handler, catchEnd});
             if (fin != null) {
@@ -825,10 +1666,10 @@ final class JvmCode {
             for (Exit e : fin.exits) {
                 c.labelBinding(e.pad());
                 scoped(finBlock);
-                if (e.kind().equals("return") && !(returnType instanceof VoidT)) {
+                if (e.kind().equals("return") && returnsValue()) {
                     c.loadLocal(load(returnType), fin.returnSlot);
                 }
-                jump(e.kind(), e.loop());
+                jump(e.kind(), e.loop(), e.moved());
             }
         }
         c.labelBinding(after);
@@ -857,6 +1698,16 @@ final class JvmCode {
                 return;
             }
             effect(tb.rewritten.get(e));
+            return;
+        }
+        Type et = tb.types.get(e);
+        if (et != null && g.isAggregate(et) && !(e instanceof Assign)) {
+            // A struct made only to be dropped (a call's result): made aside, and a unique destroyed after the statement.
+            Mem t = temp(et);
+            into(t, e, et);
+            if (g.needsDestroy(et)) {
+                madeTemp(et, t);
+            }
             return;
         }
         switch (e) {
@@ -940,6 +1791,12 @@ final class JvmCode {
                 c.loadConstant(sc.value() != null ? sc.value() : ((StringLit) e).value());
                 return want != null ? want : t;
             }
+            if (g.isAggregate(t)) {
+                if (t instanceof ArrayT at && isArray(want)) {
+                    return fixedToArray(e, at, (ClassT) want);
+                }
+                throw new IllegalStateException("a struct used as a single value at " + e.pos() + ": " + t);
+            }
             Type pushed = valueAt(e, t, want);
             if (want == null) {
                 return pushed;
@@ -1014,6 +1871,34 @@ final class JvmCode {
             case Index ix when tb.calls.containsKey(ix) -> {
                 return operator(ix);
             }
+            case Index ix when type(ix.target()) instanceof ArrayT at && at.size() != null -> {
+                loadFrom(elementMem(aggregateOf(ix.target()), at, ix.index()), t);
+                return t;
+            }
+            case Index ix when type(ix.target()) instanceof IntT it -> {
+                // One bit of an integer (§40): checked against its width, as on the VM.
+                value(ix.target(), it);
+                value(ix.index(), Type.INT);
+                c.loadConstant(width(it));
+                c.invokestatic(JvmGen.INTS, "bounds", MethodTypeDesc.of(CD_int, CD_int, CD_int));
+                if (load(it) == TypeKind.LONG) {
+                    c.lushr();
+                    c.l2i();
+                } else {
+                    c.iushr();
+                }
+                c.iconst_1();
+                c.iand();
+                return Type.BIT;
+            }
+            case Slice sl -> {
+                IntT it = (IntT) type(sl.target());
+                long from = ck.constantIn(tb, sl.from()).intValue().longValueExact();
+                long to = ck.constantIn(tb, sl.to()).intValue().longValueExact();
+                value(sl.target(), it);
+                sliceOf(it, from, to, t);
+                return t;
+            }
             case InstanceOf io -> {
                 return instanceOf(io);
             }
@@ -1045,9 +1930,218 @@ final class JvmCode {
         };
     }
 
+    // ------------------------------------------------------------ values in blocks
+
+    /** Makes e's value, of a struct, unique or fixed-array type, in the place dst (§4). */
+    private void into(Mem dst, Expr e, Type t) {
+        if (tb.rewritten.containsKey(e)) {
+            into(dst, tb.rewritten.get(e), t);
+            return;
+        }
+        Pos outer = pos;
+        pos = e.pos();
+        try {
+            switch (e) {
+                case New n when tb.calls.get(n) instanceof CallInfo ci && g.isAggregate(ci.owner()) -> {
+                    zeroMem(dst, t);
+                    construct(dst, ci, n.args());
+                    return;
+                }
+                case Call call -> {
+                    call(call, dst);
+                    return;
+                }
+                case Binary b when tb.calls.containsKey(b) -> {
+                    operator(b, dst);
+                    return;
+                }
+                case Unary u when tb.calls.containsKey(u) -> {
+                    operator(u, dst);
+                    return;
+                }
+                case Cast cast when tb.calls.containsKey(cast) -> {
+                    operator(cast, dst);
+                    return;
+                }
+                case Index ix when tb.calls.containsKey(ix) -> {
+                    operator(ix, dst);
+                    return;
+                }
+                case Conditional cond -> {
+                    Label otherwise = c.newLabel();
+                    Label end = c.newLabel();
+                    branchFalse(cond.cond(), otherwise);
+                    into(dst, cond.then(), t);
+                    c.goto_(end);
+                    c.labelBinding(otherwise);
+                    into(dst, cond.otherwise(), t);
+                    c.labelBinding(end);
+                    return;
+                }
+                case ArrayLit al when t instanceof ArrayT at -> {
+                    long stride = g.layouts.stride(at.element());
+                    for (int i = 0; i < al.elements().size(); i++) {
+                        Expr el = al.elements().get(i);
+                        if (g.isAggregate(at.element())) {
+                            into(dst.at(i * stride), el, at.element());
+                        } else {
+                            push(dst.at(i * stride));
+                            value(el, at.element());
+                            storePushed(at.element());
+                        }
+                    }
+                    return;
+                }
+                case SwitchExpr se -> {
+                    switchExpr(se, t, dst);
+                    return;
+                }
+                default -> {
+                    Mem src = mem(e);
+                    if (src == null) {
+                        throw unsupported(e.pos(), describe(e) + " as a " + t);
+                    }
+                    copy(dst, src, t);
+                }
+            }
+        } finally {
+            pos = outer;
+        }
+    }
+
+    /**
+     * The place a struct-valued expression names: a variable, a field (of a struct, of a class
+     * object, a static one), an element of a fixed array, `this`; or null if it names none (a call's
+     * result, which is made somewhere instead).
+     */
+    private Mem mem(Expr e) {
+        if (tb.rewritten.containsKey(e)) {
+            return mem(tb.rewritten.get(e));
+        }
+        switch (e) {
+            case Name n when "local".equals(tb.nameKinds.get(n)) -> {
+                return lookup(n.name()) instanceof Stored st ? st.mem() : null;
+            }
+            case Name n when "field".equals(tb.nameKinds.get(n)) -> {
+                MemberInfo m = tb.fieldOf.get(n);
+                if (((Field) m.member).modifiers().isStatic()) {
+                    return staticMem(m);
+                }
+                if (thisMem != null) {
+                    return fieldMem(thisMem, k.owner(), m);
+                }
+                if (thisType == null) {
+                    throw unsupported(n.pos(), "the field " + n.name() + " of " + thisValueType());
+                }
+                loadThis(n.pos());
+                return objectFieldMem(thisType, m);
+            }
+            case Select s when tb.selected.get(s) instanceof MemberInfo m && m.member instanceof Field f -> {
+                if (f.modifiers().isStatic()) {
+                    return staticMem(m);
+                }
+                Type tt = type(s.target());
+                if (tt instanceof HandleT h && h.target() instanceof ClassT ct) {
+                    value(s.target(), null);
+                    return objectFieldMem(ct, m);
+                }
+                if (tt instanceof ClassT ct && g.isAggregate(ct)) {
+                    return fieldMem(aggregateOf(s.target()), ct, m);
+                }
+                return null;
+            }
+            case Index ix when type(ix.target()) instanceof ArrayT at && at.size() != null && !tb.calls.containsKey(ix) -> {
+                return elementMem(aggregateOf(ix.target()), at, ix.index());
+            }
+            case This th when thisMem != null -> {
+                return thisMem;
+            }
+            default -> {
+                return null;
+            }
+        }
+    }
+
+    /** A struct-valued expression's place: the one it names, or a new one in the frame with its value. */
+    private Mem aggregateOf(Expr e) {
+        Mem m = mem(e);
+        if (m != null) {
+            return m;
+        }
+        Type t = type(e);
+        Mem tmp = temp(t);
+        into(tmp, e, t);
+        if (g.needsDestroy(t)) {
+            madeTemp(t, tmp);
+        }
+        return tmp;
+    }
+
+    /** A fixed array where an array<T> is wanted (§21.3): a new one with the elements copied. */
+    private Type fixedToArray(Expr e, ArrayT at, ClassT want) {
+        Mem src = aggregateOf(e);
+        Type element = at.element();
+        long n = at.size().intValue().longValueExact();
+        long stride = g.layouts.stride(element);
+        if (g.isAggregate(element)) {
+            arrayOfBlock(element, n);
+            c.dup();
+            int block = c.allocateLocal(TypeKind.REFERENCE);
+            c.astore(block);
+            copyRegion(new Mem(block, -1, 0), src, n * stride);
+            return want;
+        }
+        c.loadConstant((int) n);
+        newArray(element);
+        for (long i = 0; i < n; i++) {
+            c.dup();
+            c.loadConstant((int) i);
+            loadFrom(src.at(i * stride), element);
+            c.arrayStore(kind(element));
+        }
+        return want;
+    }
+
+    private void copyRegion(Mem dst, Mem src, long bits) {
+        push(dst);
+        push(src);
+        c.loadConstant((int) bits);
+        c.invokestatic(JvmGen.BLOCK, "copy", MethodTypeDesc.of(CD_void, JvmGen.BLOCK, CD_int, JvmGen.BLOCK, CD_int, CD_int));
+    }
+
+    /** A new array<T> of n structs, as a block of n elements in a row (§8.1); pushed. */
+    private void arrayOfBlock(Type element, long n) {
+        c.new_(JvmGen.BLOCK);
+        c.dup();
+        c.loadConstant(n * g.layouts.stride(element));
+        c.loadConstant((int) n);
+        c.invokespecial(JvmGen.BLOCK, "<init>", MethodTypeDesc.of(CD_void, CD_long, CD_int));
+    }
+
+    /** Makes a struct with a constructor, in a zeroed place. */
+    private void construct(Mem dst, CallInfo ci, List<Expr> args) {
+        ClassT ct = ci.owner();
+        MethodRef init = g.constructor(ct, ci.member(), ci.binders(), pos);
+        push(dst);
+        List<Type> params = ci.member() == null ? List.of() : ck.paramTypes(ct, ci.member(), ci.binders());
+        pushArgs(params, args);
+        JvmGen.invoke(c, init);
+    }
+
     /** [1, 2, 3] made into an array<T>: a new Java array with the elements stored in it. */
     private Type arrayLiteral(ArrayLit al, ClassT t) {
         Type element = t.typeArgs().get(0);
+        if (g.isAggregate(element)) {
+            long stride = g.layouts.stride(element);
+            arrayOfBlock(element, al.elements().size());
+            int block = c.allocateLocal(TypeKind.REFERENCE);
+            c.dup();
+            c.astore(block);
+            for (int i = 0; i < al.elements().size(); i++) {
+                into(new Mem(block, -1, i * stride), al.elements().get(i), element);
+            }
+            return t;
+        }
         c.loadConstant(al.elements().size());
         newArray(element);
         for (int i = 0; i < al.elements().size(); i++) {
@@ -1077,6 +2171,10 @@ final class JvmCode {
             if (f.modifiers().isStatic()) {
                 return getStatic(m, n.pos());
             }
+            if (thisMem != null) {
+                loadFrom(fieldMem(thisMem, k.owner(), m), t);
+                return t;
+            }
             loadThis(n.pos());
             return getField(thisValueType(), m, n.pos());
         }
@@ -1094,6 +2192,11 @@ final class JvmCode {
         }
         if (f.modifiers().isStatic()) {
             return getStatic(m, s.pos());
+        }
+        Type tt = type(s.target());
+        if (tt instanceof ClassT ct && g.isAggregate(ct)) {
+            loadFrom(fieldMem(aggregateOf(s.target()), ct, m), t);
+            return t;
         }
         Type target = value(s.target(), null);
         return getField(target, m, s.pos());
@@ -1121,7 +2224,11 @@ final class JvmCode {
             return Type.INT;
         }
         if (isArray(target) && f.name().equals("len")) {
-            c.arraylength();
+            if (g.isAggregate(((ClassT) target).typeArgs().get(0))) {
+                c.invokestatic(JvmGen.BLOCK, "count", MethodTypeDesc.of(CD_int, JvmGen.BLOCK));
+            } else {
+                c.arraylength();
+            }
             return Type.INT;
         }
         if (!(target instanceof HandleT h) || !(h.target() instanceof ClassT ct)) {
@@ -1394,6 +2501,11 @@ final class JvmCode {
         if (tb.calls.containsKey(b)) {
             return operator(b);
         }
+        String joined = constString(b);
+        if (joined != null) {
+            c.loadConstant(joined); // literals joined with +, one string as on the VM
+            return t;
+        }
         switch (b.op()) {
             case AND, OR, EQ, NE, LT, GT, LE, GE -> {
                 Label no = c.newLabel();
@@ -1566,6 +2678,20 @@ final class JvmCode {
         }
     }
 
+    /** The text of a string literal, or of literals joined with +; null for anything else. */
+    private String constString(Expr e) {
+        if (e instanceof StringLit sl) {
+            return sl.value();
+        }
+        if (e instanceof Binary b && b.op() == BinaryOp.ADD && type(b.left()) instanceof StrConstT
+                && type(b.right()) instanceof StrConstT) {
+            String l = constString(b.left());
+            String r = constString(b.right());
+            return l == null || r == null ? null : l + r;
+        }
+        return null;
+    }
+
     private static boolean isReference(Type t) {
         return t instanceof HandleT || t instanceof NullT || isValue(t);
     }
@@ -1655,8 +2781,12 @@ final class JvmCode {
      * field. {@link #base} pushes what the place needs (nothing, or the object); {@link #get} and
      * {@link #put} use it up.
      */
-    private sealed interface Place permits LocalPlace, FieldPlace, StaticPlace {
+    private sealed interface Place permits LocalPlace, FieldPlace, StaticPlace, MemPlace {
         Type type();
+    }
+
+    /** A number, bit or reference in a block (§4.1): a struct's field, an element of a fixed array. */
+    private record MemPlace(Mem mem, Type type) implements Place {
     }
 
     private record LocalPlace(Local local) implements Place {
@@ -1688,6 +2818,9 @@ final class JvmCode {
                 if (((Field) m.member).modifiers().isStatic()) {
                     return new StaticPlace(m, ck.staticFieldType(ck.declaringClassOf(m), (Field) m.member));
                 }
+                if (thisMem != null) {
+                    return new MemPlace(fieldMem(thisMem, k.owner(), m), type(n));
+                }
                 return new FieldPlace(null, thisValueType(), m, type(n));
             }
             case Select s when tb.selected.get(s) instanceof MemberInfo m && m.member instanceof Field f
@@ -1695,7 +2828,13 @@ final class JvmCode {
                 if (f.modifiers().isStatic()) {
                     return new StaticPlace(m, ck.staticFieldType(ck.declaringClassOf(m), f));
                 }
+                if (type(s.target()) instanceof ClassT ct && g.isAggregate(ct)) {
+                    return new MemPlace(fieldMem(aggregateOf(s.target()), ct, m), type(s));
+                }
                 return new FieldPlace(s.target(), type(s.target()), m, type(s));
+            }
+            case Index ix when type(ix.target()) instanceof ArrayT at && at.size() != null && !tb.calls.containsKey(ix) -> {
+                return new MemPlace(elementMem(aggregateOf(ix.target()), at, ix.index()), type(ix));
             }
             case This th when thisLocal != null -> {
                 return new LocalPlace(thisLocal);
@@ -1707,10 +2846,13 @@ final class JvmCode {
     }
 
     private int baseSize(Place p) {
-        return p instanceof FieldPlace ? 1 : 0;
+        return p instanceof FieldPlace ? 1 : p instanceof MemPlace ? 2 : 0;
     }
 
     private void base(Place p) {
+        if (p instanceof MemPlace mp) {
+            push(mp.mem());
+        }
         if (p instanceof FieldPlace f) {
             if (f.object() == null) {
                 loadThis(pos);
@@ -1722,6 +2864,7 @@ final class JvmCode {
 
     private void get(Place p) {
         switch (p) {
+            case MemPlace mp -> loadPushed(mp.type());
             case LocalPlace l -> c.loadLocal(load(l.type()), l.local().slot());
             case FieldPlace f -> getField(f.objectType(), f.field(), pos);
             case StaticPlace s -> getStatic(s.field(), pos);
@@ -1730,6 +2873,7 @@ final class JvmCode {
 
     private void put(Place p) {
         switch (p) {
+            case MemPlace mp -> storePushed(mp.type());
             case LocalPlace l -> c.storeLocal(load(l.type()), l.local().slot());
             case FieldPlace f -> putField(f.objectType(), f.field(), pos);
             case StaticPlace s -> putStatic(s.field(), pos);
@@ -1739,16 +2883,18 @@ final class JvmCode {
     private void dupBase(Place p) {
         if (baseSize(p) == 1) {
             c.dup();
+        } else if (baseSize(p) == 2) {
+            c.dup2();
         }
     }
 
     /** With the base and the value on the stack, keeps a copy of the value below the base. */
     private void keepUnderBase(Place p, Type value) {
         boolean wide = kind(value).slotSize() == 2;
-        if (baseSize(p) == 0) {
-            if (wide) c.dup2(); else c.dup();
-        } else {
-            if (wide) c.dup2_x1(); else c.dup_x1();
+        switch (baseSize(p)) {
+            case 0 -> { if (wide) c.dup2(); else c.dup(); }
+            case 1 -> { if (wide) c.dup2_x1(); else c.dup_x1(); }
+            default -> { if (wide) c.dup2_x2(); else c.dup_x2(); }
         }
     }
 
@@ -1767,6 +2913,33 @@ final class JvmCode {
             return;
         }
         Type t = type(a.target());
+        if (g.isAggregate(t)) {
+            if (keep) {
+                throw unsupported(a.pos(), "the value of an assignment of a " + t);
+            }
+            Mem dst = mem(a.target());
+            if (dst == null) {
+                throw unsupported(a.target().pos(), "assigning " + describe(a.target()));
+            }
+            if (g.needsDestroy(t) || a.value() instanceof ArrayLit) {
+                // Made aside first: the old value is destroyed, and `a = [a[1], a[0]]` reads a while the new one is made.
+                Mem fresh = temp(t);
+                into(fresh, a.value(), t);
+                destroyValue(dst, t);
+                copy(dst, fresh, t);
+            } else {
+                into(dst, a.value(), t);
+            }
+            return;
+        }
+        if (a.target() instanceof Index ix && type(ix.target()) instanceof IntT it) {
+            assignBit(a, ix, it, keep);
+            return;
+        }
+        if (a.target() instanceof Slice sl) {
+            assignSlice(a, sl, keep);
+            return;
+        }
         Place p = target(a.target());
         base(p);
         if (a.op() == null) {
@@ -1817,6 +2990,158 @@ final class JvmCode {
         return l;
     }
 
+    private static long mask(long bits) {
+        return bits >= 64 ? -1L : (1L << bits) - 1;
+    }
+
+    /** With an integer of type it on the stack: bits from (inclusive) to to (exclusive), as type st. */
+    private void sliceOf(IntT it, long from, long to, Type st) {
+        boolean wide = load(it) == TypeKind.LONG;
+        c.loadConstant((int) from);
+        if (wide) {
+            c.lushr();
+            c.loadConstant(mask(to - from));
+            c.land();
+            if (load(st) == TypeKind.INT) {
+                c.l2i();
+            }
+        } else {
+            c.iushr();
+            c.loadConstant((int) mask(to - from));
+            c.iand();
+            if (load(st) == TypeKind.LONG) {
+                c.i2l();
+            }
+        }
+    }
+
+    /** x[i] = b, or x[i] op= b: one bit of an integer, read, changed and written back (§40). */
+    private void assignBit(Assign a, Index ix, IntT it, boolean keep) {
+        boolean wide = load(it) == TypeKind.LONG;
+        Place p = target(ix.target());
+        base(p);
+        dupBase(p);
+        get(p);
+        value(ix.index(), Type.INT);
+        c.loadConstant(width(it));
+        c.invokestatic(JvmGen.INTS, "bounds", MethodTypeDesc.of(CD_int, CD_int, CD_int));
+        int i = c.allocateLocal(TypeKind.INT);
+        c.istore(i);
+        if (a.op() == null) {
+            value(a.value(), Type.BIT);
+        } else {
+            if (wide) c.dup2(); else c.dup();
+            c.iload(i);
+            if (wide) {
+                c.lushr();
+                c.l2i();
+            } else {
+                c.iushr();
+            }
+            c.iconst_1();
+            c.iand();
+            value(a.value(), Type.BIT);
+            arithmetic(a.op(), Type.BIT, a.pos());
+        }
+        int bit = c.allocateLocal(TypeKind.INT);
+        c.istore(bit);
+        if (wide) {
+            c.lconst_1();
+            c.iload(i);
+            c.lshl();
+            c.loadConstant(-1L);
+            c.lxor();
+            c.land();
+            c.iload(bit);
+            c.i2l();
+            c.iload(i);
+            c.lshl();
+            c.lor();
+        } else {
+            c.iconst_1();
+            c.iload(i);
+            c.ishl();
+            c.iconst_m1();
+            c.ixor();
+            c.iand();
+            c.iload(bit);
+            c.iload(i);
+            c.ishl();
+            c.ior();
+        }
+        normalize(it);
+        put(p);
+        if (keep) {
+            c.iload(bit);
+        }
+    }
+
+    /** x[a..b] = v, or x[a..b] op= v: a field of bits, read, changed and written back (§40). */
+    private void assignSlice(Assign a, Slice sl, boolean keep) {
+        IntT it = (IntT) type(sl.target());
+        Type st = type(sl);
+        boolean wide = load(it) == TypeKind.LONG;
+        long from = ck.constantIn(tb, sl.from()).intValue().longValueExact();
+        long to = ck.constantIn(tb, sl.to()).intValue().longValueExact();
+        long field = mask(to - from) << from;
+        Place p = target(sl.target());
+        base(p);
+        dupBase(p);
+        get(p);
+        if (a.op() == null) {
+            value(a.value(), st);
+        } else {
+            if (wide) c.dup2(); else c.dup();
+            sliceOf(it, from, to, st);
+            Type wideT = tb.narrowed.get(a);
+            if (wideT == null) {
+                value(a.value(), st);
+                arithmetic(a.op(), st, a.pos());
+            } else {
+                widen(st, wideT);
+                value(a.value(), wideT);
+                arithmetic(a.op(), wideT, a.pos());
+                convert(wideT, st);
+            }
+        }
+        int v = c.allocateLocal(kind(st));
+        c.storeLocal(load(st), v);
+        c.loadLocal(load(st), v);
+        if (wide && load(st) == TypeKind.INT) {
+            toLong((IntT) st);
+        } else if (!wide && load(st) == TypeKind.LONG) {
+            c.l2i();
+        }
+        c.loadConstant((int) from);
+        if (wide) {
+            c.lshl();
+            c.loadConstant(field);
+            c.land();
+        } else {
+            c.ishl();
+            c.loadConstant((int) field);
+            c.iand();
+        }
+        // The old value without the field, joined with the new field: the new field is on top.
+        if (wide) {
+            c.dup2_x2();
+            c.pop2();
+            c.loadConstant(~field);
+            c.land();
+            c.lor();
+        } else {
+            c.swap();
+            c.loadConstant((int) ~field);
+            c.iand();
+            c.ior();
+        }
+        normalize(it);
+        put(p);
+        if (keep) {
+            c.loadLocal(load(st), v);
+        }
+    }
+
     /** `++x` gives the new value, `x++` the old one (§41.5); with {@code keep} it stays on the stack. */
     private void incDec(IncDec i, boolean keep) {
         Assign step = tb.elementSteps.get(i);
@@ -1857,6 +3182,11 @@ final class JvmCode {
     // ================================================================ calls
 
     private Type call(Call call) {
+        return call(call, null);
+    }
+
+    /** A call; one returning a struct makes it in dst (a new place in the frame if null). */
+    private Type call(Call call, Mem dst) {
         CallInfo ci = tb.calls.get(call);
         if (ci == null) {
             throw unsupported(call.pos(), "this call");
@@ -1867,45 +3197,76 @@ final class JvmCode {
         Pos at = call.pos();
         switch (ci.kind()) {
             case STATIC -> {
-                return invokeStatic(ci, call.args(), at);
+                return invokeStatic(ci, call.args(), at, dst);
             }
             case SUPER_CONSTRUCTOR -> {
                 c.aload(0);
                 ClassT parent = ci.owner();
                 List<Type> params = ci.member() == null ? List.of() : ck.paramTypes(parent, ci.member(), ci.binders());
-                for (int i = 0; i < call.args().size(); i++) {
-                    value(call.args().get(i), params.get(i));
-                }
+                pushArgs(params, call.args());
                 JvmGen.invoke(c, g.constructor(parent, ci.member(), ci.binders(), at));
                 return Type.VOID;
             }
             case SUPER_METHOD -> {
                 c.aload(0);
                 MethodRef r = instanceRef(ci, at);
+                Type ret = ck.returnTypeOf(ci.owner(), ci.member(), ci.binders());
+                pushResult(ret, dst);
                 pushArgs(ci, call.args());
                 c.invokespecial(r.owner(), r.name(), r.type());
-                return ck.returnTypeOf(ci.owner(), ci.member(), ci.binders());
+                return ret;
             }
             default -> {
                 Expr receiver = call.callee() instanceof Select s ? s.target() : null;
-                return invokeOn(ci, receiver, call.args(), at);
+                return invokeOn(ci, receiver, call.args(), at, dst);
             }
+        }
+    }
+
+    /** For a call returning a struct: pushes the place it goes (§4.2). */
+    private void pushResult(Type ret, Mem dst) {
+        if (g.isAggregate(ret)) {
+            if (dst == null) {
+                throw new IllegalStateException("a struct result with nowhere to go");
+            }
+            push(dst);
         }
     }
 
     private void pushArgs(CallInfo ci, List<Expr> args) {
-        List<Type> params = ck.paramTypes(ci.owner(), ci.member(), ci.binders());
+        pushArgs(ck.paramTypes(ci.owner(), ci.member(), ci.binders()), args);
+    }
+
+    /**
+     * Arguments, as JVM parameters: a number or reference as it is; a struct as a copy made in the
+     * frame, which the callee may change; a unique lent, as its own place (§16.1).
+     */
+    private void pushArgs(List<Type> params, List<Expr> args) {
         for (int i = 0; i < args.size(); i++) {
-            value(args.get(i), params.get(i));
+            Type pt = params.get(i);
+            Expr a = args.get(i);
+            if (!g.isAggregate(pt)) {
+                value(a, pt);
+            } else if (Checker.isUnique(pt)) {
+                push(aggregateOf(a));
+            } else {
+                Mem copy = temp(pt);
+                into(copy, a, pt);
+                push(copy);
+            }
         }
     }
 
-    private Type invokeStatic(CallInfo ci, List<Expr> args, Pos at) {
+    private Type invokeStatic(CallInfo ci, List<Expr> args, Pos at, Mem dst) {
         MemberInfo m = ci.member();
         Method md = (Method) m.member;
         String jvm = Checker.jvmName(md);
-        pushArgs(ci, args);
         Type ret = ck.returnTypeOf(null, m, ci.binders());
+        if (g.isAggregate(ret) && dst == null) {
+            dst = temp(ret);
+        }
+        pushResult(ret, dst);
+        pushArgs(ci, args);
         if (jvm != null) {
             runtimeCall(jvm, null, ck.paramTypes(null, m, ci.binders()), ret, at);
             return ret;
@@ -1972,8 +3333,15 @@ final class JvmCode {
      * receiver came from.
      */
     private Type invokeOn(CallInfo ci, Expr receiver, List<Expr> args, Pos at) {
+        return invokeOn(ci, receiver, args, at, null);
+    }
+
+    private Type invokeOn(CallInfo ci, Expr receiver, List<Expr> args, Pos at, Mem dst) {
         Type recvType = receiver == null ? thisValueType() : type(receiver);
         Type ret = ck.returnTypeOf(ci.owner(), ci.member(), ci.binders());
+        if (g.isAggregate(ret) && dst == null) {
+            dst = temp(ret);
+        }
         if (recvType instanceof HandleT || recvType instanceof NullT) {
             if (receiver == null) {
                 loadThis(at);
@@ -1981,8 +3349,19 @@ final class JvmCode {
                 value(receiver, null);
             }
             MethodRef r = instanceRef(ci, at);
+            pushResult(ret, dst);
             pushArgs(ci, args);
             JvmGen.invoke(c, r);
+            return ret;
+        }
+        if (g.isAggregate(ci.owner())) {
+            // A struct's or unique's method works on the value where it is (§4.3); a fixed array's are FixedArray's.
+            Mem rm = receiver == null ? thisMem : aggregateOf(receiver);
+            push(rm);
+            pushResult(ret, dst);
+            pushArgs(ci, args);
+            ClassT owner = ci.owner();
+            JvmGen.invoke(c, g.ref(new FnKey("method", owner.cls(), owner, ci.member(), ci.binders()), at));
             return ret;
         }
         if (!isValue(ci.owner())) {
@@ -2003,12 +3382,11 @@ final class JvmCode {
         String jvm = Checker.jvmName(md);
         List<Type> params = ck.paramTypes(ci.owner(), ci.member(), ci.binders());
         if (jvm != null && jvm.startsWith("array.")) {
-            arrayIntrinsic(jvm, ci, args, receiver, at);
+            arrayIntrinsic(jvm, ci, args, receiver, at, dst);
             return ret;
         }
-        for (int i = 0; i < args.size(); i++) {
-            value(args.get(i), params.get(i));
-        }
+        pushResult(ret, dst);
+        pushArgs(params, args);
         if (jvm != null) {
             runtimeCall(jvm, ci.owner(), params, ret, at);
         } else {
@@ -2030,9 +3408,13 @@ final class JvmCode {
      * then read or write the Java array; allocate makes a new one of default elements, which
      * becomes `this`. The array is on the stack.
      */
-    private void arrayIntrinsic(String spec, CallInfo ci, List<Expr> args, Expr receiver, Pos at) {
+    private void arrayIntrinsic(String spec, CallInfo ci, List<Expr> args, Expr receiver, Pos at, Mem dst) {
         ClassT owner = ci.owner();
         Type element = owner.typeArgs().get(0);
+        if (g.isAggregate(element)) {
+            structArrayIntrinsic(spec, ci, args, at, dst, element);
+            return;
+        }
         TypeKind ek = kind(element);
         switch (spec) {
             case "array.allocate" -> {
@@ -2066,6 +3448,44 @@ final class JvmCode {
         }
     }
 
+    /** array<T> of structs (§8.1): a block of the elements in a row, the array on the stack. */
+    private void structArrayIntrinsic(String spec, CallInfo ci, List<Expr> args, Pos at, Mem dst, Type element) {
+        ClassT owner = ci.owner();
+        long stride = g.layouts.stride(element);
+        switch (spec) {
+            case "array.allocate" -> {
+                c.pop();
+                value(args.get(0), Type.INT);
+                newArray(element);
+                if (thisLocal == null) {
+                    throw unsupported(at, "allocate outside array's constructor");
+                }
+                c.astore(thisLocal.slot());
+            }
+            case "array.get", "array.set" -> {
+                int array = c.allocateLocal(TypeKind.REFERENCE);
+                int index = c.allocateLocal(TypeKind.INT);
+                c.astore(array);
+                value(args.get(0), Type.INT);
+                c.istore(index);
+                c.aload(array);
+                c.iload(index);
+                JvmGen.invoke(c, g.ref(new FnKey("method", owner.cls(), owner, member(owner, "check"), Map.of()), at));
+                c.iload(index);
+                c.loadConstant((int) stride);
+                c.imul();
+                c.istore(index);
+                Mem element_ = new Mem(array, index, 0);
+                if (spec.equals("array.get")) {
+                    copy(dst, element_, element);
+                } else {
+                    into(element_, args.get(1), element);
+                }
+            }
+            default -> throw unsupported(at, "the JVM intrinsic " + spec);
+        }
+    }
+
     private MemberInfo member(ClassT t, String name) {
         for (MemberInfo m : t.cls().members.getOrDefault(name, List.of())) {
             if (m.member instanceof Method && m.existsIn(t.header())) {
@@ -2080,6 +3500,10 @@ final class JvmCode {
      * comparison with swap), negated for one derived with negate.
      */
     private Type operator(Expr site) {
+        return operator(site, null);
+    }
+
+    private Type operator(Expr site, Mem dst) {
         CallInfo ci = tb.calls.get(site);
         Expr left;
         List<Expr> args;
@@ -2099,7 +3523,7 @@ final class JvmCode {
             left = ((Unary) site).operand();
             args = List.of();
         }
-        Type ret = invokeOn(ci, left, args, site.pos());
+        Type ret = invokeOn(ci, left, args, site.pos(), dst);
         if (ci.negate()) {
             c.iconst_1();
             c.ixor();
@@ -2118,6 +3542,14 @@ final class JvmCode {
         }
         CallInfo ci = tb.calls.get(a);
         Type t = type(a.target());
+        if (g.isAggregate(t)) {
+            // On a struct, `a += b` calls its own operator, which changes a where it is (§46).
+            invokeOn(ci, a.target(), List.of(a.value()), a.pos());
+            if (keep) {
+                throw unsupported(a.pos(), "the value of a compound assignment of a " + t);
+            }
+            return;
+        }
         if (t instanceof HandleT) {
             value(a.target(), null);
             if (keep) {
@@ -2144,14 +3576,12 @@ final class JvmCode {
         ClassT ct = ci.owner();
         if (isValue(ct)) {
             List<Type> params = ci.member() == null ? List.of() : ck.paramTypes(ct, ci.member(), ci.binders());
-            for (int i = 0; i < n.args().size(); i++) {
-                value(n.args().get(i), params.get(i));
-            }
+            pushArgs(params, n.args());
             JvmGen.invoke(c, g.constructor(ct, ci.member(), ci.binders(), n.pos()));
             return ct;
         }
         if (!(t instanceof HandleT)) {
-            throw unsupported(n.pos(), "new " + ct + " as a value");
+            throw new IllegalStateException("new " + ct + " as a single value at " + n.pos());
         }
         if (ct.cls().isAbstract) {
             throw unsupported(n.pos(), "new of an abstract class");
@@ -2160,9 +3590,7 @@ final class JvmCode {
         c.new_(init.owner());
         c.dup();
         List<Type> params = ci.member() == null ? List.of() : ck.paramTypes(ct, ci.member(), ci.binders());
-        for (int i = 0; i < n.args().size(); i++) {
-            value(n.args().get(i), params.get(i));
-        }
+        pushArgs(params, n.args());
         JvmGen.invoke(c, init);
         return t;
     }
@@ -2208,8 +3636,9 @@ final class JvmCode {
                         java.lang.classfile.ClassFile.ACC_PUBLIC));
             }
             for (int i = 0; i < li.captureNames().size(); i++) {
-                fields.add(new FieldSpec("cap$" + li.captureNames().get(i), g.desc(li.captureTypes().get(i), lam.pos()),
-                        java.lang.classfile.ClassFile.ACC_PUBLIC));
+                Type ct = li.captureTypes().get(i);
+                fields.add(new FieldSpec("cap$" + li.captureNames().get(i), g.isAggregate(ct) ? JvmGen.BLOCK
+                        : g.desc(ct, lam.pos()), java.lang.classfile.ClassFile.ACC_PUBLIC));
             }
             lc.captures = fields;
             for (FieldSpec f : fields) {
@@ -2223,7 +3652,17 @@ final class JvmCode {
             loadThis(lam.pos());
         }
         for (String name : li.captureNames()) {
-            loadVar(lookup(name));
+            Var v = lookup(name);
+            if (v instanceof Stored st) {
+                // A struct is captured as a copy, in a block of the lambda's own.
+                newBlock(Math.max(1, g.layouts.sizeOf(st.type())));
+                c.dup();
+                int block = c.allocateLocal(TypeKind.REFERENCE);
+                c.astore(block);
+                copy(new Mem(block, -1, 0), st.mem(), st.type());
+            } else {
+                loadVar(v);
+            }
         }
         c.invokespecial(lc.desc, "<init>", MethodTypeDesc.of(CD_void,
                 lc.captures.stream().map(FieldSpec::type).toArray(ClassDesc[]::new)));

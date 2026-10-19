@@ -1146,7 +1146,7 @@ xs.length()
 * Methods: `length`, `isEmpty`, `fill`, `copy`, `copyOf(n)` (the first `n` elements, padded with defaults, as Java's `Arrays.copyOf`), `slice(from, to)`, `toList`, `indexOf`, `contains`, `swap`, `reverse`, `sort()` (by `<`) and `sort(Comparator<T>)` (stable). `List.toArray()` and `string.toCharArray()` give arrays, and `new string(chars)` a string.
 * An `array<T><<N>>` converts to an `array<T>` by copying, wherever one is wanted (an initializer, an argument).
 
-`array<T>` is the language's own type. On the VM it is written in the language (`stdlib/array.seal`): an `addr<T>` buffer and a length, with indexing through the `[]` and `[]=` operators (§46); on the JVM it will be a Java array (docs/JVM.md). The library's collections (`List`, `Queue`, `IntMap`, `HashMap`, `StringBuilder`) keep their elements in `array<T>`s, so they use no pointers and free nothing themselves.
+`array<T>` is the language's own type. On the VM it is written in the language (`stdlib/array.seal`): an `addr<T>` buffer and a length, with indexing through the `[]` and `[]=` operators (§46); on the JVM it is a Java array, or a block of storage for an array of structs (docs/JVM.md). The library's collections (`List`, `Queue`, `IntMap`, `HashMap`, `StringBuilder`) keep their elements in `array<T>`s, so they use no pointers and free nothing themselves.
 
 ---
 
@@ -1882,7 +1882,7 @@ struct string<<int N>>
 }
 ```
 
-The compiler fills these fields when a string literal is assigned to a `string` (§56.1). On the JVM a bare `string` will be a `java.lang.String` (docs/JVM.md).
+The compiler fills these fields when a string literal is assigned to a `string` (§56.1). On the JVM a bare `string` is a `java.lang.String` (docs/JVM.md).
 
 ### Strings are immutable
 

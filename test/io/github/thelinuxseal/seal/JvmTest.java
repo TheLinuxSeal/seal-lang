@@ -48,6 +48,7 @@ public final class JvmTest {
         lambdas();
         strings();
         collections();
+        values();
         notYet();
         random(randomPrograms, seed);
 
@@ -716,10 +717,210 @@ public final class JvmTest {
                 """);
     }
 
+    /** Structs, uniques, records, enums and fixed arrays, in storage blocks (docs/JVM.md §4, M3). */
+    private static void values() {
+        same("structs are values: copied, passed, returned, changed in place", """
+                Vec a = new Vec(1, 2);
+                Vec b = a;
+                b.x = 10;
+                pr(a.x); pr(b.x);
+                bump(a); pr(a.x);
+                Vec c = a.plus(b);
+                pr(c.x); pr(c.y);
+                c.scale(3); pr(c.x); pr(c.len2());
+                Line l;
+                l.from = a; l.to.y = 7;
+                Line m = l;
+                m.from.x = 99;
+                pr(l.from.x); pr(m.from.x); pr(l.to.y);
+                Holder h = new Holder();
+                h.v.x = 5; h.v.scale(2);
+                pr(h.v.x); pr(h.v.plus(a).x);
+                Holder.origin.y = 4;
+                pr(Holder.origin.y); pr(Holder.origin.plus(a).y);
+                Vec z;
+                pr(z.x); pr(z.y);
+                pr(a == new Vec(1, 2)); pr(a != b);
+                """, """
+                    static void bump(Vec v) { v.x += 100; pr(v.x); }
+                """, "Vec", """
+                struct Vec
+                {
+                    public int x;
+                    public int y;
+                    public new() { }
+                    public new(int x, int y) { this.x = x; this.y = y; }
+                    public Vec plus(Vec o) { return new Vec(x + o.x, y + o.y); }
+                    public void scale(int k) { x *= k; y *= k; }
+                    public int len2() { return x * x + y * y; }
+                    @overload(Operator.EQUALS) public bit eq(Vec o) { return x == o.x && y == o.y; }
+                }
+                """, "Line", "struct Line { public Vec from; public Vec to; }", "Holder", """
+                class Holder
+                {
+                    public static Vec origin;
+                    public Vec v;
+                }
+                """);
+        same("operators on structs, and structs in arrays", """
+                Num a = new Num(3);
+                Num b = new Num(5);
+                pr((a + b).v); pr((b - a).v); pr((-a).v); pr(a < b); pr(a >= b);
+                a += b; pr(a.v);
+                array<Num> ns = new array<Num>(4);
+                for (int i = 0; i < ns.length(); i++) { ns[i] = new Num(i * i); }
+                ns[1].v = 42;
+                Num got = ns[1];
+                got.v = 7;
+                pr(ns[1].v); pr(got.v); pr(ns.length());
+                int total = 0;
+                for (Num n : ns) { total += n.v; }
+                pr(total);
+                List<Num> list = new List();
+                list.add(a); list.add(b);
+                a.v = 0;
+                pr(list.get(0).v); pr(list.size());
+                """, "", "Num", """
+                struct Num
+                {
+                    public int v;
+                    public new() { }
+                    public new(int v) { this.v = v; }
+                    @overload(Operator.ADD) public Num add(Num o) { return new Num(v + o.v); }
+                    @overload(Operator.ADD_ASSIGN) public void addTo(Num o) { v += o.v; }
+                    @overload(Operator.SUBTRACT) public Num sub(Num o) { return new Num(v - o.v); }
+                    @overload(Operator.NEGATE) public Num neg() { return new Num(-v); }
+                    @overload(Operator.LESS) public bit lt(Num o) { return v < o.v; }
+                    @overload(Operator.EQUALS) public bit eq(Num o) { return v == o.v; }
+                }
+                """);
+        same("records and enums", """
+                Point p = new Point(1, 2);
+                Point q = p.plus(new Point(3, 4));
+                pr(q.x()); pr(q.y); pr(p == new Point(1, 2)); pr(p == q); pr("" + p);
+                try { Range r = new Range(5, 1); } catch (IllegalArgumentException e) { pr(e.getMessage()); }
+                pr(new Range(2, 9).size());
+                Color c = Color.GREEN;
+                pr("" + c); pr(c.ordinal()); pr(c == Color.GREEN); pr(Color.values().length());
+                for (Color k : Color.values()) { System.stdout.print(k + " "); }
+                switch (c) {
+                    case RED -> pr("r");
+                    case GREEN -> pr("g");
+                    case BLUE -> pr("b");
+                }
+                string name = switch (Color.BLUE) { case RED -> "red"; case GREEN -> "green"; case BLUE -> "blue"; };
+                pr(name); pr(Planet.MARS.weight(10)); pr("" + Planet.EARTH);
+                """, "", "Point", """
+                record Point(int x, int y)
+                {
+                    public Point plus(Point o) { return new Point(x + o.x, y + o.y()); }
+                }
+                """, "Range", """
+                record Range(int lo, int hi)
+                {
+                    new
+                    {
+                        if (lo > hi) { throw new IllegalArgumentException("lo " + lo + " is above hi " + hi); }
+                    }
+                    public int size() { return hi - lo; }
+                }
+                """, "Color", "enum Color { RED, GREEN, BLUE; }", "Planet", """
+                enum Planet
+                {
+                    EARTH(10), MARS(4);
+                    int g;
+                    new(int g) { this.g = g; }
+                    public int weight(int mass) { return mass * g; }
+                    @overload(Operator.CAST) public string text() { return "planet " + ordinal(); }
+                }
+                """);
+        same("fixed arrays: copies, nesting, loops, length parameters, bounds", """
+                array<int><<5>> a = [5, 1, 4, 2, 3];
+                array<int><<5>> b = a;
+                b.sort();
+                pr(a[0]); pr(b[0]); pr(b.length()); pr(a.indexOf(4)); pr(sum(a)); pr(sum([1, 2, 3]));
+                array<int><<3, 3>> m = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+                int t = 0;
+                for (int i = 0; i < 3; i++) { t += m[i][i]; }
+                pr(t);
+                array<int><<3>> row = m[1];
+                row[0] = 0;
+                pr(m[1][0]); pr(row[0]);
+                array<Vec><<3>> vs;
+                vs[2].x = 8;
+                pr(vs[2].x); pr(vs[0].x);
+                array<int> dyn = a;
+                dyn[0] = 77;
+                pr(dyn[0]); pr(a[0]);
+                Grid g = new Grid();
+                g.cells[1] = 6;
+                pr(g.cells[1]); pr(g.cells.length());
+                int nine = 9;
+                try { pr(a[nine]); } catch (IndexOutOfBoundsException e) { pr(e.getMessage()); }
+                int below = -1;
+                try { pr(a[below]); } catch (IndexOutOfBoundsException e) { pr(e.getMessage()); }
+                """, """
+                    static int sum(array<int><<int N>> xs) { int s = 0; for (int x : xs) { s += x; } return s * N; }
+                """, "Vec", "struct Vec { public int x; }", "Grid", "class Grid { public array<int><<4>> cells; }");
+        same("uniques: destroyed in reverse order, on every way out of their scope", """
+                { Noisy<<1>> a; Noisy<<2>> b; pr("in"); }
+                pr(early(true)); pr(early(false));
+                for (int i = 0; i < 3; i++) {
+                    Noisy<<4>> n;
+                    if (i == 1) { continue; }
+                    if (i == 2) { break; }
+                    pr(i);
+                }
+                try { Noisy<<5>> n; boom(); } catch (IllegalStateException e) { pr("caught"); }
+                Noisy<<6>> kept = make();
+                pr("made");
+                Pair p;
+                pr("pair");
+                { array<Noisy<<7>>><<3>> three; }
+                pr("end");
+                """, """
+                    static int boom() { throw new IllegalStateException("boom"); }
+                    static int early(bit b) { Noisy<<8>> a; if (b) { Noisy<<9>> c; return 1; } return 0; }
+                    static Noisy<<6>> make() { Noisy<<6>> n; pr("making"); return n; }
+                """, "Noisy", "unique Noisy<<int ID>> { delete() { System.stdout.print(\"~\" + ID + \" \"); } }",
+                "Pair", "unique Pair { Noisy<<1>> a; Noisy<<2>> b; delete() { System.stdout.print(\"~pair \"); } }");
+        same("uniques: assigned, as temporaries, in conditions, in static fields", """
+                Tag a = new Tag(1);
+                a = new Tag(2);
+                pr("after");
+                pr(new Tag(3).id);
+                for (int i = 0; i < 3; i++) {
+                    if (i % 2 == 1 && new Tag(10 + i).id > 0) { pr("y"); }
+                }
+                Registry.tag = new Tag(4);
+                try { int x = both(new Tag(5), boom()); } catch (IllegalStateException e) { pr("caught"); }
+                try { if (new Tag(6).id + boom() > 0) { pr("no"); } } catch (IllegalStateException e) { pr("caught"); }
+                try { pr(new Tag(7).id + boom()); } catch (IllegalStateException e) { pr("caught"); }
+                pr("end");
+                """, """
+                    static int boom() { throw new IllegalStateException("boom"); }
+                    static int both(Tag t, int n) { return n; }
+                """, "Tag", """
+                unique Tag
+                {
+                    public int id;
+                    public new() { }
+                    public new(int id) { this.id = id; System.stdout.print("+" + id + " "); }
+                    delete() { System.stdout.print("~" + id + " "); }
+                }
+                """, "Registry", "unique Registry { public static Tag tag; }");
+        program("an instance main() of a unique", Map.of("Main.seal", """
+                unique Main
+                {
+                    int n = 3;
+                    delete() { System.stdout.print(" bye"); }
+                    int main() { System.stdout.print("n " + n); return n; }
+                }
+                """), "n 3 bye", 3);
+    }
+
     /** What isn't on the JVM yet is reported, at its line, rather than generated wrong. */
     private static void notYet() {
-        unsupported("structs", "Vec v = new Vec(); System.stdout.println(v.x);", "not available on the JVM yet");
-        unsupported("fixed arrays", "array<int><<3>> xs; xs[0] = 1;", "not available on the JVM yet");
         unsupported("fixed point", "fixed<<8, 8>> x = 1.5; System.stdout.println(x);", "not available on the JVM yet");
         unsupported("addresses", "addr<int> p = new<int>(1); delete p;", "not available on the JVM yet");
     }

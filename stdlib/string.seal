@@ -134,7 +134,7 @@ struct string<<int N>>
     public array<char><<N>> toCharArray<<int N>>()
     {
         array<char><<N>> result;
-        for (int i = 0; i < size; i++) { result[i] = chars[i]; }
+        for (int i = 0; i < length(); i++) { result[i] = at(i); }
         return result;
     }
 

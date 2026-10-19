@@ -200,10 +200,18 @@ struct Format
     {
         if (conv != 'f' && conv != 'e' && conv != 'E') { throw mismatch("a floating-point number"); }
         if (group && conv != 'f') { throw bad(spec + ": , applies to %d and %f"); }
-        addr<char> buf = new<char>(places() + 340);
-        int n = places(x, conv, places(), buf);
-        decimal(string.fromChars(buf, n));
+        decimal(placesText(x, conv, places()));
+    }
+
+    /** x rounded to that many places, as %f or %e shows it ("1234.50", "1.234500e+03"). */
+    @jvm("Strings.places")
+    static string placesText(double x, char conv, int n)
+    {
+        addr<char> buf = new<char>(n + 340);
+        int length = places(x, conv, n, buf);
+        string s = string.fromChars(buf, length);
         delete buf;
+        return s;
     }
 
     /** The places %f and %e show: the precision, or 6. */

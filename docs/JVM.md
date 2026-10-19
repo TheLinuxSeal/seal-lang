@@ -1,11 +1,12 @@
 # Seal on the JVM: design
 
 **Status:** design agreed. M0, the language changes the backend needs, is done on the VM, and the
-backend's M1 and M2 are done (§13): `seal run --jvm` and `seal build` compile numbers of every
+backend's M1, M2 and M3 are done (§13): `seal run --jvm` and `seal build` compile numbers of every
 width, control flow, classes and interfaces, generics over them, exceptions, lambdas, strings,
-`array<T>`, the collections and files. Structs, uniques, enums, records and fixed arrays come next
-(M3). Choices made on review are marked **Decided**; the rest were
-**Proposed** and accepted with the design, and stand unless revisited.
+`array<T>`, the collections and files, and structs, uniques and their destructors, records, enums,
+fixed arrays and operators, in storage blocks (§4.6). Fixed point comes next (M4), then pointers
+(M5). Choices made on review are marked **Decided**; the rest were **Proposed** and accepted with
+the design, and stand unless revisited.
 
 Seal today compiles to bytecode for its own register VM (`vm/`), written in Java. This document
 describes a backend that compiles Seal to JVM class files instead, so that Seal programs run on any
@@ -123,8 +124,9 @@ final class Block {
 
 - The layout is the checker's, unchanged: the same bit offsets, sizes and alignment as the VM, so
   `sizeof`, `alignof`, bit-packed layouts, casts between `addr` types and address arithmetic keep
-  working. A reference field (a handle, an `addr`, a string's buffer) keeps its 64-bit place in
-  `bits`, unused, and its value lives in `refs[offset / 64]`.
+  working. A reference field (a handle, an `addr`, a string's buffer) keeps its place in `bits`,
+  unused, and its value lives in `refs[offset / 32]`: every value that holds one is aligned to at
+  least 32 bits, so no two share an index. `refs` is made when the first reference is stored.
 - Because references are in `refs`, the garbage collector sees every reference inside a struct, so
   no object table and no reference counting are needed anywhere.
 - Reading a field of width W at bit offset O is `bits[O >>> 6]`, a shift and a mask. Where the
@@ -178,6 +180,35 @@ contents in registers the way it scalar-replaces small objects. A later pass can
 a struct local whose address is never taken (the checker already knows, `AddressTaken`) can be
 split into one JVM local per field, which is free. That is an optimization, not part of the first
 version.
+
+### 4.6 Done in M3
+
+- The runtime's `Block` is §4.1's, with an element count for an `array<T>` of structs, which is one
+  block. Layouts are the VM's own: `check/Layouts` computes them for both backends.
+- A method that holds values gets a frame block as it starts, sized by the first pass over its
+  code: its struct locals, the temporaries its expressions need, and fixed arrays live there.
+- A struct is passed as `(Block, int)`. A method that returns one takes the place for the result
+  as one more `(Block, int)`, after the receiver and before the parameters, and returns `void`; the
+  caller passes its own temporary or the variable being set. A struct's methods and constructors
+  are static methods taking the receiver's place first (`newVec`, `plus`).
+- A class object keeps its struct fields in a block of its own, the field `$values` its
+  constructor makes; a class's struct and fixed-array static fields are in its `$statics` block.
+  A string or `array<T>` in a block is a reference in `refs`; one never set reads as `""` or an
+  empty array, as zeroed memory does on the VM.
+- Fixed arrays are inline, copied as values; an index outside one throws the library's
+  `IndexOutOfBoundsException` (through `FixedArray.outOfBounds`), as on the VM. A fixed array
+  given where an `array<T>` is wanted is copied into a new one.
+- A unique is destroyed at the end of its scope, on each jump out of it (a pad per jump, as for
+  `finally`), and by a handler as a Seal exception passes; one returned from a local is moved, not
+  destroyed. Unique temporaries are destroyed at the end of their statement, those a condition
+  makes right after it, on both ways out, and those made before an exception cuts a statement short
+  as it passes. A bit in the frame records that each temporary was made, as code may skip making
+  it (`a && f()`). Uniques in static fields are destroyed after `main` returns (`$fini`). As on the
+  VM, a fault stops the program without running destructors.
+- Assigning to a unique builds the new value aside, destroys the old one, then copies it in, so
+  `u = u.next()` works.
+- An instance `main()` of a struct or unique runs on a value `$start` makes and destroys.
+- Not done: §4.5's optimization, `addr<T>` (M5), and fixed strings stored inline (§8.2).
 
 ## 5. Classes and interfaces
 
@@ -346,8 +377,10 @@ language (part of M0):
   storage blocks like other values, and are immutable too. Joining two of them still makes a
   `string<<N + K>>` without allocating, and the conversion of a `string<<N>>` to a bare `string`
   (today an `@implicit` constructor) makes a `java.lang.String` from its characters.
-- Done in M2: a string, of either shape, is a `java.lang.String`. Until there are storage blocks
-  (M3), a `string<<N>>` is one too, which no program can tell, as strings never change. A string's
+- Done in M2: a string, of either shape, is a `java.lang.String`. M3 kept that: a `string<<N>>`
+  is one too, in a block a reference in its `refs`, which no program can tell, as strings never
+  change; storing fixed strings inline is still to do, with bit-packed layouts (M5). The fixed
+  shape's `toCharArray` reads through `at`, as the rest of `string.seal` does. A string's
   methods are static methods taking the `String` first, in a class per instantiation
   (`lang.string$5` for a `string<<5>>`); most compile from `string.seal` as they are. Reading
   `size` is `length()`, and the few whose bodies use the VM's buffer are `@jvm` (§8.1): `at`, `put`,
@@ -378,7 +411,8 @@ in the default package at all.
 
 A small Java package, `io.github.thelinuxseal.seal.runtime`, shipped with every compiled program:
 
-- `Block` and `Ptr` (§4), and copying, zeroing and comparing values in blocks (M3);
+- `Block` (§4.1): reading and writing bits, references, copying and zeroing values in blocks
+  (done in M3); `Ptr` (§4.4, M5);
 - `Ints`: the shift operator, truncation, unsigned-to-double (done; unsigned division and text use
   the JDK's `Integer` and `Long` directly);
 - fixed-point multiplication, division, text and conversions (M4);
@@ -438,6 +472,12 @@ frames correctly for every control-flow shape (the class-file API does this, giv
   exception, or a fault where the VM traps. One it doesn't compile yet must say so, at a line, and
   is counted: each suite's line in `./test.sh` reads, say, `(on the JVM: 36 the same, 78 not
   available yet)`.
+- Done in M3: `JvmTest` has cases for structs, operators, records, enums, fixed arrays, struct
+  arrays, uniques on every path out, temporaries and an instance `main()` of a unique. At M3's end
+  `RunTest` has 38 programs the same on the JVM and 8 not yet (pointers), `LanguageTest` 91 and 23
+  (fixed point and pointers), `StdlibTest` 52 and 5, `ExamplesTest` 15 and 4, and `FuzzTest` 368
+  and 58. `RefCountTest` has no unique cases left to move: `LanguageTest`'s destructor programs
+  cover them, and run the same.
 
 ## 13. Order of work
 
@@ -446,7 +486,7 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 | **M0** (on the VM), **done** | §6's language changes: no class destructors, `close()` and try-with-resources, `delete` only on `addr`; `array<T>` built in, and the collections on it (§8.1); immutable strings and `StringBuilder` (§8.2) | all suites pass on the VM |
 | **M1**, **done** | `JvmGen` skeleton: static methods, `int`/`int<<64>>`/`double`/`bit`/`char`, control flow, calls, recursion, printing; `seal run --jvm` | `examples/01-basics` runs |
 | **M2**, **done** | classes, interfaces, virtual and interface calls, fields, exceptions, lambdas, strings, the runtime's natives | everything in the suites that uses only these runs the same; most of `LanguageTest` also needs structs (M3) |
-| **M3** | storage blocks: structs, uniques and their destructors, records, enums, fixed arrays, operators | `RunTest`, `RefCountTest`'s unique cases |
+| **M3**, **done** | storage blocks: structs, uniques and their destructors, records, enums, fixed arrays, operators | `RunTest`, `RefCountTest`'s unique cases (all but pointers) |
 | **M4** | generics and shapes with naming, all integer widths, fixed point, packages | `FixedPointTest`, all examples but pointers |
 | **M5** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires |
 | **M6** (later) | jars, the target class-file version, calling Java classes from Seal, then Mixins (§14) | a first Minecraft mod in Seal |
@@ -474,7 +514,8 @@ Not designed here, but the design keeps the door open:
 - Instantiations are named from their arguments, `List$int`, `Matrix$double$3$3` (§5.1, §5.2).
 - Each method call that has struct locals gets a frame block of its own (§4.2).
 
-No questions are open. M0, M1 and M2 are done (§13); the next step is M3, storage blocks.
+No questions are open. M0 to M3 are done (§13); the next step is M4, fixed point and the rest of
+generics.
 
 M1 went further than its row: every integer width already works (§3.1, planned for M4), and so do
 switch statements and labeled loops. M2 removed M1's stopgap for printing: `Writer` compiles as the

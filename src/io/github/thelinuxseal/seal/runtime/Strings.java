@@ -73,6 +73,12 @@ public final class Strings {
         return a.compareTo(b);
     }
 
+    /** As Format's placesText: x with that many places, as Java's %.Nf or %.Ne, in the root locale. */
+    public static String places(double x, char conv, int n) {
+        String spec = "%." + n + (conv == 'e' || conv == 'E' ? "e" : "f");
+        return String.format(java.util.Locale.ROOT, spec, x);
+    }
+
     public static String of(double x) {
         return Double.toString(x);
     }

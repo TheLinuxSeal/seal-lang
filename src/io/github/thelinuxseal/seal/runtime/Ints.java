@@ -52,6 +52,14 @@ public final class Ints {
         return signed ? v >> -amount : v >>> -amount;
     }
 
+    /** A fixed array's index, checked: out of range stops the program, as the VM's traps do (§21.1). */
+    public static int bounds(int i, int n) {
+        if (i < 0 || i >= n) {
+            throw new Trap("index " + i + " is out of bounds for length " + n);
+        }
+        return i;
+    }
+
     /** A uint<<64>> as a double, rounded as the VM does. */
     public static double unsignedToDouble(long v) {
         return v >= 0 ? (double) v : (double) (v >>> 1) * 2.0 + (v & 1);

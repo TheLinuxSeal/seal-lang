@@ -47,6 +47,7 @@ import io.github.thelinuxseal.seal.check.Checker;
 import io.github.thelinuxseal.seal.check.ClassInfo;
 import io.github.thelinuxseal.seal.check.ClassInfo.MemberInfo;
 import io.github.thelinuxseal.seal.check.Diagnostic;
+import io.github.thelinuxseal.seal.check.Layouts;
 import io.github.thelinuxseal.seal.check.Type;
 import io.github.thelinuxseal.seal.check.Type.*;
 
@@ -81,6 +82,7 @@ public final class JvmGen {
             "io.github.thelinuxseal.seal.runtime.Natives",
             "io.github.thelinuxseal.seal.runtime.Ints",
             "io.github.thelinuxseal.seal.runtime.Strings",
+            "io.github.thelinuxseal.seal.runtime.Block",
             "io.github.thelinuxseal.seal.runtime.Exit",
             "io.github.thelinuxseal.seal.runtime.Trap");
 
@@ -95,6 +97,10 @@ public final class JvmGen {
     static final ClassDesc TRAP = ClassDesc.of(RUNTIME + "Trap");
     static final ClassDesc CD_RuntimeException = ClassDesc.of("java.lang.RuntimeException");
     static final ClassDesc CD_MethodHandle = ClassDesc.of("java.lang.invoke.MethodHandle");
+    static final ClassDesc BLOCK = ClassDesc.of(RUNTIME + "Block");
+    /** The field of an object (or a class) holding its block of struct fields. */
+    static final String VALUES = "$values";
+    static final String STATICS = "$statics";
 
     /** Generates the classes of a program whose entry point is main() in {@code mainClass}. */
     public static Result generate(Checker checker, String mainClass) {
@@ -154,6 +160,11 @@ public final class JvmGen {
         final Set<String> signatures = new HashSet<>();
         /** For a lambda's class: the fields its constructor fills, from what the lambda captures. */
         List<FieldSpec> captures;
+        /** How big each object's block for its struct fields is, if it has any (§5). */
+        long valuesBits;
+        /** The class's static block for static fields of struct types, and where each is (§4.2). */
+        long staticBits;
+        Map<Field, Long> staticOffsets;
 
         JClass(String name) {
             this.name = name;
@@ -162,6 +173,9 @@ public final class JvmGen {
     }
 
     final Checker ck;
+    final Layouts layouts;
+    /** How big each method's frame block is, as the first pass found (§4.2). */
+    final Map<FnKey, Long> frameSizes = new HashMap<>();
     private final List<Diagnostic> errors = new ArrayList<>();
     final Map<FnKey, MethodRef> methods = new HashMap<>();
     private final Map<FnKey, JClass> homes = new HashMap<>();
@@ -186,6 +200,7 @@ public final class JvmGen {
 
     private JvmGen(Checker ck) {
         this.ck = ck;
+        this.layouts = new Layouts(ck);
     }
 
     // ================================================================ driver
@@ -221,6 +236,7 @@ public final class JvmGen {
         MethodRef init;
         MethodRef entry;
         MethodRef create = null;
+        MethodRef fini = null;
         current = root;
         try {
             for (ClassInfo c : ck.allClasses()) {
@@ -229,8 +245,17 @@ public final class JvmGen {
                 }
             }
             init = ref(initKey, at);
+            boolean staticUniques = ck.allClasses().stream().anyMatch(c -> c.all.stream().anyMatch(m ->
+                    m.member instanceof Field f && f.modifiers().isStatic() && !f.modifiers().isConst()
+                            && needsDestroy(ck.staticFieldType(c, f))));
+            if (staticUniques) {
+                fini = ref(new FnKey("fini", main, null, null, Map.of()), at);
+            }
             if (ep.isStatic()) {
                 entry = ref(new FnKey("method", ep.declaring(), null, ep.method(), Map.of()), at);
+            } else if (!main.dynamic) {
+                // An instance main() of a struct or unique runs on a value $start makes (§56.1).
+                entry = ref(new FnKey("start", main, ep.owner(), ep.method(), Map.of()), at);
             } else {
                 ClassT mainType = new ClassT(main, List.of(), List.of(), 0);
                 create = constructor(mainType, noArgConstructor(main), Map.of(), at);
@@ -274,6 +299,7 @@ public final class JvmGen {
         Map<String, byte[]> out = new LinkedHashMap<>();
         MethodRef theEntry = entry;
         MethodRef theCreate = create;
+        MethodRef theFini = fini;
         for (JClass jc : new ArrayList<>(classes.values())) {
             out.put(jc.name, cf.build(jc.desc, cb -> {
                 cb.withVersion(ClassFile.JAVA_25_VERSION, 0);
@@ -295,7 +321,7 @@ public final class JvmGen {
                     generate(cb, k, new ArrayList<>());
                 }
                 if (jc == mainClass) {
-                    entryPoints(cb, init, theEntry, theCreate, ret);
+                    entryPoints(cb, init, theEntry, theCreate, theFini, ret);
                 }
             }));
         }
@@ -405,9 +431,6 @@ public final class JvmGen {
                 && c.constructors.stream().noneMatch(m -> ((Constructor) m.member).params().isEmpty())) {
             return c.name + " has no no-argument constructor";
         }
-        if (!c.dynamic) {
-            return "an instance main() of a struct or unique is not available on the JVM yet (docs/JVM.md §13, M3)";
-        }
         return null;
     }
 
@@ -425,7 +448,7 @@ public final class JvmGen {
      * code (0 for a void main), and {@code public static void main(String[])}, so that {@code java
      * Main} runs the program (§10).
      */
-    private void entryPoints(ClassBuilder cb, MethodRef init, MethodRef main, MethodRef create, Type ret) {
+    private void entryPoints(ClassBuilder cb, MethodRef init, MethodRef main, MethodRef create, MethodRef fini, Type ret) {
         cb.withMethodBody(RUN_METHOD, MethodTypeDesc.of(CD_int), ACC_PUBLIC | ACC_STATIC, c -> {
             invoke(c, init);
             if (create != null) {
@@ -439,6 +462,9 @@ public final class JvmGen {
                 c.iconst_0();
             } else if (kind(ret) == TypeKind.LONG) {
                 c.l2i(); // as the VM's runner takes the low 32 bits of main's result
+            }
+            if (fini != null) {
+                invoke(c, fini); // uniques in static fields, destroyed as main returns (§26.1)
             }
             c.ireturn();
         });
@@ -521,6 +547,9 @@ public final class JvmGen {
             case "ctor", "default-ctor" -> owner + ".new";
             case "init" -> "the static fields";
             case "class-init" -> "the static fields of " + owner;
+            case "fini" -> "the unique static fields' destruction";
+            case "start" -> owner + ".main";
+            case "destroy", "dtor" -> owner + ".delete";
             case "lambda" -> "a lambda in " + owner;
             default -> owner + "." + k.kind();
         };
@@ -556,18 +585,40 @@ public final class JvmGen {
                 r = new MethodRef(home.desc, unique(home, INIT_METHOD, MethodTypeDesc.of(CD_void)),
                         MethodTypeDesc.of(CD_void), Invoke.STATIC);
             }
+            case "fini" -> {
+                home = mainClass;
+                r = new MethodRef(home.desc, unique(home, "$fini", MethodTypeDesc.of(CD_void)),
+                        MethodTypeDesc.of(CD_void), Invoke.STATIC);
+            }
+            case "start" -> {
+                home = mainClass;
+                MethodTypeDesc type = methodType(List.of(), ck.returnTypeOf(k.owner(), k.member(), Map.of()), List.of(), at);
+                r = new MethodRef(home.desc, unique(home, "$start", type), type, Invoke.STATIC);
+            }
+            case "destroy", "dtor" -> {
+                // Destroying a unique (§16): "destroy" is the whole of it, "dtor" its own destructor's body.
+                home = structClass(k.owner());
+                MethodTypeDesc type = MethodTypeDesc.of(CD_void, BLOCK, CD_int);
+                r = new MethodRef(home.desc, unique(home, k.kind().equals("dtor") ? "$delete" : "$destroy", type), type,
+                        Invoke.STATIC);
+            }
             case "ctor", "default-ctor" -> {
                 List<Type> params = k.member() == null ? List.of() : ck.paramTypes(k.owner(), k.member(), k.binders());
-                ClassDesc[] ps = descs(params, at);
                 if (isValue(k.owner())) {
                     // A string's or array's constructor makes the value: a static method returning it.
                     home = valueClass(k.owner());
-                    MethodTypeDesc type = MethodTypeDesc.of(desc(k.owner(), at), ps);
+                    MethodTypeDesc type = methodType(List.of(), k.owner(), params, at);
+                    r = new MethodRef(home.desc, unique(home, "new" + suffix(params, k.binders()), type), type,
+                            Invoke.STATIC);
+                } else if (isAggregate(k.owner())) {
+                    // A struct's or unique's: a static method making the value in the place given first.
+                    home = structClass(k.owner());
+                    MethodTypeDesc type = methodType(List.of(BLOCK, CD_int), Type.VOID, params, at);
                     r = new MethodRef(home.desc, unique(home, "new" + suffix(params, k.binders()), type), type,
                             Invoke.STATIC);
                 } else {
                     home = instance(k.owner());
-                    MethodTypeDesc type = MethodTypeDesc.of(CD_void, ps);
+                    MethodTypeDesc type = methodType(List.of(), Type.VOID, params, at);
                     if (!home.signatures.add("<init>" + type.descriptorString())) {
                         throw new Unsupported(at, "two constructors of " + k.owner() + " with the same JVM parameters ("
                                 + type.displayDescriptor() + ") are not available on the JVM yet");
@@ -587,24 +638,27 @@ public final class JvmGen {
                 Type ret = ck.returnTypeOf(k.owner(), k.member(), k.binders());
                 if (k.owner() == null) {
                     home = staticClass(k.cls());
-                    MethodTypeDesc type = MethodTypeDesc.of(desc(ret, at), descs(params, at));
+                    MethodTypeDesc type = methodType(List.of(), ret, params, at);
                     r = new MethodRef(home.desc, unique(home, md.name() + suffix(params, k.binders()), type), type,
                             Invoke.STATIC);
                 } else if (isValue(k.owner())) {
                     // A string's or array's method: static, with the value first. On a string, one that
                     // changes it returns the changed string (§8.2).
                     home = valueClass(k.owner());
-                    List<ClassDesc> ps = new ArrayList<>();
-                    ps.add(desc(k.owner(), at));
-                    ps.addAll(List.of(descs(params, at)));
-                    ClassDesc rd = ret instanceof VoidT && replacesReceiver(k.owner()) ? desc(k.owner(), at) : desc(ret, at);
-                    MethodTypeDesc type = MethodTypeDesc.of(rd, ps.toArray(ClassDesc[]::new));
+                    Type r2 = ret instanceof VoidT && replacesReceiver(k.owner()) ? k.owner() : ret;
+                    MethodTypeDesc type = methodType(List.of(desc(k.owner(), at)), r2, params, at);
+                    r = new MethodRef(home.desc, unique(home, md.name() + suffix(params, k.binders()), type), type,
+                            Invoke.STATIC);
+                } else if (isAggregate(k.owner())) {
+                    // A struct's or unique's method: static, with its place first (§4.3).
+                    home = structClass(k.owner());
+                    MethodTypeDesc type = methodType(List.of(BLOCK, CD_int), ret, params, at);
                     r = new MethodRef(home.desc, unique(home, md.name() + suffix(params, k.binders()), type), type,
                             Invoke.STATIC);
                 } else {
                     home = instance(k.owner());
                     if (hasBinders(md)) {
-                        MethodTypeDesc type = MethodTypeDesc.of(desc(ret, at), descs(params, at));
+                        MethodTypeDesc type = methodType(List.of(), ret, params, at);
                         r = new MethodRef(home.desc, unique(home, accessorName(md.name()) + suffix(params, k.binders()),
                                 type), type, home.isInterface ? Invoke.INTERFACE : Invoke.VIRTUAL);
                     } else {
@@ -715,7 +769,7 @@ public final class JvmGen {
             }
         }
         Type ret = ck.returnTypeOf(root, rootMember, Map.of());
-        MethodTypeDesc type = MethodTypeDesc.of(desc(ret, at), descs(params, at));
+        MethodTypeDesc type = methodType(List.of(), ret, params, at);
         String name = accessorName(md.name());
         if (collides(root, rootMember, name, type)) {
             name += "$" + params.stream().map(this::typeText).collect(Collectors.joining("$"));
@@ -754,7 +808,8 @@ public final class JvmGen {
                     continue; // the same slot, overridden
                 }
                 try {
-                    if (List.of(descs(theirs, null)).equals(type.parameterList())) {
+                    if (methodType(List.of(), Type.VOID, theirs, null).parameterList().equals(
+                            methodType(List.of(), Type.VOID, mine, null).parameterList())) {
                         return true;
                     }
                 } catch (Unsupported u) {
@@ -891,11 +946,20 @@ public final class JvmGen {
         if (!jc.isInterface) {
             for (MemberInfo m : c.storedFields(t.header())) {
                 Field f = (Field) m.member;
+                Type ft = ck.fieldTypeOf(t, m);
+                if (isAggregate(ft)) {
+                    // Struct fields of an object live in its block, at the offsets the layout gives (§5).
+                    jc.valuesBits = Math.max(jc.valuesBits, layouts.of(t).offsets().get(m) + Math.max(1, layouts.sizeOf(ft)));
+                    continue;
+                }
                 try {
-                    jc.fields.put(f.name(), new FieldSpec(f.name(), desc(ck.fieldTypeOf(t, m), f.pos()), ACC_PUBLIC));
+                    jc.fields.put(f.name(), new FieldSpec(f.name(), desc(ft, f.pos()), ACC_PUBLIC));
                 } catch (Unsupported u) {
                     // A field of a type that isn't on the JVM yet: code that uses it says so.
                 }
+            }
+            if (jc.valuesBits > 0) {
+                jc.fields.put(VALUES, new FieldSpec(VALUES, BLOCK, ACC_PUBLIC));
             }
         }
         for (MemberInfo m : c.all) {
@@ -957,6 +1021,38 @@ public final class JvmGen {
         return t;
     }
 
+    /** The class of a struct's or unique's instantiation, which holds its methods as static ones (§4.3). */
+    JClass structClass(ClassT t) {
+        return jclass(instName(t), t.cls().file);
+    }
+
+    /**
+     * Where a class's static field of a struct type is in the class's static block (§4.2), which
+     * holds them all, each aligned as the layout says.
+     */
+    long staticOffset(ClassInfo c, Field f) {
+        JClass jc = staticClass(c);
+        if (jc.staticOffsets == null) {
+            jc.staticOffsets = new HashMap<>();
+            long end = 0;
+            for (MemberInfo m : c.all) {
+                if (m.member instanceof Field sf && sf.modifiers().isStatic() && !sf.modifiers().isConst()) {
+                    Type t = ck.staticFieldType(c, sf);
+                    if (isAggregate(t)) {
+                        long off = Layouts.roundUp(end, Math.max(32, layouts.alignOf(t)));
+                        jc.staticOffsets.put(sf, off);
+                        end = off + Math.max(1, layouts.sizeOf(t)); // even a value of no bits has a place
+                    }
+                }
+            }
+            jc.staticBits = end;
+            if (end > 0) {
+                jc.fields.put(STATICS, new FieldSpec(STATICS, BLOCK, ACC_PUBLIC | ACC_STATIC));
+            }
+        }
+        return jc.staticOffsets.getOrDefault(f, -1L);
+    }
+
     /** A lambda's class: one per lambda and instantiation of the method around it (§30.3). */
     JClass lambdaClass(FnKey key, Checker.LambdaInfo li, String file) {
         JClass jc = lambdaClasses.get(key);
@@ -972,6 +1068,82 @@ public final class JvmGen {
     }
 
     // ================================================================ types
+
+    /** A value that lives in storage blocks (§4): a struct, unique, record or enum, or a fixed array. */
+    boolean isAggregate(Type t) {
+        return (t instanceof ClassT ct && !ct.cls().dynamic && !isValue(ct)) || (t instanceof ArrayT a && a.size() != null);
+    }
+
+    /** The JVM parameters a value of this type takes: one, or its block and offset. */
+    List<ClassDesc> slots(Type t, Pos at) {
+        return isAggregate(t) ? List.of(BLOCK, CD_int) : List.of(desc(t, at));
+    }
+
+    /**
+     * A method's descriptor: what comes first (a receiver), then the place a struct result goes,
+     * then the parameters, each struct as its block and offset (§4.2).
+     */
+    MethodTypeDesc methodType(List<ClassDesc> first, Type ret, List<Type> params, Pos at) {
+        List<ClassDesc> ps = new ArrayList<>(first);
+        ClassDesc rd;
+        if (isAggregate(ret)) {
+            ps.add(BLOCK);
+            ps.add(CD_int);
+            rd = CD_void;
+        } else {
+            rd = desc(ret, at);
+        }
+        for (Type p : params) {
+            ps.addAll(slots(p, at));
+        }
+        return MethodTypeDesc.of(rd, ps.toArray(ClassDesc[]::new));
+    }
+
+    /**
+     * Whether a value of this type needs more than zeroed storage when it is made without an
+     * initializer: a struct or unique with constructors or field initializers, or one holding such.
+     */
+    boolean needsInit(Type t) {
+        Boolean known = initCache.get(t);
+        if (known != null) {
+            return known;
+        }
+        initCache.put(t, false);
+        boolean r = false;
+        if (t instanceof ClassT ct && isAggregate(ct)) {
+            r = !ct.cls().constructors.isEmpty();
+            for (MemberInfo m : ct.cls().storedFields(ct.header())) {
+                r |= ((Field) m.member).init() != null || needsInit(layouts.of(ct).types().get(m));
+            }
+        } else if (t instanceof ArrayT a && a.size() != null) {
+            r = needsInit(a.element());
+        }
+        initCache.put(t, r);
+        return r;
+    }
+
+    /** Whether destroying a value of this type runs code: a unique's destructor, or one inside it (§16). */
+    boolean needsDestroy(Type t) {
+        Boolean known = destroyCache.get(t);
+        if (known != null) {
+            return known;
+        }
+        destroyCache.put(t, false);
+        boolean r = false;
+        if (t instanceof ClassT ct && isAggregate(ct)) {
+            r = ct.cls().destructors.stream().anyMatch(m -> m.existsIn(ct.header()));
+            for (MemberInfo m : ct.cls().storedFields(ct.header())) {
+                r |= needsDestroy(layouts.of(ct).types().get(m));
+            }
+        } else if (t instanceof ArrayT a && a.size() != null) {
+            r = needsDestroy(a.element());
+        }
+        destroyCache.put(t, r);
+        return r;
+    }
+
+    private final Map<Type, Boolean> initCache = new HashMap<>();
+    private final Map<Type, Boolean> destroyCache = new HashMap<>();
 
     /** A string or an array<T>: on the JVM a String or a Java array, whose methods take it first. */
     static boolean isValue(Type t) {
@@ -1013,6 +1185,7 @@ public final class JvmGen {
                 case HandleT h when h.target() instanceof ClassT ct -> instance(ct).desc;
                 case NullT n -> CD_Object;
                 case ClassT ct when isString(ct) -> CD_String;
+                case ClassT ct when isArray(ct) && isAggregate(ct.typeArgs().get(0)) -> BLOCK; // its elements in a row (§8.1)
                 case ClassT ct when isArray(ct) -> desc(ct.typeArgs().get(0), at).arrayType();
                 default -> switch (kind(t)) {
                     case BOOLEAN -> CD_boolean;
