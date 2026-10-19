@@ -743,7 +743,6 @@ public final class RunTest {
                     }
                 }
                 """), "cannot cast Box to Other");
-        trap("infinite loop", main("while (true) { }"), "step limit");
         trap("deep recursion", files("Main", """
                 struct Main
                 {

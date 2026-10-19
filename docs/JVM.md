@@ -1,12 +1,11 @@
 # Seal on the JVM: design
 
 **Status:** design agreed. M0, the language changes the backend needs, is done on the VM, and the
-backend's M1 to M4 are done, with the first part of M5 (§13): `seal run --jvm` and `seal build`
-compile the whole language, numbers of every width and fixed point, classes and interfaces,
+backend's M1 to M5 are done (§13): `seal run` and `seal build` compile the whole language, numbers of every width and fixed point, classes and interfaces,
 generics and shapes, packages, exceptions, lambdas, strings, `array<T>`, the collections and
 files, structs, uniques and their destructors, records, enums, fixed arrays and operators in
 storage blocks (§4.6), and `addr<T>` (§4.4). Every program in every suite runs on the JVM as on the
-VM. Retiring the VM is what remains. Choices made on review are marked **Decided**; the rest were
+VM, and the JVM is the default; the VM is behind `--vm` until a later step removes it. Choices made on review are marked **Decided**; the rest were
 **Proposed** and accepted with the design, and stand unless revisited.
 
 Seal today compiles to bytecode for its own register VM (`vm/`), written in Java. This document
@@ -31,8 +30,8 @@ classes yet), Mixins, native compilation, `System.rawAssembly`.
 ## 2. Pipeline
 
 ```text
-.seal files ─ Lexer ─ Parser ─ Checker ─┬─ CodeGen ─ VM bytecode ─ VM      (today; retired later)
-                                        └─ JvmGen  ─ .class files ─ JVM   (new)
+.seal files ─ Lexer ─ Parser ─ Checker ─┬─ JvmGen  ─ .class files ─ JVM   (the default)
+                                        └─ CodeGen ─ VM bytecode ─ VM      (--vm, being retired)
 ```
 
 The front end stays as it is. The checker already resolves everything a backend needs and hands it
@@ -49,9 +48,11 @@ desugared (`rewritten`, `desugared` for-each loops, `switches`, `switchExprs`, `
 - **Decided: class files target Java 25** (class-file version 69), the Java the project already
   uses. A mod built this way runs on Minecraft versions that run on Java 25; the target stays a
   setting, so Java 21 (version 65, for Minecraft 1.20.5 to 1.21) can be added later.
-- Output: a folder of class files, and later a jar. `seal run --jvm` compiles straight into a class
+- Output: a folder of class files, and later a jar. `seal run` compiles straight into a class
   loader of its own and runs the program in the compiler's JVM; `seal build -d DIR` writes the
-  class files, and the runtime's (§9) beside them, so that `java -cp DIR Main` runs it.
+  class files, and the runtime's (§9) beside them, so that `java -cp DIR Main` runs it; `seal dump`
+  prints them, as javap -c would, with the Seal lines as `; File.seal:line` comments (since M5;
+  `--vm` gives the VM's listing).
 - `JvmGen` (`src/.../seal/jvm/`) works as CodeGen does: from `main`, it reaches the methods the
   program calls, one per instantiation, generating each once to find what it calls (and whether it
   can); then it builds each class with all of its methods. Code it can't generate yet is reported
@@ -475,7 +476,7 @@ Seal's `Object` is not in the runtime: it is generated from the library like any
 - Done in M1: the main class gets `static int $run()`, which calls `main()` and gives the exit code,
   and a `main(String[])` that hands `$run` to the runtime's `Natives.start`, which runs it, flushes
   the streams and exits. `System.exit` throws the runtime's `Exit`, which both catch, so the
-  compiler's own JVM, running a program with `seal run --jvm`, isn't ended by it.
+  compiler's own JVM, running a program with `seal run`, isn't ended by it.
 - Static initialization: Seal initializes static fields before `main` runs, in a defined order;
   the JVM initializes a class when it is first used. The generated `main` initializes Seal's
   classes in Seal's order first, so programs behave the same. Done in M2: each class's static
@@ -547,7 +548,8 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 | **M2**, **done** | classes, interfaces, virtual and interface calls, fields, exceptions, lambdas, strings, the runtime's natives | everything in the suites that uses only these runs the same; most of `LanguageTest` also needs structs (M3) |
 | **M3**, **done** | storage blocks: structs, uniques and their destructors, records, enums, fixed arrays, operators | `RunTest`, `RefCountTest`'s unique cases (all but pointers) |
 | **M4**, **done** | generics and shapes with naming, all integer widths, fixed point, packages | `FixedPointTest`, all examples but pointers |
-| **M5**, addresses **done** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires |
+| **M5**, **done** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires: the JVM is the default, the VM behind `--vm` |
+| next | removing the VM, `codegen/` and their tests; then the library's VM-only code (the string and array internals on `addr` buffers, `StringChars`, the Seal bodies behind `@jvm`) | |
 | **M6** (later) | jars, the target class-file version, calling Java classes from Seal, then Mixins (§14) | a first Minecraft mod in Seal |
 
 ## 14. Later: Java and Minecraft
@@ -573,8 +575,10 @@ Not designed here, but the design keeps the door open:
 - Instantiations are named from their arguments, `List$int`, `Matrix$double$3$3` (§5.1, §5.2).
 - Each method call that has struct locals gets a frame block of its own (§4.2).
 
-M0 to M4 are done (§13), and so is M5's first part: every suite passes on the JVM. What remains of
-M5 is retiring the VM.
+M0 to M5 are done (§13): every suite passes on the JVM, which is the default. On review, the VM was
+kept behind `--vm` for now, and the suites still run every program on both and compare (§12); RunTest's
+one program for the VM's step limit, which the JVM has no counterpart to, went. Removing the VM,
+and then the library's VM-only code, are later steps of their own.
 
 M1 went further than its row: every integer width already works (§3.1, planned for M4), and so do
 switch statements and labeled loops. M2 removed M1's stopgap for printing: `Writer` compiles as the

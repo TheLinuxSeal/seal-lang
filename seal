@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The Seal command line: seal run|check|dump [options] PATH...
+# The Seal command line: seal run|check|dump|build [options] PATH...
 # Builds the compiler into out/ first when it isn't built, or a source file is newer than the build.
 set -u
 here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"

@@ -84,13 +84,13 @@ A program is a folder of `.seal` files, each holding one top-level type and name
 entry point is `main()` in the class `Main`.
 
 ```text
-seal run   [options] PATH...   compile and run
+seal run   [options] PATH...   compile to JVM class files and run them
 seal check [options] PATH...   only report errors
-seal dump  [options] PATH...   print the bytecode
-seal build [options] PATH...   write JVM class files (see Status)
+seal dump  [options] PATH...   print the class files
+seal build [options] PATH...   write the class files, for java to run
 
   --main Class       the class whose main() runs (default Main; com.example.Main in a package)
-  --jvm              run on the JVM instead of Seal's VM
+  --vm               run or dump on Seal's old VM instead (being retired, see Status)
   -d DIR             where build writes class files (default classes)
   -WautoCast         warn about every number converted without a cast
   -WautoCastLossy    warn only about those that may lose data
@@ -106,20 +106,20 @@ says what each one shows.
 
 ## Status
 
-Seal is young and still changing. Programs compile to bytecode for Seal's own virtual machine,
-which is written in Java, and to JVM class files, with Minecraft modding as one of the goals;
-[`docs/JVM.md`](docs/JVM.md) is the JVM backend's design. The language changes it needed (no class
-destructors, try-with-resources, immutable strings) are done, and so is the backend: it compiles
-the whole language, from numbers of every width and fixed point, classes,
-generics, exceptions, lambdas and strings to structs, uniques and their destructors, records,
-enums, fixed arrays, operators and `addr<T>`. Every example, and every program in the test suites,
-runs on it as on the VM; retiring the VM is next:
+Seal is young and still changing. Programs compile to JVM class files, with Minecraft modding as
+one of the goals; [`docs/JVM.md`](docs/JVM.md) is the backend's design. It compiles the whole
+language, from numbers of every width and fixed point, classes, generics, exceptions, lambdas and
+strings to structs, uniques and their destructors, records, enums, fixed arrays, operators and
+`addr<T>`:
 
 ```sh
-./seal run --jvm examples/01-basics          # compile to class files and run them in this JVM
+./seal run examples/01-basics                # compile to class files and run them in this JVM
 ./seal build -d classes examples/01-basics   # write them, with the runtime they need
 java -cp classes Main                        # and run them with plain java
 ```
+
+Seal's first backend, a register VM written in Java, is being retired: `--vm` still runs a program
+on it, and the test suites run every program on both and compare. It goes in a later step.
 
 ## Layout
 

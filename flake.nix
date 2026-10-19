@@ -37,7 +37,7 @@
           '';
 
           meta = {
-            description = "Compiler and VM for Seal, a Java-like programming language";
+            description = "Compiler for Seal, a Java-like programming language, to JVM class files";
             homepage = "https://github.com/TheLinuxSeal/seal-lang";
             license = pkgs.lib.licenses.gpl3Only;
             mainProgram = "seal";
