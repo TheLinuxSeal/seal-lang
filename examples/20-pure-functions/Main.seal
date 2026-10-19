@@ -1,0 +1,61 @@
+// Pure methods run while compiling as well as while the program runs: in <<...>>,
+// an array's size and a const field. Compile-time values can use every operator,
+// ** (a power; ^ is still XOR) and ?: among them.
+//
+// A call that can't be worked out while compiling is an error at the call:
+//   array<int><<Bits.fib(-1)>> xs;
+//   Bits.fib(-1) can't be worked out while compiling: it threw
+//   IllegalArgumentException: fib of a negative number (Bits.seal:23)
+struct Main
+{
+    const int<<64>> FIB = Bits.fib(90);
+    const int PRIMES = Primes.count(Primes.below(100));
+    const int MIDDLE = Primes.median(Primes.below(50));
+
+    // Constants with every operator: ** binds tighter than unary minus, and groups to the right.
+    const int LIMIT = 2 ** 16 - 1;
+    const int SQUARE = -2 ** 2;
+    const int TOWER = 2 ** 3 ** 2;
+    const int XOR = 2 ^ 3;
+    const int WORD = LIMIT > 255 ? 16 : 8;
+    const int MASK = (1 <<< 4) | 3;
+    const int BYTE = (uint<<8>>)300;
+
+    static int main()
+    {
+        System.stdout.println("== pure methods in types and consts ==");
+        uint<<Bits.needed(1000)>> counter = 1000;
+        System.stdout.println("a counter up to 1000 is a uint<<" + sizeof(uint<<Bits.needed(1000)>>) + ">>: " + counter);
+        System.stdout.println("one up to 2 ** 40 needs " + sizeof(uint<<Bits.needed(2 ** 40)>>) + " bits");
+        array<int><<PRIMES>> table;
+        System.stdout.println("a table for the " + table.length() + " primes below 100; the middle prime below 50 is " + MIDDLE);
+        System.stdout.println("fib(90) = " + FIB);
+
+        System.stdout.println("== the same methods while the program runs ==");
+        array<int> primes = Primes.below(100);
+        for (int i = 0; i < table.length(); i++) { table[i] = primes[i]; }
+        System.stdout.println("the last prime below 100 is " + table[table.length() - 1]);
+        System.stdout.println("fib(90) again: " + (Bits.fib(90) == FIB) + "; needed(1000) = " + Bits.needed(1000));
+
+        System.stdout.println("== a shape worked out for each use ==");
+        Ring<<5>> five;
+        Ring<<16>> sixteen;
+        for (int i = 1; i <= 10; i++) {
+            five.push(i);
+            sixteen.push(i);
+        }
+        System.stdout.println("Ring<<5>> holds " + five.capacity() + ", the last of 1..10: sum " + five.sum());
+        System.stdout.println("Ring<<16>> holds " + sixteen.capacity() + ", all of them: sum " + sixteen.sum());
+
+        System.stdout.println("== every operator in a compile-time value ==");
+        System.stdout.println("2 ** 16 - 1 = " + LIMIT + ", -2 ** 2 = " + SQUARE + ", 2 ** 3 ** 2 = " + TOWER + ", 2 ^ 3 = " + XOR);
+        System.stdout.println("LIMIT > 255 ? 16 : 8 = " + WORD + ", (1 <<< 4) | 3 = " + MASK + ", (uint<<8>>)300 = " + BYTE);
+        array<int><<2 ** 4>> sixteenInts;
+        int<<WORD>> word = LIMIT / 2;
+        System.stdout.println("an array<int><<2 ** 4>> has " + sixteenInts.length() + "; an int<<WORD>> holds " + word);
+        int x = 3;
+        x **= 4;
+        System.stdout.println("and while running: 3 ** 4 = " + x + ", 2.0 ** 0.5 = " + (2.0 ** 0.5) + ", 2 ** -1 = " + (2 ** -1));
+        return 0;
+    }
+}

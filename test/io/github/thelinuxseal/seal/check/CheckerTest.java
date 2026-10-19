@@ -2326,6 +2326,27 @@ public final class CheckerTest {
 
     /** `pure` (§17.2): static methods whose result depends only on their arguments. */
     private static void pureMethods() {
+        ok("** on integers and floating point, and in compile-time values", files("Main", """
+                struct Main
+                {
+                    const int BIG = 2 ** 16 - 1;
+                    static int<<2 ** 4>> h;
+                    static int<<3 > 2 ? 2 ** 3 : 4>> c;
+                    static int main() { int x = 3 ** 2; double d = 2.0 ** 0.5; x **= 2; float f = (float)1.5; f = f ** 2; return x; }
+                }
+                """));
+        error("** isn't defined on fixed point", """
+                struct Main { static int main() { fixed<<8, 8>> x = 1.5; fixed<<8, 8>> y = x ** 2; return 0; } }
+                """, "operator ** works on integers and floating point, not fixed<<8, 8>>; convert to double first");
+        error("a constant power too large to keep", """
+                struct Main { static int main() { int<<64>> x = 2 ** 100000 % 7; return 0; } }
+                """, "2 ** 100000 has more than 65536 bits");
+        error("0 to a negative power divides by zero", """
+                struct Main { static int main() { int x = 0 ** -1; return 0; } }
+                """, "division by zero");
+        error("the condition of ?: in a compile-time value is a bit", """
+                struct Main { static int<<1 ? 8 : 16>> x; static int main() { return 0; } }
+                """, "the condition of ?: must be a bit");
         String box = "class Box { public int v; public static int shared; public int get() { return v; } }";
         ok("pure methods may use their arguments, their own variables, const fields and other pure methods", files("Box", box,
                 "Spot", "struct Spot { public int x; public int y; }", "Main", """

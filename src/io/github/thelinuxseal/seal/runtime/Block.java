@@ -30,6 +30,10 @@ public final class Block {
     }
 
     public Block(long size, int count) {
+        if (size < 0 || size > Integer.MAX_VALUE) {
+            // Offsets in a block are ints; the VM stops for what doesn't fit its memory too.
+            throw new Trap("out of memory: cannot allocate " + size + " bits");
+        }
         this.bits = new long[(int) ((size + 63) >>> 6)];
         this.count = count;
     }

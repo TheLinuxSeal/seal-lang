@@ -384,6 +384,7 @@ public final class Ast {
     }
 
     public enum BinaryOp {
+        POW("**"),
         MUL("*"), DIV("/"), MOD("%"),
         ADD("+"), SUB("-"),
         SHIFT("<<<"),

@@ -64,6 +64,7 @@ public final class LanguageTest {
         temporariesOnSkippedPaths();
         arraysOfObjects();
         pureMethods();
+        powersAndCompileTimeOperators();
 
         String jvm = ON_JVM.finish(failures);
         System.out.println(passed + " passed, " + failures.size() + " failed" + jvm);
@@ -2159,7 +2160,7 @@ public final class LanguageTest {
                 "an array copies its elements in and out, so it can't hold array<int>, a unique");
         output("Operator is an ordinary enum too", files("Main", main("""
                 System.stdout.print(Operator.ADD.symbol() + Operator.INDEX_SET.symbol() + " " + Operator.values().length() + " " + Operator.valueOf("NEGATE").ordinal());
-                """)), "+[]= 29 2");
+                """)), "+[]= 31 2");
         output("fixed arrays: values with methods, any length, nesting, exceptions", files("Holder", """
                 class Holder { public array<int><<4>> nums = [4, 3, 2, 1]; }
                 """, "Main", """
@@ -3228,6 +3229,82 @@ struct Main
     }
 
     // ================================================================ helpers
+
+    private static void powersAndCompileTimeOperators() {
+        output("** is a power: it wraps as * does, and works on floating point", files("Main", main("""
+                int x = 3;
+                int<<8>> b = 3;
+                uint u = 3;
+                int<<64>> ten = 10;
+                pr(x ** 4); pr(b ** 5); pr(u ** 21); pr(ten ** 18); pr(ten ** 19);
+                pr(x ** -1); pr(-1 ** 3); pr((-1) ** 3); pr((-1) ** -3); pr(1 ** -5); pr(x ** 0);
+                pr(2 ** 3 ** 2); pr(-2 ** 2); pr(2 ** -1); pr(2 * 3 ** 2);
+                double d = 2.0;
+                pr(d ** 0.5); pr(d ** -1); pr(9 ** 0.5); pr(d ** 10);
+                x **= 3;
+                d **= 2;
+                pr(x); pr(d);
+                """)), "81 -13 1870418611 1000000000000000000 -8446744073709551616 0 -1 -1 -1 1 1 512 -4 0 18 "
+                + "1.4142135623730951 0.5 3.0 1024.0 27 4.0 ");
+        trap("zero to a negative power divides by zero", files("Main", main("""
+                int zero = 0;
+                int minus = -1;
+                pr(zero ** minus);
+                """)), "division by zero");
+        output("a struct defines its own **", files("Num", """
+                struct Num
+                {
+                    public int v;
+                    public new(int v) { this.v = v; }
+                    @overload(Operator.POWER) public Num pow(int n) { Num r = new Num(1); for (int i = 0; i < n; i++) { r.v *= v; } return r; }
+                    @overload(Operator.POWER_ASSIGN) public void raise(int n) { v = (this ** n).v; }
+                }
+                """, "Main", main("""
+                Num two = new Num(2);
+                pr((two ** 10).v);
+                two **= 5;
+                pr(two.v);
+                """)), "1024 32 ");
+        output("every operator in a compile-time value", files(
+                "Word", """
+                        struct Word<<int N>>
+                        {
+                            public int<<N > 32 ? 64 : 32>> value;
+                            public array<bit><<2 ** N>> bits;
+                            public array<int><<N % 2 == 0 ? N / 2 : (N + 1) / 2>> halves;
+                        }
+                        """,
+                "Quantity", "struct Quantity<<string U>> { public string unit() { return U; } }",
+                "Main", """
+                        struct Main
+                        {
+                            const int LIMIT = 2 ** 16 - 1;
+                            const int SQUARE = -2 ** 2;
+                            const int XOR = 2 ^ 16 - 1;
+                            const int PICK = LIMIT > 255 ? 16 : 8;
+                            const int BYTE = (uint<<8>>)300;
+                            const int TRUNC = (int)-3.7 * 2;
+                            const int BITS = ~(-8) | (1 <<< 4) & 31 ^ 2;
+                            const int LOGIC = !(1 > 2) && (2 <= 3 || 1 / 0 == 0) ? 1 : 0;
+                            static int main()
+                            {
+                                array<int><<2 ** 16 - 1>> big;
+                                Word<<5>> five;
+                                Quantity<<"k" + "m">> q;
+                                System.stdout.println(big.length() + " " + LIMIT + " " + SQUARE + " " + XOR + " " + PICK + " " + BYTE
+                                        + " " + TRUNC + " " + BITS + " " + LOGIC);
+                                System.stdout.println(sizeof(int<<5 > 32 ? 64 : 32>>) + " " + five.bits.length() + " " + five.halves.length()
+                                        + " " + sizeof(int<<40 > 32 ? 64 : 32>>) + " " + sizeof(Word<<3>>) + " " + q.unit());
+                                return 0;
+                            }
+                        }
+                        """), "65535 65535 -4 13 16 44 -6 23 1\n32 32 3 64 128 km\n");
+        compileError("an array too long to hold is an error when compiling", files(
+                "Word", "struct Word<<int N>> { public array<bit><<2 ** N>> bits; }",
+                "Main", main("Word<<40>> wide;\n")), "in Word<<40>>: an array's length must be less than 2 ** 31, not 1099511627776");
+        compileError("and so is a value too large for memory", files("Main", main("array<int<<64>>><<2 ** 26>> wide;\n")),
+                "offset or size 4294967296 is too large");
+    }
 
     private static void pureMethods() {
         String bits = """

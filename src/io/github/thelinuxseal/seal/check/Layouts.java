@@ -1,5 +1,7 @@
 package io.github.thelinuxseal.seal.check;
 
+import java.math.BigInteger;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -52,7 +54,7 @@ public final class Layouts {
             long off = roundUp(end, al);
             offsets.put(m, off);
             types.put(m, ft);
-            end = off + size;
+            end = add(off, size);
             align = Math.max(align, al);
         }
         Layout l = new Layout(roundUp(end, align), align, offsets, types);
@@ -68,7 +70,12 @@ public final class Layouts {
             if (a.size() == null) {
                 return 0;
             }
-            return a.size().intValue().longValueExact() * stride(a.element());
+            BigInteger n = a.size().intValue();
+            if (n == null || n.bitLength() > 62) {
+                return Long.MAX_VALUE;
+            }
+            long stride = stride(a.element());
+            return stride != 0 && n.longValue() > Long.MAX_VALUE / stride ? Long.MAX_VALUE : n.longValue() * stride;
         }
         long s = ck.sizeBits(t);
         if (s < 0) {
@@ -94,6 +101,15 @@ public final class Layouts {
     }
 
     public static long roundUp(long v, long a) {
-        return a <= 1 ? v : (v + a - 1) / a * a;
+        return a <= 1 || v > Long.MAX_VALUE - a ? v : (v + a - 1) / a * a;
+    }
+
+    /**
+     * a + b, staying at Long.MAX_VALUE: a size too large to hold, which the backends report
+     * (an array of 2 ** N elements in a class used with a large N).
+     */
+    private static long add(long a, long b) {
+        long s = a + b;
+        return ((a ^ s) & (b ^ s)) < 0 ? Long.MAX_VALUE : s;
     }
 }

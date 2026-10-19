@@ -1,0 +1,32 @@
+// Arrays are the one kind of object a pure method makes and uses. An array it is
+// given is its caller's, so it only reads it: median() sorts a copy.
+struct Primes
+{
+    /** The primes below n, by the sieve of Eratosthenes. */
+    public static pure array<int> below(int n)
+    {
+        array<bit> composite = new array<bit>(n);
+        int count = 0;
+        for (int i = 2; i < n; i++) {
+            if (!composite[i]) {
+                count++;
+                for (int j = i * i; j < n; j += i) { composite[j] = true; }
+            }
+        }
+        array<int> out = new array<int>(count);
+        int k = 0;
+        for (int i = 2; i < n; i++) {
+            if (!composite[i]) { out[k] = i; k++; }
+        }
+        return out;
+    }
+
+    public static pure int count(array<int> xs) { return xs.length(); }
+
+    public static pure int median(array<int> xs)
+    {
+        array<int> sorted = xs.copy();
+        sorted.sort();
+        return sorted[sorted.length() / 2];
+    }
+}

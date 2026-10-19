@@ -133,7 +133,8 @@ public final class Lexer {
             case '+' -> emit(match('=') ? TokenKind.PLUS_ASSIGN : match('+') ? TokenKind.PLUS_PLUS : TokenKind.PLUS);
             case '-' -> emit(match('=') ? TokenKind.MINUS_ASSIGN : match('>') ? TokenKind.ARROW
                     : match('-') ? TokenKind.MINUS_MINUS : TokenKind.MINUS);
-            case '*' -> emit(match('=') ? TokenKind.STAR_ASSIGN : TokenKind.STAR);
+            case '*' -> emit(match('*') ? (match('=') ? TokenKind.STAR_STAR_ASSIGN : TokenKind.STAR_STAR)
+                    : match('=') ? TokenKind.STAR_ASSIGN : TokenKind.STAR);
             case '/' -> emit(match('=') ? TokenKind.SLASH_ASSIGN : TokenKind.SLASH);
             case '%' -> emit(match('=') ? TokenKind.PERCENT_ASSIGN : TokenKind.PERCENT);
             case '^' -> emit(match('=') ? TokenKind.CARET_ASSIGN : TokenKind.CARET);

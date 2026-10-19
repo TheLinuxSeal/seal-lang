@@ -131,6 +131,18 @@ public final class JvmGen {
     record MethodRef(ClassDesc owner, String name, MethodTypeDesc type, Invoke invoke) {
     }
 
+    /** The most bits a block holds, as it is addressed by int offsets (§4.1). */
+    static final long MAX_BLOCK_BITS = Integer.MAX_VALUE;
+
+    /** A block's size or an offset in it, which must fit an int, as the VM checks its own. */
+    static long blockBits(long bits, Pos at) {
+        if (bits > MAX_BLOCK_BITS) {
+            throw new Unsupported(at, "offset or size " + bits + " is too large: a block of values on the JVM holds at most "
+                    + MAX_BLOCK_BITS + " bits");
+        }
+        return bits;
+    }
+
     /** Thrown for code the JVM backend can't generate yet; reported as an error at its position. */
     static final class Unsupported extends RuntimeException {
         private static final long serialVersionUID = 1L;
@@ -955,7 +967,8 @@ public final class JvmGen {
                 Type ft = ck.fieldTypeOf(t, m);
                 if (isAggregate(ft)) {
                     // Struct fields of an object live in its block, at the offsets the layout gives (§5).
-                    jc.valuesBits = Math.max(jc.valuesBits, layouts.of(t).offsets().get(m) + Math.max(1, layouts.sizeOf(ft)));
+                    jc.valuesBits = blockBits(Math.max(jc.valuesBits, layouts.of(t).offsets().get(m) + Math.max(1, layouts.sizeOf(ft))),
+                            f.pos());
                     continue;
                 }
                 try {
@@ -1051,7 +1064,7 @@ public final class JvmGen {
                     }
                 }
             }
-            jc.staticBits = end;
+            jc.staticBits = blockBits(end, c.decl.pos());
             if (end > 0) {
                 jc.fields.put(STATICS, new FieldSpec(STATICS, BLOCK, ACC_PUBLIC | ACC_STATIC));
             }

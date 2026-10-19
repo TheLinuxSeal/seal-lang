@@ -129,6 +129,7 @@ public final class Parser {
             Map.entry(STAR_ASSIGN, BinaryOp.MUL),
             Map.entry(SLASH_ASSIGN, BinaryOp.DIV),
             Map.entry(PERCENT_ASSIGN, BinaryOp.MOD),
+            Map.entry(STAR_STAR_ASSIGN, BinaryOp.POW),
             Map.entry(AMP_ASSIGN, BinaryOp.BIT_AND),
             Map.entry(PIPE_ASSIGN, BinaryOp.BIT_OR),
             Map.entry(CARET_ASSIGN, BinaryOp.BIT_XOR),
@@ -1410,11 +1411,24 @@ public final class Parser {
                 if (castType != null) {
                     return new Cast(start, castType, parseUnary());
                 }
-                return parsePostfix();
+                return parsePower();
             }
             default:
-                return parsePostfix();
+                return parsePower();
         }
+    }
+
+    /**
+     * `a ** b`, a power: tighter than the unary operators before it, so -2 ** 2 is -(2 ** 2), and
+     * grouping to the right, so 2 ** 3 ** 2 is 2 ** 9; the exponent may have a sign of its own, 2 ** -1.
+     */
+    private Expr parsePower() {
+        Expr base = parsePostfix();
+        if (check(STAR_STAR)) {
+            advance();
+            return new Binary(base.pos(), BinaryOp.POW, base, parseUnary());
+        }
+        return base;
     }
 
     /**

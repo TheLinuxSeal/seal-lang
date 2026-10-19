@@ -1,0 +1,16 @@
+== pure methods in types and consts ==
+a counter up to 1000 is a uint<<10>>: 1000
+one up to 2 ** 40 needs 41 bits
+a table for the 25 primes below 100; the middle prime below 50 is 19
+fib(90) = 2880067194370816120
+== the same methods while the program runs ==
+the last prime below 100 is 97
+fib(90) again: true; needed(1000) = 10
+== a shape worked out for each use ==
+Ring<<5>> holds 8, the last of 1..10: sum 52
+Ring<<16>> holds 16, all of them: sum 55
+== every operator in a compile-time value ==
+2 ** 16 - 1 = 65535, -2 ** 2 = -4, 2 ** 3 ** 2 = 512, 2 ^ 3 = 1
+LIMIT > 255 ? 16 : 8 = 16, (1 <<< 4) | 3 = 19, (uint<<8>>)300 = 44
+an array<int><<2 ** 4>> has 16; an int<<WORD>> holds 32767
+and while running: 3 ** 4 = 81, 2.0 ** 0.5 = 1.4142135623730951, 2 ** -1 = 0

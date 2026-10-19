@@ -58,6 +58,14 @@ public final class ParserTest {
         expr("x = y++", "(= x (x++ y))");
         expr("x <<= n", "(<<= x n)");
         expr("-a * !b", "(* (- a) (! b))");
+        expr("2 ** 16 - 1", "(- (** 2 16) 1)");
+        expr("a * b ** c", "(* a (** b c))");
+        expr("-2 ** 2", "(- (** 2 2))");
+        expr("2 ** 3 ** 2", "(** 2 (** 3 2))");
+        expr("2 ** -1", "(** 2 (- 1))");
+        expr("a[i] ** n++", "(** (index a i) (x++ n))");
+        expr("(int)x ** 2", "(cast int (** x 2))");
+        expr("x **= 3", "(**= x 3)");
         expr("~x[3]", "(~ (index x 3))");
         expr("x[4..8]", "(slice x 4 8)");
         expr("a.b.c(1, 2)[0]", "(index (call (. (. a b) c) 1 2) 0)");

@@ -59,6 +59,9 @@ public sealed interface CVal {
     record Op(String op, List<CVal> args) implements CVal {
         @Override
         public String toString() {
+            if (op.equals("?:")) {
+                return wrap(args.get(0)) + " ? " + wrap(args.get(1)) + " : " + wrap(args.get(2));
+            }
             if (args.size() == 1) {
                 return op + wrap(args.get(0));
             }
@@ -208,6 +211,7 @@ public sealed interface CVal {
                 case "+" -> new IntV(l.add(r));
                 case "-" -> new IntV(l.subtract(r));
                 case "*" -> new IntV(l.multiply(r));
+                case "**" -> power(l, r);
                 case "/" -> r.signum() == 0 ? new ErrV() : new IntV(l.divide(r));
                 case "%" -> r.signum() == 0 ? new ErrV() : new IntV(l.remainder(r));
                 case "&" -> new IntV(l.and(r));
@@ -235,6 +239,7 @@ public sealed interface CVal {
                 case "+" -> new FloatV(l + r);
                 case "-" -> new FloatV(l - r);
                 case "*" -> new FloatV(l * r);
+                case "**" -> new FloatV(StrictMath.pow(l, r));
                 case "/" -> new FloatV(l / r);
                 case "==" -> new BitV(l == r);
                 case "!=" -> new BitV(l != r);
@@ -257,12 +262,50 @@ public sealed interface CVal {
         }
         if (a instanceof StrV x && b instanceof StrV y) {
             return switch (op) {
+                case "+" -> new StrV(x.value() + y.value());
                 case "==" -> new BitV(x.value().equals(y.value()));
                 case "!=" -> new BitV(!x.value().equals(y.value()));
                 default -> null;
             };
         }
         return null;
+    }
+
+    /** c ? a : b: the one c picks, or, while c isn't known, a value that picks once it is. */
+    static CVal cond(CVal c, CVal a, CVal b) {
+        if (c instanceof ErrV) {
+            return c;
+        }
+        if (c instanceof BitV bit) {
+            return bit.value() ? a : b;
+        }
+        return new Op("?:", List.of(c, a, b));
+    }
+
+    /** The most bits a compile-time power may have: 2 ** 65536 is plenty for a constant. */
+    static final int MAX_POWER_BITS = 1 << 16;
+
+    /**
+     * base ** exp exactly; a negative exponent gives 1 / base ** -exp in integer division, as at
+     * run time; an error for 0 ** -1 (division by zero) and for a result over MAX_POWER_BITS bits.
+     */
+    static CVal power(BigInteger base, BigInteger exp) {
+        if (exp.signum() < 0) {
+            if (base.signum() == 0) {
+                return new ErrV();
+            }
+            if (base.equals(BigInteger.ONE)) {
+                return of(1);
+            }
+            return base.equals(BigInteger.ONE.negate()) ? of(exp.testBit(0) ? -1 : 1) : of(0);
+        }
+        if (base.abs().compareTo(BigInteger.ONE) <= 0) {
+            return new IntV(exp.signum() == 0 ? BigInteger.ONE : base.signum() < 0 && !exp.testBit(0) ? BigInteger.ONE : base);
+        }
+        if (exp.bitLength() > 31 || (long) base.abs().bitLength() * exp.longValue() > MAX_POWER_BITS + 1L) {
+            return new ErrV();
+        }
+        return new IntV(base.pow(exp.intValue()));
     }
 
     /** Flattens nested `op`, folds the integer constants, and sorts the rest. */
@@ -325,6 +368,20 @@ public sealed interface CVal {
                 }
                 yield args.stream().allMatch(CVal::isConstant) ? c.compute().apply(args)
                         : new PureCall(c.name(), c.method(), args, c.compute());
+            }
+            case Op o when o.op().equals("?:") -> {
+                // Only the side the condition picks is worked out.
+                CVal c = substitute(o.args().get(0), subst, layout);
+                yield c instanceof BitV bit ? substitute(o.args().get(bit.value() ? 1 : 2), subst, layout)
+                        : cond(c, substitute(o.args().get(1), subst, layout), substitute(o.args().get(2), subst, layout));
+            }
+            case Op o when (o.op().equals("&&") || o.op().equals("||")) && o.args().size() == 2 -> {
+                CVal l = substitute(o.args().get(0), subst, layout);
+                if (l instanceof BitV bit && bit.value() == o.op().equals("||")) {
+                    yield l; // decided without the right side, as when the program runs
+                }
+                CVal r = binary(o.op(), l, substitute(o.args().get(1), subst, layout));
+                yield r == null ? new ErrV() : r;
             }
             case Op o -> {
                 List<CVal> args = o.args().stream().map(a -> substitute(a, subst, layout)).toList();

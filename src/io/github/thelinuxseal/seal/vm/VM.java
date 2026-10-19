@@ -885,6 +885,16 @@ public final class VM {
                 case DIVU -> r[a] = Long.divideUnsigned(r[b], divisor(r[d]));
                 case REMS -> r[a] = divisor(r[d]) == -1 ? 0 : r[b] % r[d];
                 case REMU -> r[a] = Long.remainderUnsigned(r[b], divisor(r[d]));
+                case POW -> {
+                    if (c[pc + 4] != 0 && r[d] < 0 && r[b] == 0) {
+                        throw trap("division by zero");
+                    }
+                    r[a] = io.github.thelinuxseal.seal.runtime.Ints.pow(r[b], r[d], c[pc + 4] != 0);
+                }
+                case FPOW -> {
+                    boolean dbl = c[pc + 4] != 0;
+                    r[a] = fb(StrictMath.pow(fl(r[b], dbl), fl(r[d], dbl)), dbl);
+                }
                 case AND -> r[a] = r[b] & r[d];
                 case OR -> r[a] = r[b] | r[d];
                 case XOR -> r[a] = r[b] ^ r[d];

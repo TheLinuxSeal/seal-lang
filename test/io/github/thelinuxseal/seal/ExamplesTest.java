@@ -34,7 +34,8 @@ public final class ExamplesTest {
             }
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ByteArrayOutputStream err = new ByteArrayOutputStream();
-            int code = Main.run(new String[]{"run", dir.toString()},
+            // On the VM, the reference the JVM is compared with while both are kept (docs/JVM.md §12).
+            int code = Main.run(new String[]{"run", "--vm", dir.toString()},
                     new PrintStream(out, true, StandardCharsets.UTF_8), new PrintStream(err, true, StandardCharsets.UTF_8));
             String got = out.toString(StandardCharsets.UTF_8);
             String expected = Files.readString(expectedFile);
@@ -47,7 +48,7 @@ public final class ExamplesTest {
             // On the JVM too (docs/JVM.md §12): the same output, or an error saying it isn't available yet.
             ByteArrayOutputStream jout = new ByteArrayOutputStream();
             ByteArrayOutputStream jerr = new ByteArrayOutputStream();
-            int jcode = Main.run(new String[]{"run", "--jvm", dir.toString()},
+            int jcode = Main.run(new String[]{"run", dir.toString()},
                     new PrintStream(jout, true, StandardCharsets.UTF_8), new PrintStream(jerr, true, StandardCharsets.UTF_8));
             String jerrText = jerr.toString(StandardCharsets.UTF_8);
             if (jcode == 1 && !jerrText.isEmpty() && jerrText.lines().allMatch(l -> l.contains("not available on the JVM"))) {

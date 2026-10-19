@@ -1304,6 +1304,7 @@ final class PureEval {
                     case SUB -> x - y;
                     case MUL -> x * y;
                     case DIV -> x / y;
+                    case POW -> Ints.pow(x, y);
                     default -> throw fail("uses operator " + op.symbol + " on float");
                 };
             }
@@ -1315,6 +1316,7 @@ final class PureEval {
                     case SUB -> x - y;
                     case MUL -> x * y;
                     case DIV -> x / y;
+                    case POW -> Ints.pow(x, y);
                     default -> throw fail("uses operator " + op.symbol + " on double");
                 };
             }
@@ -1326,6 +1328,12 @@ final class PureEval {
                     case ADD -> x + y;
                     case SUB -> x - y;
                     case MUL -> x * y;
+                    case POW -> {
+                        if (n.signed() && !n.isChar() && y < 0 && x == 0) {
+                            throw fail("divided by zero");
+                        }
+                        yield Ints.pow(x, y, n.signed() && !n.isChar());
+                    }
                     case DIV -> {
                         if (y == 0) {
                             throw fail("divided by zero");

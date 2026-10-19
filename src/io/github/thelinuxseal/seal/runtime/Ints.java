@@ -52,6 +52,44 @@ public final class Ints {
         return signed ? v >> -amount : v >>> -amount;
     }
 
+    /**
+     * {@code base ** exp} (§41): repeated multiplication, so it wraps as * does, the result's low bits
+     * the same for any width. A negative exponent of a signed type is 1 / base ** -exp in integer
+     * division: 0, but 1 for a base of 1, ±1 for -1, and division by zero for 0. An unsigned
+     * exponent is never negative.
+     */
+    public static long pow(long base, long exp, boolean signed) {
+        if (signed && exp < 0) {
+            if (base == 0) {
+                throw new Trap("division by zero");
+            }
+            return base == 1 ? 1 : base == -1 ? ((exp & 1) == 0 ? 1 : -1) : 0;
+        }
+        long result = 1;
+        long b = base;
+        for (long e = exp; e != 0; e >>>= 1) {
+            if ((e & 1) != 0) {
+                result *= b;
+            }
+            b *= b;
+        }
+        return result;
+    }
+
+    /** As above, for values held in an int: an unsigned one is zero-extended. */
+    public static int pow(int base, int exp, boolean signed) {
+        return (int) pow(signed ? base : base & 0xffffffffL, signed ? exp : exp & 0xffffffffL, signed);
+    }
+
+    /** {@code a ** b} on floating point: StrictMath's, so every backend and the compiler give the same bits. */
+    public static double pow(double a, double b) {
+        return StrictMath.pow(a, b);
+    }
+
+    public static float pow(float a, float b) {
+        return (float) StrictMath.pow(a, b); // through a double, as the VM computes float arithmetic
+    }
+
     /** A fixed array's index, checked: out of range stops the program, as the VM's traps do (§21.1). */
     public static int bounds(int i, int n) {
         if (i < 0 || i >= n) {

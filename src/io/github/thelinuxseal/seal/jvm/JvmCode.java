@@ -856,7 +856,7 @@ final class JvmCode {
     /** Room in the frame for a value of this type: values start on a 64-bit boundary, as on the VM. */
     private Mem temp(Type t) {
         long off = Layouts.roundUp(frameEnd, 64);
-        frameEnd = off + Math.max(1, g.layouts.sizeOf(t));
+        frameEnd = JvmGen.blockBits(off + Math.max(1, g.layouts.sizeOf(t)), pos);
         return new Mem(frameSlot, -1, off);
     }
 
@@ -2922,6 +2922,10 @@ final class JvmCode {
                 case ADD -> { if (d) c.dadd(); else c.fadd(); }
                 case SUB -> { if (d) c.dsub(); else c.fsub(); }
                 case MUL -> { if (d) c.dmul(); else c.fmul(); }
+                case POW -> {
+                    ClassDesc v = d ? CD_double : CD_float;
+                    c.invokestatic(JvmGen.INTS, "pow", MethodTypeDesc.of(v, v, v));
+                }
                 case DIV -> { if (d) c.ddiv(); else c.fdiv(); }
                 default -> throw unsupported(at, "operator " + op.symbol + " on " + t);
             }
@@ -2933,6 +2937,11 @@ final class JvmCode {
             case ADD -> { if (l) c.ladd(); else c.iadd(); }
             case SUB -> { if (l) c.lsub(); else c.isub(); }
             case MUL -> { if (l) c.lmul(); else c.imul(); }
+            case POW -> {
+                ClassDesc v = l ? CD_long : CD_int;
+                c.loadConstant(raw(t) instanceof IntT it && it.signed() && !it.isChar() ? 1 : 0);
+                c.invokestatic(JvmGen.INTS, "pow", MethodTypeDesc.of(v, v, v, CD_boolean));
+            }
             case DIV -> {
                 if (unsignedDivision) {
                     unsignedOp("divideUnsigned", l);

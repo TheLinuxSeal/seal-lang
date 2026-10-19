@@ -31,6 +31,9 @@ public final class LexerTest {
         kinds("x <<< 3", IDENTIFIER, SHIFT, INT_LITERAL);
         kinds("x <<< -3", IDENTIFIER, SHIFT, MINUS, INT_LITERAL);
         kinds("x <<= n;", IDENTIFIER, SHIFT_ASSIGN, IDENTIFIER, SEMICOLON);
+        kinds("2 ** 16 - 1", INT_LITERAL, STAR_STAR, INT_LITERAL, MINUS, INT_LITERAL);
+        kinds("x **= 3; a*b", IDENTIFIER, STAR_STAR_ASSIGN, INT_LITERAL, SEMICOLON, IDENTIFIER, STAR, IDENTIFIER);
+        kinds("x *= 2 ** -1", IDENTIFIER, STAR_ASSIGN, INT_LITERAL, STAR_STAR, MINUS, INT_LITERAL);
         kinds("a<=b>=c", IDENTIFIER, LE, IDENTIFIER, GE, IDENTIFIER);
 
         // Increment and decrement: the longest token wins, as in Java.

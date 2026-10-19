@@ -913,6 +913,9 @@ public final class JvmTest {
                     delete() { System.stdout.print("~" + id + " "); }
                 }
                 """, "Registry", "unique Registry { public static Tag tag; }");
+        Run wide = onJvm(Map.of("Main.seal", "struct Main { static int main() { array<int<<64>>><<2 ** 26>> xs; return 0; } }"));
+        check(wide.error() != null && wide.error().contains("offset or size 4294967296 is too large: a block of values on the JVM holds at most 2147483647 bits"),
+                "a value too large for a block is an error " + wide);
         program("an instance main() of a unique", Map.of("Main.seal", """
                 unique Main
                 {
@@ -1158,6 +1161,14 @@ public final class JvmTest {
             return t.contains("fixed");
         }
 
+        /** Whether an exponent of 0 to 3 stays one in t: not in a signed type of 1 or 2 bits. */
+        boolean canPower(String t) {
+            if (t.equals("char") || t.startsWith("uint")) {
+                return true;
+            }
+            return Integer.parseInt(t.substring(t.indexOf("<<") + 2, t.indexOf(">>"))) >= 3;
+        }
+
         /** Whether ++ and -- apply: a fixed-point type must hold 1. */
         boolean canStep(String t) {
             if (!isFixed(t)) {
@@ -1329,9 +1340,16 @@ public final class JvmTest {
                     return "(" + t + ")((" + expr(t, depth - 1) + ") <<< (int)(" + expr(intType(), depth - 1) + "))";
                 }
                 default -> {
-                    String op = f ? pickOf("+", "-", "*", "/") : isFixed(t) ? pickOf("+", "-", "*", "/", "%")
-                            : pickOf("+", "-", "*", "/", "%", "&", "|", "^");
+                    String op = f ? pickOf("+", "-", "*", "/", "**") : isFixed(t) ? pickOf("+", "-", "*", "/", "%")
+                            : pickOf("+", "-", "*", "/", "%", "&", "|", "^", "**");
                     String right = expr(t, depth - 1);
+                    if (op.equals("**") && !f) {
+                        if (!canPower(t)) {
+                            op = "*";
+                        } else {
+                            right = "(" + t + ")((uint<<2>>)(" + right + "))"; // 0 to 3: never a negative exponent
+                        }
+                    }
                     if ((op.equals("/") || op.equals("%")) && isFixed(t)) {
                         right = divisor(t, right);
                     } else if ((op.equals("/") || op.equals("%")) && !f) {

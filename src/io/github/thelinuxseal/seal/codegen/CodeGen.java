@@ -3003,6 +3003,7 @@ public final class CodeGen {
                     case SUB -> Op.FSUB;
                     case MUL -> Op.FMUL;
                     case DIV -> Op.FDIV;
+                    case POW -> Op.FPOW;
                     default -> throw new Unsupported(pos, "operator " + op.symbol + " on " + t);
                 };
                 emit(fop, d, l, r, dbl);
@@ -3035,6 +3036,7 @@ public final class CodeGen {
                 case ADD -> emit(Op.ADD, d, l, r);
                 case SUB -> emit(Op.SUB, d, l, r);
                 case MUL -> emit(Op.MUL, d, l, r);
+                case POW -> emit(Op.POW, d, l, r, s ? 1 : 0);
                 case DIV -> emit(s ? Op.DIVS : Op.DIVU, d, l, r);
                 case MOD -> emit(s ? Op.REMS : Op.REMU, d, l, r);
                 case BIT_AND -> emit(Op.AND, d, l, r);

@@ -1946,6 +1946,10 @@ public final class Checker {
                     reportValue(item.pos(), "an array's length can't be negative: " + v);
                     return Type.ERROR;
                 }
+                if (v != null && v.bitLength() > 31) {
+                    reportValue(item.pos(), "an array's length must be less than 2 ** 31, not " + v);
+                    return Type.ERROR;
+                }
                 lengths.add(len.value());
             }
             Type t = element;
@@ -2323,6 +2327,10 @@ public final class Checker {
             }
             case Binary b: {
                 Const l = evalConst(b.left(), env);
+                if ((b.op() == BinaryOp.AND || b.op() == BinaryOp.OR) && l.value() instanceof BitV lb
+                        && lb.value() == (b.op() == BinaryOp.OR)) {
+                    return l; // false && x, true || x: x isn't worked out, as when the program runs
+                }
                 Const r = evalConst(b.right(), env);
                 if (l.value() instanceof ErrV || r.value() instanceof ErrV) {
                     return new Const(new ErrV(), Type.ERROR);
@@ -2346,7 +2354,9 @@ public final class Checker {
                 }
                 if (v instanceof ErrV) {
                     reportValue(b.pos(), "invalid compile-time arithmetic: " + l.value() + " " + b.op().symbol
-                            + " " + r.value() + (b.op() == BinaryOp.DIV || b.op() == BinaryOp.MOD ? " divides by zero" : ""));
+                            + " " + r.value() + (b.op() == BinaryOp.DIV || b.op() == BinaryOp.MOD ? " divides by zero"
+                            : b.op() == BinaryOp.POW ? (l.value().intValue() != null && l.value().intValue().signum() == 0
+                                    ? " divides by zero" : " has more than " + CVal.MAX_POWER_BITS + " bits") : ""));
                     return new Const(v, Type.ERROR);
                 }
                 boolean comparison = switch (b.op()) {
@@ -2374,6 +2384,40 @@ public final class Checker {
             }
             case Call call:
                 return pureCall(call, env);
+            case Conditional cd: {
+                Const c = evalConst(cd.cond(), env);
+                if (c.value() instanceof ErrV) {
+                    return c;
+                }
+                if (!(c.type() instanceof BitT)) {
+                    report(cd.cond().pos(), "the condition of ?: must be a bit, not " + typeName(c.type()));
+                    return new Const(new ErrV(), Type.ERROR);
+                }
+                if (c.value() instanceof BitV bit) {
+                    return evalConst(bit.value() ? cd.then() : cd.otherwise(), env); // only the branch it picks, as at run time
+                }
+                // Not known yet (N > 8 inside a generic class): both branches, and the one it picks once it is.
+                Const a = evalConst(cd.then(), env);
+                Const o = evalConst(cd.otherwise(), env);
+                if (a.value() instanceof ErrV || o.value() instanceof ErrV) {
+                    return new Const(new ErrV(), Type.ERROR);
+                }
+                if (!constKind(a.type()).equals(constKind(o.type()))) {
+                    report(cd.pos(), "the branches of ?: give " + typeName(a.type()) + " and " + typeName(o.type())
+                            + ", which a compile-time value can't choose between");
+                    return new Const(new ErrV(), Type.ERROR);
+                }
+                CVal v = CVal.cond(c.value(), a.value(), o.value());
+                return new Const(v, a.type() instanceof IntConstT ? new IntConstT(null) : a.type());
+            }
+            case Cast cast: {
+                Type to = resolveType(cast.type(), env, Opts.PLAIN);
+                Const v = evalConst(cast.operand(), env);
+                if (to.isError() || v.value() instanceof ErrV) {
+                    return new Const(new ErrV(), Type.ERROR);
+                }
+                return constCast(v, to, cast.pos());
+            }
             default:
                 report(e.pos(), "not a compile-time constant; <<...>> values and array sizes may use literals, "
                         + "arithmetic, const fields, sizeof, calls to pure methods and other compile-time values");
@@ -2634,6 +2678,49 @@ public final class Checker {
             case null -> ret instanceof IntT ? new IntConstT(null) : ret;
             default -> ret;
         };
+    }
+
+    /** (T)v on a compile-time value, as the cast converts it at run time (§41.1). */
+    private Const constCast(Const v, Type to, Pos at) {
+        CVal x = v.value();
+        if (!x.isConstant()) {
+            if (to instanceof IntT && (v.type() instanceof IntT || v.type() instanceof IntConstT) && v.type().equals(to)) {
+                return new Const(x, to);
+            }
+            report(at, "a cast in a compile-time value needs a value known here, not " + x);
+            return new Const(new ErrV(), Type.ERROR);
+        }
+        switch (to) {
+            case IntT it when x instanceof IntV || x instanceof FloatV -> {
+                // Toward zero into a long for a floating-point value, then wrapped to the width, as at run time.
+                BigInteger n = x instanceof IntV i ? i.value() : BigInteger.valueOf((long) ((FloatV) x).value().doubleValue());
+                BigInteger w = it.width().intValue();
+                if (w == null) {
+                    report(at, "a cast in a compile-time value needs a known width, not " + to);
+                    return new Const(new ErrV(), Type.ERROR);
+                }
+                BigInteger mod = BigInteger.ONE.shiftLeft(it.isChar() ? 16 : w.intValueExact());
+                BigInteger r = n.mod(mod);
+                if (it.signed() && !it.isChar() && r.testBit(w.intValueExact() - 1)) {
+                    r = r.subtract(mod);
+                }
+                return new Const(new IntV(r), to);
+            }
+            case FloatT f when x instanceof IntV || x instanceof FloatV -> {
+                double d = x instanceof IntV i ? i.value().doubleValue() : ((FloatV) x).value();
+                return new Const(new FloatV((double) (float) d), to);
+            }
+            case DoubleT d when x instanceof IntV || x instanceof FloatV -> {
+                return new Const(new FloatV(x instanceof IntV i ? i.value().doubleValue() : ((FloatV) x).value()), to);
+            }
+            case BitT b when x instanceof BitV -> {
+                return new Const(x, to);
+            }
+            default -> {
+                report(at, "can't cast " + typeName(v.type()) + " to " + to + " in a compile-time value");
+                return new Const(new ErrV(), Type.ERROR);
+            }
+        }
     }
 
     private static Type constResultType(Type t, CVal v) {
@@ -6461,6 +6548,14 @@ public final class Checker {
             case MUL, DIV -> {
                 return operandCasts(b, bin, l, r, arithmetic(bin, l, r, true));
             }
+            case POW -> {
+                Type u = arithmetic(bin, l, r, true);
+                if (u instanceof FixedT) {
+                    report(bin.pos(), "operator ** works on integers and floating point, not " + u + "; convert to double first");
+                    return Type.ERROR;
+                }
+                return operandCasts(b, bin, l, r, u);
+            }
             case MOD -> {
                 return operandCasts(b, bin, l, r, arithmetic(bin, l, r, false));
             }
@@ -6535,7 +6630,9 @@ public final class Checker {
                 && lc.value() != null && rc.value() != null) {
             CVal v = CVal.binary(bin.op().symbol, new IntV(lc.value()), new IntV(rc.value()));
             if (v instanceof ErrV) {
-                report(bin.pos(), "division by zero");
+                report(bin.pos(), bin.op() == BinaryOp.POW && lc.value().signum() != 0
+                        ? lc.value() + " ** " + rc.value() + " has more than " + CVal.MAX_POWER_BITS + " bits"
+                        : "division by zero");
                 return Type.ERROR;
             }
             return new IntConstT(v.intValue());
@@ -6741,11 +6838,11 @@ public final class Checker {
     private static final String CAST = "(T)";
 
     static {
-        String[][] ops = {{"ADD", "+"}, {"SUBTRACT", "-"}, {"NEGATE", "-"}, {"MULTIPLY", "*"}, {"DIVIDE", "/"},
+        String[][] ops = {{"ADD", "+"}, {"SUBTRACT", "-"}, {"NEGATE", "-"}, {"MULTIPLY", "*"}, {"POWER", "**"}, {"DIVIDE", "/"},
                 {"REMAINDER", "%"}, {"BIT_AND", "&"}, {"BIT_OR", "|"}, {"BIT_XOR", "^"}, {"BIT_NOT", "~"},
                 {"EQUALS", "=="}, {"NOT_EQUALS", "!="}, {"LESS", "<"}, {"GREATER", ">"}, {"LESS_EQUAL", "<="},
                 {"GREATER_EQUAL", ">="}, {"SHIFT", "<<<"}, {"SHIFT_ASSIGN", "<<="}, {"INDEX", "[]"}, {"INDEX_SET", "[]="},
-                {"CAST", CAST}, {"ADD_ASSIGN", "+="}, {"SUBTRACT_ASSIGN", "-="}, {"MULTIPLY_ASSIGN", "*="},
+                {"CAST", CAST}, {"ADD_ASSIGN", "+="}, {"SUBTRACT_ASSIGN", "-="}, {"MULTIPLY_ASSIGN", "*="}, {"POWER_ASSIGN", "**="},
                 {"DIVIDE_ASSIGN", "/="}, {"REMAINDER_ASSIGN", "%="}, {"BIT_AND_ASSIGN", "&="}, {"BIT_OR_ASSIGN", "|="},
                 {"BIT_XOR_ASSIGN", "^="}};
         for (String[] op : ops) {

@@ -24,6 +24,8 @@ public enum Op {
 
     ADD("rrr"), SUB("rrr"), MUL("rrr"),
     DIVS("rrr"), DIVU("rrr"), REMS("rrr"), REMU("rrr"),
+    /** POW dst, base, exp, signed: base ** exp (§41), wrapping; a negative signed exponent divides. */
+    POW("rrri"),
     AND("rrr"), OR("rrr"), XOR("rrr"),
     /** dst = a + immediate. */
     ADDI("rri"),
@@ -45,6 +47,8 @@ public enum Op {
 
     /** Floating point: the last operand is 1 for double, 0 for float. */
     FADD("rrri"), FSUB("rrri"), FMUL("rrri"), FDIV("rrri"), FNEG("rri"),
+    /** FPOW dst, a, b, double: a ** b with StrictMath, through a double for a float. */
+    FPOW("rrri"),
     FEQ("rrri"), FNE("rrri"), FLT("rrri"), FLE("rrri"),
     /** Integer to float: I2F dst, src, signed, double. */
     I2F("rrii"),

@@ -49,7 +49,8 @@ Point[x=3, y=9]  is 9.49 from the origin
   as parameters: `int<<int W>>` is an integer of any width W. A `static pure` method, whose result
   depends only on its arguments, also runs while compiling: `uint<<Bits.needed(1000)>>`.
 - **Numbers:** signed and unsigned integers of any width from 1 to 64 bits (`int<<8>>`, `uint<<64>>`),
-  fixed point (`fixed<<16, 16>>`), `float` and `double`. They widen as in Java and narrow where
+  fixed point (`fixed<<16, 16>>`), `float` and `double`, with `**` for powers (`^` is XOR, as in
+  Java). They widen as in Java and narrow where
   stored, as in C; `-WautoCast` and `-WautoCastLossy` show every conversion the compiler makes.
 - **Operator overloading** with `@overload(Operator.ADD)`, including casts. A type's cast to `string`
   is its text, as Java's `toString()`.
@@ -101,7 +102,7 @@ seal build [options] PATH...   write the class files, for java to run
 
 ## Examples
 
-[`examples/`](examples) has 19 programs, each with the output it should give, from the basics to
+[`examples/`](examples) has 20 programs, each with the output it should give, from the basics to
 generics, fixed point, files, packages and static imports. [`examples/README.md`](examples/README.md)
 says what each one shows.
 

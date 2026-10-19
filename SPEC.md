@@ -411,11 +411,19 @@ Arguments inside `<<...>>` must be compile-time constants.
 Allowed expressions include:
 
 * literals
-* arithmetic on compile-time constants
+* every operator on compile-time constants: arithmetic, `**` (§45.1), bitwise and shift operators, comparisons, `!` `&&` `||`, `?:`, casts (`(uint<<8>>)300` is 44), and `+` joining strings
 * `const` variables
 * `sizeof`
 * other bound generic parameters
 * calls to `pure` methods (§17.2), which run while compiling: `int<<Bits.needed(1000)>>`
+
+```text
+array<int><<2 ** 16 - 1>> table;                  // 65535 elements
+int<<N > 32 ? 64 : 32>> value;                    // in a class with <<int N>>: chosen for each N
+Quantity<<"k" + "m">> distance;
+```
+
+In a generic class, a value that isn't known yet (`2 ** N`, `N > 32 ? 64 : 32`, `Fib.of(N)`) is worked out for each shape the program uses; `?:` picks a side then, and only the side it picks is worked out.
 
 Primitive values may be used as compile-time parameters.
 
@@ -1125,7 +1133,7 @@ array<int><<3>> xs = [1, 2, 3];
 array<int><<2, 2>> m = [[1, 2], [3, 4]];
 ```
 
-A fixed array with several lengths has a dimension for each: `array<T><<N, M>>` is `N` elements of `array<T><<M>>`, and is the same type as `array<array<T><<M>>><<N>>`. Indexing follows the nesting: `grid[r][c]` requires `r < 3` and `c < 4`, and `grid[r]` is a row (a copy, as values are). A parameter can bind every length: `static int trace(array<int><<int N, int M>> m)`. An index out of range throws an `IndexOutOfBoundsException` (one known when compiling is an error then).
+A fixed array with several lengths has a dimension for each: `array<T><<N, M>>` is `N` elements of `array<T><<M>>`, and is the same type as `array<array<T><<M>>><<N>>`. Indexing follows the nesting: `grid[r][c]` requires `r < 3` and `c < 4`, and `grid[r]` is a row (a copy, as values are). A parameter can bind every length: `static int trace(array<int><<int N, int M>> m)`. An index out of range throws an `IndexOutOfBoundsException` (one known when compiling is an error then). A length is less than 2 ** 31, as Java's arrays' are.
 
 A fixed array has the run-time array's methods (`length`, `fill`, `indexOf`, `contains`, `swap`, `reverse`, `sort`, `sort(Comparator)`, `toList`, `toArray`, `slice`), working on it in place; they come from the library struct `FixedArray`, which has its layout. A parameter `array<T><<int N>>` takes a fixed array of any length, with `N` bound to it (§9.3):
 
@@ -1980,7 +1988,9 @@ Proposed integer semantics include wrapping overflow.
 
 A number converts to any other number type without a cast: it widens to a type that holds it, as in Java, and narrows where it is stored or passed, as in C (§41.6).
 
-Arithmetic keeps the operands' type: `int<<8>> * int<<8>>` is an `int<<8>>` and wraps. Operands of different types meet in the wider one (§41.6). For a product that cannot overflow, `Integer.mulExact` (§42) returns an integer wide enough to hold it, `int<<N + P>>`, and accepts operands of different widths and signedness without casts. `Fixed.mulExact` does the same for fixed-point values (§37.1).
+Arithmetic keeps the operands' type: `int<<8>> * int<<8>>` is an `int<<8>>` and wraps. Operands of different types meet in the wider one (§41.6).
+
+`a ** b` is a power, as `*` is a product: its operands meet as `*`'s do, and on integers it wraps as repeated `*` would (`(int<<8>>)3 ** 5` is -13). A negative exponent gives `1 / a ** -b` in integer division: 0, except 1 for a base of 1, ±1 for -1, and division by zero for 0. On `float` and `double` it is `StrictMath.pow`, so the result is the same bits on every backend and while compiling (`2.0 ** 0.5`, `x ** -1`). It isn't defined on fixed point; convert to `double`. Between constants it is exact: `2 ** 64` is 18446744073709551616, and a constant power may have up to 65,536 bits. For a product that cannot overflow, `Integer.mulExact` (§42) returns an integer wide enough to hold it, `int<<N + P>>`, and accepts operands of different widths and signedness without casts. `Fixed.mulExact` does the same for fixed-point values (§37.1).
 
 Integer literals must fit their target type.
 
@@ -2577,7 +2587,7 @@ From lowest to highest:
 
 | Level | Operators                                   | Associativity |
 | ----- | ------------------------------------------- | ------------- |
-| 1     | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` | right  |
+| 1     | `=` `+=` `-=` `*=` `**=` `/=` `%=` `&=` `\|=` `^=` `<<=` | right  |
 | 2     | `\|\|`                                        | left          |
 | 3     | `&&`                                        | left          |
 | 4     | `==` `!=` `<` `>` `<=` `>=`                 | none          |
@@ -2588,9 +2598,12 @@ From lowest to highest:
 | 9     | `+` `-`                                     | left          |
 | 10    | `*` `/` `%`                                 | left          |
 | 11    | unary `-` `!` `~` `&` `*` `++` `--`, casts  | right         |
-| 12    | postfix `.` `()` `[]` `[..]` `++` `--`      | left          |
+| 12    | `**`                                        | right         |
+| 13    | postfix `.` `()` `[]` `[..]` `++` `--`      | left          |
 
 Bitwise operators bind tighter than comparisons, so `a & b == c` means `(a & b) == c`.
+
+`**`, a power, binds tighter than the unary operators before it, as in mathematics: `-2 ** 2` is `-(2 ** 2)`, -4, and `(double)n ** 2` is `(double)(n ** 2)`. It groups to the right, `2 ** 3 ** 2` is `2 ** 9`, and its exponent may have a sign of its own, `2 ** -1`. `^` is XOR, as in Java, not a power: `2 ^ 16 - 1` is `2 ^ 15`, 13.
 
 Comparisons do not chain: `a < b < c` is an error and must be parenthesized.
 
@@ -2613,14 +2626,14 @@ struct Vec2
 
 | Constant | Operator | Parameters |
 | -------- | -------- | ---------- |
-| `ADD`, `SUBTRACT`, `MULTIPLY`, `DIVIDE`, `REMAINDER` | `+` `-` `*` `/` `%` | the right operand |
+| `ADD`, `SUBTRACT`, `MULTIPLY`, `POWER`, `DIVIDE`, `REMAINDER` | `+` `-` `*` `**` `/` `%` | the right operand |
 | `NEGATE` | `-x` | none |
 | `BIT_AND`, `BIT_OR`, `BIT_XOR` | `&` `\|` `^` | the right operand |
 | `BIT_NOT` | `~x` | none |
 | `EQUALS`, `NOT_EQUALS`, `LESS`, `GREATER`, `LESS_EQUAL`, `GREATER_EQUAL` | `==` `!=` `<` `>` `<=` `>=` | the right operand; returns `bit` |
 | `SHIFT` | `<<<` | the shift amount |
 | `SHIFT_ASSIGN` | `<<=` | the shift amount; changes the object itself |
-| `ADD_ASSIGN`, `SUBTRACT_ASSIGN`, `MULTIPLY_ASSIGN`, `DIVIDE_ASSIGN`, `REMAINDER_ASSIGN` | `+=` `-=` `*=` `/=` `%=` | the right operand; changes the object itself |
+| `ADD_ASSIGN`, `SUBTRACT_ASSIGN`, `MULTIPLY_ASSIGN`, `POWER_ASSIGN`, `DIVIDE_ASSIGN`, `REMAINDER_ASSIGN` | `+=` `-=` `*=` `**=` `/=` `%=` | the right operand; changes the object itself |
 | `BIT_AND_ASSIGN`, `BIT_OR_ASSIGN`, `BIT_XOR_ASSIGN` | `&=` `\|=` `^=` | the right operand; changes the object itself |
 | `INDEX` | `xs[i]` | the index |
 | `INDEX_SET` | `xs[i] = v` | the index and the value |
