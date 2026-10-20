@@ -61,12 +61,13 @@ class Main
     static void main()
     {
         JavaObject<<"java.util.ArrayList">> names = new JavaObject<<"java.util.ArrayList">>();
-        names.invoke("add", ["Ada"]);                      // "Ada" becomes a java.lang.String
-        names.invoke("add", ["Bo"]);
+        names.invoke("add", [JavaString.of("Ada")]);       // a java.lang.String
+        names.invoke("add", [JavaString.of("Bo")]);
         int n = (int)names.invoke("size");                 // no arguments: no []
-        string first = (string)names.invoke("get", [0]);
+        string first = (string)names.invoke("get", [JavaInt.of(0)]);
 
-        JavaObject date = JavaBridge.get("java.time.LocalDate").invokeStatic("of", [2026, 10, 19]);
+        JavaObject date = JavaBridge.get("java.time.LocalDate").invokeStatic("of",
+                [JavaInt.of(2026), JavaInt.of(10), JavaInt.of(19)]);
         System.stdout.println((string)date.invoke("getDayOfWeek").invoke("toString"));
 
         JavaObject client = JavaBridge.get("net.minecraft.client.MinecraftClient").invokeStatic("getInstance");
@@ -74,7 +75,7 @@ class Main
 
         try {
             JavaBridge.get("java.nio.file.Files").invokeStatic("readString",
-                    [JavaBridge.get("java.nio.file.Path").invokeStatic("of", ["missing"])]);
+                    [JavaBridge.get("java.nio.file.Path").invokeStatic("of", [JavaString.of("missing")])]);
         } catch (JavaThrownException e) {                  // what Java threw, as a Seal exception
             if (e.is("java.nio.file.NoSuchFileException")) { System.stdout.println("no file"); }
         }
@@ -128,24 +129,31 @@ The exceptions (`JavaClassNotFoundException` and the rest) are §7, `JavaHandler
 
 ### 3.1 Seal values into Java
 
-**Proposed:** a Seal value converts into a `JavaObject` where one is wanted, by itself, through
-`@implicit` constructors, as a `string<<5>>` converts into a `string`. `@implicit` is allowed only
-for the library's `string` today; it would be allowed for the library's `JavaObject` too, and no
-other type (§12, question 4). An array literal whose elements differ (`[2026, "Ada", task]`) where
-an `array<JavaObject<<>>>` is wanted converts each element, which array literals don't do today.
+**Decided on review:** by hand, through one class for each of Java's types, so the call names the
+Java type it passes (§2: `JavaString.of("Ada")`, `JavaInt.of(2026)`):
 
-| Seal value | Java object |
-| ---------- | ----------- |
-| `int<<8>>`, `int<<16>>`, `int` (any width up to 32), `int<<64>>` (up to 64) | `Byte`, `Short`, `Integer`, `Long` (unsigned ones by their bits) |
-| `char`, `bit` | `Character`, `Boolean` |
-| `float`, `double` | `Float`, `Double` |
-| `string` | the `String` itself |
-| a Seal class's object | the object itself (it is a JVM object already) |
-| `null` | `null` |
+| Call | Java value |
+| ---- | ---------- |
+| `JavaInt.of(int x)`, `JavaLong.of(int<<64>> x)` | an `int`, a `long` |
+| `JavaShort.of(int<<16>> x)`, `JavaByte.of(int<<8>> x)` | a `short`, a `byte` |
+| `JavaDouble.of(double x)`, `JavaFloat.of(float x)` | a `double`, a `float` |
+| `JavaChar.of(char c)`, `JavaBoolean.of(bit b)` | a `char`, a `boolean` |
+| `JavaString.of(string s)` | the `String` itself |
+| `JavaObject.of(Object o)` | a Seal class's object, itself (it is a JVM object already) |
+| `null` | `null`, with no call |
 
-Structs, uniques, fixed arrays, fixed point and addresses have no Java form, and don't convert: an
-error says so where one is passed. An `array<T>` isn't converted for now (a Java array is a
-`JavaObject` the bridge can make: §11, B2).
+- **The program picks Java's type,** by the name Java's documentation gives it: a method taking a
+  `short` is given `JavaShort.of(5)`, one taking a `float` `JavaFloat.of(2.5)` (reflection won't
+  narrow a `Double` into a `float`). A Seal value goes in as Seal passes values: `JavaInt.of(n)` of
+  an `int<<64>>` narrows, and unsigned values go by their bits.
+- **Nothing converts by itself,** so Seal's rule that programs make objects where they write them
+  holds (§52 of the spec), and `@implicit` isn't widened beyond a shape becoming its bare shape
+  (§6).
+- **Each `of` gives a `JavaObject<<>>`,** so an argument array's elements share a type and array
+  literals need nothing new: `[JavaString.of("Ada"), JavaInt.of(5), task]`.
+- Structs, uniques, fixed arrays, fixed point and addresses have no Java form, so no class takes
+  them. An `array<T>` isn't converted for now (a Java array is a `JavaObject` the bridge can make:
+  §11, B2).
 
 ### 3.2 Java values into Seal
 
@@ -153,7 +161,7 @@ By casts, which `JavaObject` defines with `@overload(Operator.CAST)` (§46 of th
 
 ```text
 int n = (int)names.invoke("size");                  // an Integer (or any Number) as an int
-string s = (string)names.invoke("get", [0]);        // a String
+string s = (string)names.invoke("get", [JavaInt.of(0)]);   // a String
 bit empty = (bit)names.invoke("isEmpty");           // a Boolean
 JavaObject<<"java.util.ArrayList">> copy = (JavaObject<<"java.util.ArrayList">>)result;   // §6
 ```
@@ -175,10 +183,13 @@ throws a `JavaCastException` saying what it was (decided on review, §12).
   subclass); of those, the most specific, as Java picks. None throws a
   `JavaMethodNotFoundException` naming the methods of that name there are; two equally specific, a
   `JavaAmbiguousCallException` naming both.
-- **Seal's numbers keep their meaning:** a `JavaObject` made from a Seal number remembers it was a
-  number (it is an `Integer` marked as such inside the runtime), so it prefers primitive
-  parameters: `list.invoke("remove", [0])` calls `remove(int)`, not `remove(Object)`, as the Java
-  source `list.remove(0)` does. A box Java gave back is an object, and prefers `Object` parameters.
+- **Primitives stay primitives:** what `JavaInt.of` and the others of §3.1 make is a primitive (an
+  `Integer` marked as an `int` inside the runtime), so it prefers primitive parameters:
+  `list.invoke("remove", [JavaInt.of(0)])` calls `remove(int)`, not `remove(Object)`, as the Java
+  source `list.remove(0)` does. A box Java gave back is an object, and prefers `Object` parameters;
+  so `remove(Object)` takes a box Java makes, as the Java source
+  `list.remove(Integer.valueOf(0))` does:
+  `JavaBridge.get("java.lang.Integer").invokeStatic("valueOf", [JavaInt.of(0)])`.
 - **Varargs:** the elements, or an array (B2), for the `...` parameter.
 - **Fast enough:** each call site keeps the `MethodHandle` it found for the argument classes it
   saw, so a call repeated with the same kinds of arguments (every tick) skips the lookup.
@@ -210,12 +221,15 @@ unit.
 - **Types that say what they hold:** a Seal method taking a
   `JavaObject<<"net.minecraft.block.Block">>` can't be given a `JavaObject<<"java.util.ArrayList">>`;
   the compiler says so.
-- **A shaped object goes where a bare one is wanted,** as a `string<<5>>` goes where a `string` is.
+- **A shaped object goes where a bare one is wanted,** as a `string<<5>>` goes where a `string` is,
+  and by the same means: an `@implicit` constructor of the bare shape, which the library may
+  declare for `JavaObject` and `JavaClass` as it does for `string`, and for nothing else (§12,
+  question 4).
 - **A bare one becomes a shaped one by a cast,** `(JavaObject<<"java.util.List">>)o`, which checks
   `o`'s class while the program runs (a subclass, or a class implementing the interface, is one),
   so a wrong object fails there, not at a later `invoke`. `null` casts to any shape.
 - **A shaped one's constructors** use its shape's class:
-  `new JavaObject<<"java.util.ArrayList">>()` and `new JavaObject<<"java.util.ArrayList">>([16])`,
+  `new JavaObject<<"java.util.ArrayList">>()` and `new JavaObject<<"java.util.ArrayList">>([JavaInt.of(16)])`,
   so the name is written once. `JavaBridge.create(name, ...)` remains for a name known only while
   the program runs.
 - `JavaBridge.get(name)` gives a bare `JavaClass<<>>`; a shaped class is
@@ -249,14 +263,16 @@ named `Java...Exception`. Proposed names, to confirm:
 - **The runtime,** a new class `JavaBridge` (Java, in `io.github.thelinuxseal.seal.runtime`): class
   lookup through the caller's loader, overload choice, conversions, `MethodHandle` caches per call
   site, `Proxy` handlers, exception unwrapping.
-- **The library,** `stdlib/seal/java/`: `JavaBridge`, `JavaClass`, `JavaObject`, `JavaHandler`
-  and the exceptions of §7, their members `@jvm` methods of the runtime class (docs/JVM.md §8).
-  The library is in packages by then (§0).
-- **The checker:** `@implicit` for `JavaObject` too (§3.1), and array literals converting their
-  elements to an `array<JavaObject<<>>>` wanted.
+- **The library,** `stdlib/seal/java/`: `JavaBridge`, `JavaClass`, `JavaObject`, `JavaHandler`,
+  `JavaInt` and the other classes of §3.1, and the exceptions of §7, their members `@jvm` methods
+  of the runtime class (docs/JVM.md §8). The library is in packages by then (§0).
+- **The checker:** nothing new for B1. For B3, `@implicit` constructors in `JavaObject` and
+  `JavaClass` for a shape becoming the bare one (§6); today the checker allows `@implicit` in
+  `string` alone.
 - **The JVM backend:** a `JavaObject` or `JavaClass` is the Java reference itself (`java.lang.Object`,
   and `java.lang.Class` for a class), with no wrapper, as a `string` is a `java.lang.String`; a
-  number converted in is marked (§4) inside the runtime's box. Casts are calls to the runtime.
+  primitive made by `JavaInt.of` and the others is marked (§4) inside the runtime's box. Casts are
+  calls to the runtime.
 - **The VM** is gone by then (§0).
 - **The CLI:** `--classpath` (`-cp`) on `seal run`, so programs reach jars; `seal build` writes the
   classes as now, run beside the jars with `java -cp classes:deps.jar Main`.
@@ -300,9 +316,9 @@ and masks bits, which the JIT can't keep in registers.
 | Step | Contents | Done when |
 | ---- | -------- | --------- |
 | **R1**, **R2** | §0: the VM retires; the library moves into packages | the suites pass on the JVM alone, with the library in packages |
-| **B1** | the runtime bridge; `seal.java` with `JavaBridge`, `JavaClass`, `JavaObject` (bare), calls with and without arguments, fields, conversions in (`@implicit`, array literals) and out (casts); `--classpath` | a program uses `java.util.ArrayList`, `java.util.HashMap`, `java.time.LocalDate` and `java.util.Random` through the bridge, and prints what the same Java program prints |
+| **B1** | the runtime bridge; `seal.java` with `JavaBridge`, `JavaClass`, `JavaObject` (bare), calls with and without arguments, fields, conversions in (`JavaInt.of` and the others of §3.1) and out (casts); `--classpath` | a program uses `java.util.ArrayList`, `java.util.HashMap`, `java.time.LocalDate` and `java.util.Random` through the bridge, and prints what the same Java program prints |
 | **B2** | the exceptions of §7; `implement` and `JavaHandler`; Java arrays as `JavaObject`s (made with `java.lang.reflect.Array`, for varargs and `byte[]` APIs) | a Java `Thread` runs a Seal lambda, a `Comparator` from Seal sorts a Java list, an `IOException` is caught |
-| **B3** | shapes: `JavaObject<<string CLASS>>`, `JavaClass<<string CLASS>>`, their constructors, checked casts | the B1 program written with shaped values |
+| **B3** | shapes: `JavaObject<<string CLASS>>`, `JavaClass<<string CLASS>>`, their constructors, a shape going where the bare one is wanted (`@implicit`), checked casts | the B1 program written with shaped values |
 | **C1** to **C3** | §9 | a misspelled method is a compile error; the shaped calls of B3's program compile to direct JVM calls |
 | later | §10, then jars, the Java 21 target, and a Fabric mod (M6) | a Seal mod loads in a Fabric development run |
 
@@ -313,15 +329,15 @@ Decided on review:
 1. **`seal.java`**, and the whole standard library in packages (§0).
 2. **The VM retires** (§0), before the bridge.
 3. **Failures are Seal exceptions** named `Java...Exception` (§7).
+4. **Seal values go into Java by hand,** one class per Java type: `JavaInt.of(5)`,
+   `JavaString.of("Ada")` (§3.1), so the call names the Java type, and a value never becomes a
+   `JavaObject` by itself. Converting them through `@implicit` constructors, as a `string<<5>>`
+   becomes a `string`, was considered and set aside; and a cast method marked `@implicit` would
+   be the same thing, declared on the value's type. `@implicit` stays the library's, for a shape
+   becoming its bare shape: `string`'s now, `JavaObject`'s and `JavaClass`'s in B3 (§6).
 5. **A cast out of the wrong kind, or of `null`,** throws a `JavaCastException` (§3.2, §7).
 6. **`seal.lang` is imported automatically,** and the big numbers are in `seal.util` (§0).
 
 Still to decide:
 
-4. **`@implicit` for `JavaObject`:** an `@implicit` constructor converts a value into its type by
-   itself wherever the type is wanted; only the library's `string` has one today, which is why a
-   literal (a `string<<5>>`) goes where a bare `string` is wanted, and programs can't declare one.
-   Proposed: `JavaObject` gets them too, for Seal's numbers, `bit`, `char`, `string` and class
-   objects, so a call reads `names.invoke("add", ["Ada", 5])`. Or: by hand,
-   `names.invoke("add", [JavaObject.of("Ada"), JavaObject.of(5)])`.
 7. **The exceptions' names** in §7.
