@@ -2374,7 +2374,8 @@ Library classes may declare `@native("name")` methods, which are implemented by 
 | `Supplier`, `Consumer`, `BiConsumer`, `Predicate`, `Function`, `BiFunction` | `seal.util.function` | functional interfaces for lambdas (§30.3) |
 | `Files`, `File`, `Reader`, `FileReader`, `Writer`, `FileWriter`, `IOException`, `FileNotFoundException` | `seal.io` | files, folders and the standard streams (§42.1, §42.2); `printf` (§42.6) |
 | `JavaBridge`, `JavaClass`, `JavaObject` | `seal.java` | Java's classes and objects, by name (§42.7) |
-| `JavaInt`, `JavaLong`, `JavaShort`, `JavaByte`, `JavaDouble`, `JavaFloat`, `JavaChar`, `JavaBoolean`, `JavaString` | `seal.java` | Seal values passed into Java as Java's types (§42.7) |
+| `JavaInt`, `JavaLong`, `JavaShort`, `JavaByte`, `JavaDouble`, `JavaFloat`, `JavaChar`, `JavaBoolean`, `JavaString`, `JavaArray` | `seal.java` | Seal values passed into Java as Java's types (§42.7) |
+| `JavaException` and subclasses | `seal.java` | `JavaClassNotFoundException`, `JavaMethodNotFoundException`, `JavaFieldNotFoundException`, `JavaAmbiguousCallException`, `JavaCastException`, `JavaThrownException` (§42.7) |
 
 `List`, `Queue` and `IntMap` are classes, like Java's collections: create one with `new`, and variables share it. They keep their elements in `array<T>`s, release them as they are removed, and are freed automatically once nothing refers to them:
 
@@ -2576,7 +2577,9 @@ System.stdout.println(names + " " + n);                  // [Ada] 1
 * Among overloads, the arguments choose as in Java: first without boxing, then with it, then through varargs (whose elements are passed one by one), and the most specific of those that fit. A number passed in is Java's primitive, so `list.invoke("remove", [JavaInt.of(0)])` calls `remove(int)`, as `list.remove(0)` does in Java; a box Java gave back is an object, and prefers `remove(Object)`.
 * A cast takes a value out: `(int)`, `(int<<64>>)`, `(double)` and `(float)` take any `java.lang.Number` (or a `Character`), `(char)` a `Character`, `(bit)` a `Boolean`. A `JavaObject`'s cast to string is its text, Java's `String.valueOf`, so printing one prints what Java's `toString()` gives.
 * `==` compares `JavaObject`s by identity; Java's `equals` is `x.invoke("equals", [y])`. A `JavaObject` isn't one of Seal's objects: it doesn't go where an `Object` is wanted.
-* For now, what goes wrong at the bridge (no such class, no method the arguments fit, two that fit equally, a cast of the wrong kind) stops the program with a trap that says what, and so does an exception the Java code throws.
+* Java arrays: `JavaArray.of(xs)` makes a new Java array of a Seal one (an `array<uint<<8>>>` or `array<int<<8>>>` is a `byte[]`, `array<int<<16>>>` a `short[]`, `array<int>` an `int[]`, and so on to `array<string>`, a `String[]`, and `array<JavaObject>`, an `Object[]`); `JavaArray.of("java.nio.file.Path", elements)` one of a named class; `JavaArray.create("byte", n)` an array of Java's defaults, for Java to fill. Casts copy one out: `(array<uint<<8>>>)bytes`, `(array<int>)`, `(array<string>)` (an array of Strings), `(array<JavaObject>)` (any array, its numbers boxed). Arrays are copied both ways, as an `array<T>` is a unique that nothing else may hold. A typed array passed where a varargs parameter is fills it, as in Java.
+* What goes wrong at the bridge throws a `JavaException`, of a kind that says what: `JavaClassNotFoundException`, `JavaMethodNotFoundException` (no method or constructor the arguments fit), `JavaFieldNotFoundException`, `JavaAmbiguousCallException` (two fit equally well), `JavaCastException` (a cast, a field or an array element of the wrong kind), and `JavaException` itself for the rest (a final field set). Calling a method of a null `JavaObject` stops the program, as for a null Seal object.
+* What the Java code throws comes out as a `JavaThrownException`: `e.is("java.io.IOException")` says whether it is one (or a subclass), `e.javaClassName()` names its class, `e.cause()` is it, as a `JavaObject`, and `e.getMessage()` is Java's text of it, `java.nio.file.NoSuchFileException: notes.txt`. A Seal exception that went through Java (a Seal method the bridge called threw it) comes back as itself.
 * The bridge runs only on the JVM: with `--vm`, a program that calls it is an error.
 
 ---
@@ -2748,6 +2751,7 @@ struct Meters
 * The other way, a value becomes a struct only through a constructor: `new Meters(2.5)`.
 * The built-in casts come first: between numbers, between related class handles (upcasts and checked downcasts), and of a value to its own type. A `CAST` method is used only where none of those applies, so `(Account)savings` stays an upcast.
 * Two `CAST` methods can't return the same type, and a cast to a type with none is an error that lists the types it does cast to.
+* A `CAST` method that returns a unique (an `array<T>`, §21.3) makes a new one, which the cast hands over: `array<int> xs = (array<int>)javaArray;` (§42.7).
 
 Compound operators don't derive from their base operators: each one a type has, it declares (above).
 

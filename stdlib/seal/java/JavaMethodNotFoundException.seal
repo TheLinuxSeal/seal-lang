@@ -1,0 +1,10 @@
+package seal.java;
+
+// No public method or constructor of the name given that takes the arguments
+// (docs/JAVA.md §7): none so named, overloads none of which fit, a static method
+// invoked on an object or the other way, a class that can't be created (an
+// abstract one, an interface).
+class JavaMethodNotFoundException extends(JavaException)
+{
+    public new(string message) { super(message); }
+}

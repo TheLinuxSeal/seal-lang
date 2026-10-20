@@ -1,0 +1,34 @@
+package seal.java;
+
+// The Java code the bridge called threw (docs/JAVA.md §7): this holds what it
+// threw, and its message is Java's text of it, the class and its message.
+//
+//   try {
+//       files.invokeStatic("readString", [path]);
+//   } catch (JavaThrownException e) {
+//       if (e.is("java.io.IOException")) { ... }   // an IOException or a subclass of it
+//       e.javaClassName();                          // "java.nio.file.NoSuchFileException"
+//       e.cause().invoke("getMessage");             // Java's own message
+//   }
+//
+// A Seal exception that went through Java code (a Seal method the bridge
+// called threw it) comes back as itself, not as one of these.
+class JavaThrownException extends(JavaException)
+{
+    JavaObject thrown;
+
+    public new(string message, JavaObject thrown)
+    {
+        super(message);
+        this.thrown = thrown;
+    }
+
+    /** What the Java code threw: a java.lang.Throwable. */
+    public JavaObject cause() { return thrown; }
+
+    /** The name of its class: "java.nio.file.NoSuchFileException". */
+    public string javaClassName() { return thrown.javaClass().name(); }
+
+    /** Whether it is of the class so named, a subclass of it, or one implementing it. */
+    public bit is(string className) { return JavaBridge.get(className).isInstance(thrown); }
+}

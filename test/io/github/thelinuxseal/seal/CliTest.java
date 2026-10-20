@@ -407,7 +407,7 @@ public final class CliTest {
         r = run("run", "-cp", both, prog);
         check(r.code() == 0 && r.out().equals("hello, Ada 42\n"), "run -cp " + r);
         r = run("run", prog);
-        check(r.code() == 70 && r.err().startsWith("trap: no Java class demo.Greeter"), "run: without the class path " + r);
+        check(r.code() == 70 && r.err().startsWith("uncaught seal.java.JavaClassNotFoundException: no Java class demo.Greeter"), "run: without the class path " + r);
         r = run("run", "--classpath", dir.resolve("java/missing.jar").toString(), prog);
         check(r.code() == 2 && r.err().contains("class path entry not found: "), "run: a missing class path entry " + r);
         r = run("run", "--vm", prog);

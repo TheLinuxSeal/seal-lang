@@ -10,3 +10,9 @@ A 65 [pi   |  3.14]
 [20, 40]
 == a Seal object in a Java collection ==
 holds urgent: true, size 1, a Main$Tag
+== failures are exceptions ==
+caught: no Java class java.util.Nope
+can't read no/such/file.txt: a java.nio.file.NoSuchFileException
+== Java arrays ==
+héllo is 6 bytes in UTF-8; the second is 195
+Java sorted its copy: apple fig pear; Seal's still starts with pear

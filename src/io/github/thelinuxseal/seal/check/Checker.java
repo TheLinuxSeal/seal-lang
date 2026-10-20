@@ -1814,7 +1814,9 @@ public final class Checker {
         if (from != null && !isUnique(from)) {
             return; // a conversion (a T[N] into an array<T>) makes a new value; a wrong type is reported elsewhere
         }
-        if (isUnique(t) && !isTemporary(src)) {
+        // A cast of a value that isn't unique to one that is calls the value's cast method, which makes a new one.
+        boolean made = src instanceof Cast c && b.types.get(c.operand()) instanceof Type ot && !isUnique(ot);
+        if (isUnique(t) && !isTemporary(src) && !made) {
             report(src.pos(), what + ": " + t + " is unique and can't be copied; "
                     + (isArrayObject(t) ? "for a second array, use .copy()" : "create a new one, return it from a"
                     + " function, or pass it to a function, which lends it"));

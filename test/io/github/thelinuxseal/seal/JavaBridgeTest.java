@@ -77,6 +77,8 @@ public final class JavaBridgeTest {
             choosingOverloads();
             fields();
             failures();
+            exceptions();
+            javaArrays();
             compileErrors();
             notOnTheVm();
         } finally {
@@ -202,11 +204,11 @@ public final class JavaBridgeTest {
                 """, "int long int String Object Integer | a, b |  | 0 6 | hi 4 none\n");
         trap("two overloads that fit equally well are ambiguous", """
                 JavaBridge.get("demo.Tools").invokeStatic("pick", [JavaInt.of(1), JavaInt.of(2)]);
-                """, "trap: the call to demo.Tools.pick is ambiguous: ");
+                """, "uncaught seal.java.JavaAmbiguousCallException: the call to demo.Tools.pick is ambiguous: ");
         trap("null fits two unrelated parameters", """
                 JavaObject nothing = null;
                 JavaBridge.get("demo.Tools").invokeStatic("kind", [nothing]);
-                """, "trap: the call to demo.Tools.kind is ambiguous: ");
+                """, "uncaught seal.java.JavaAmbiguousCallException: the call to demo.Tools.kind is ambiguous: ");
     }
 
     private static void fields() {
@@ -222,51 +224,168 @@ public final class JavaBridgeTest {
                 """, "5 10 7 18 set 3 tools\n");
         trap("a final field can't be set", """
                 JavaBridge.get("demo.Tools").create().setField("y", JavaInt.of(1));
-                """, "trap: can't set demo.Tools.y: it is final");
+                """, "uncaught seal.java.JavaException: can't set demo.Tools.y: it is final");
         trap("a field takes its own type", """
                 JavaBridge.get("demo.Tools").create().setField("label", JavaInt.of(1));
-                """, "trap: can't set demo.Tools.label, a java.lang.String, to a java.lang.Integer");
+                """, "uncaught seal.java.JavaCastException: can't set demo.Tools.label, a java.lang.String, to a java.lang.Integer");
         trap("a static field is the class's", """
                 JavaBridge.get("demo.Tools").create().getField("count");
-                """, "trap: demo.Tools.count is static: use getStatic on the class");
+                """, "uncaught seal.java.JavaFieldNotFoundException: demo.Tools.count is static: use getStatic on the class");
         trap("only public fields", """
                 JavaBridge.create("java.util.ArrayList").getField("size");
-                """, "trap: java.util.ArrayList has no public field size");
+                """, "uncaught seal.java.JavaFieldNotFoundException: java.util.ArrayList has no public field size");
     }
 
     private static void failures() {
         trap("a class that isn't there", """
                 JavaBridge.get("demo.Nope");
-                """, "trap: no Java class demo.Nope");
+                """, "uncaught seal.java.JavaClassNotFoundException: no Java class demo.Nope");
         trap("a class is named in full", """
                 JavaBridge.create("ArrayList");
-                """, "trap: no Java class ArrayList; name it in full, as java.util.ArrayList");
+                """, "uncaught seal.java.JavaClassNotFoundException: no Java class ArrayList; name it in full, as java.util.ArrayList");
         trap("a method that isn't there", """
                 JavaBridge.create("java.util.ArrayList").invoke("nope");
-                """, "trap: java.util.ArrayList has no public method nope");
+                """, "uncaught seal.java.JavaMethodNotFoundException: java.util.ArrayList has no public method nope");
         trap("no overload takes the arguments", """
                 JavaBridge.create("java.util.ArrayList").invoke("add", [JavaInt.of(1), JavaInt.of(2), JavaInt.of(3)]);
-                """, "trap: no java.util.ArrayList.add takes (int, int, int); there are ");
+                """, "uncaught seal.java.JavaMethodNotFoundException: no java.util.ArrayList.add takes (int, int, int); there are ");
         trap("a static method is called on the class", """
                 JavaBridge.get("java.util.ArrayList").invokeStatic("size");
-                """, "trap: java.util.ArrayList has no public static method size; it has an instance one: call it with invoke on an object");
+                """, "uncaught seal.java.JavaMethodNotFoundException: java.util.ArrayList has no public static method size; it has an"
+                + " instance one: call it with invoke on an object");
         trap("an abstract class can't be created", """
                 JavaBridge.create("demo.Shape");
-                """, "trap: can't create a demo.Shape: it is abstract");
+                """, "uncaught seal.java.JavaMethodNotFoundException: can't create a demo.Shape: it is abstract");
         trap("a cast takes the kind of value it names", """
                 int n = (int)JavaString.of("5");
-                """, "trap: cannot cast a java.lang.String to int: it takes a Number");
+                """, "uncaught seal.java.JavaCastException: cannot cast a java.lang.String to int: it takes a Number");
         trap("a cast of null", """
                 JavaObject nothing = null;
                 bit b = (bit)nothing;
-                """, "trap: cannot cast null to bit: it takes a Boolean");
-        trap("a method of null", """
+                """, "uncaught seal.java.JavaCastException: cannot cast null to bit: it takes a Boolean");
+        trap("a method of null stops the program, as for a null Seal object", """
                 JavaObject nothing = null;
                 nothing.invoke("size");
                 """, "trap: invoke(\"size\") on a null JavaObject");
-        trap("what Java throws stops the program, for now", """
+        trap("what Java throws, uncaught, is a JavaThrownException", """
                 JavaBridge.get("demo.Tools").invokeStatic("fail", [JavaString.of("boom")]);
-                """, "trap: java.lang.IllegalStateException: boom");
+                """, "uncaught seal.java.JavaThrownException: java.lang.IllegalStateException: boom\n    at Main.main (Main.seal:9)");
+    }
+
+    private static void exceptions() {
+        output("each failure is an exception of its own kind, and JavaException catches them all", """
+                string seen = "";
+                try { JavaBridge.get("demo.Nope"); } catch (JavaClassNotFoundException e) { seen += "class "; }
+                try { JavaBridge.create("java.util.ArrayList").invoke("nope"); } catch (JavaMethodNotFoundException e) { seen += "method "; }
+                try { JavaBridge.create("demo.Shape"); } catch (JavaMethodNotFoundException e) { seen += "constructor "; }
+                try { JavaBridge.get("demo.Tools").getStatic("nope"); } catch (JavaFieldNotFoundException e) { seen += "field "; }
+                try {
+                    JavaBridge.get("demo.Tools").invokeStatic("pick", [JavaInt.of(1), JavaInt.of(2)]);
+                } catch (JavaAmbiguousCallException e) {
+                    seen += "ambiguous ";
+                }
+                try { bit b = (bit)JavaInt.of(1); } catch (JavaCastException e) { seen += "cast "; }
+                try { JavaBridge.get("demo.Tools").create().setField("y", JavaInt.of(1)); } catch (JavaException e) { seen += "final "; }
+                try { JavaBridge.get("demo.Tools").invokeStatic("fail", [JavaString.of("x")]); } catch (JavaException e) { seen += "thrown "; }
+                try { JavaArray.create("int", -1); } catch (JavaException e) { seen += "length"; }
+                System.stdout.println(seen);
+                """, "class method constructor field ambiguous cast final thrown length\n");
+        output("what Java throws comes out in a JavaThrownException holding it; an IOException is caught", """
+                JavaObject path = JavaBridge.get("java.nio.file.Path").invokeStatic("of", [JavaString.of("no/such/file.txt")]);
+                try {
+                    JavaBridge.get("java.nio.file.Files").invokeStatic("readString", [path]);
+                } catch (JavaThrownException e) {
+                    System.stdout.println(e.is("java.io.IOException") + " " + e.is("java.lang.Error") + " " + e.javaClassName()
+                            + " | " + e.getMessage() + " | " + e.cause().invoke("getMessage"));
+                }
+                """, "true false java.nio.file.NoSuchFileException | java.nio.file.NoSuchFileException: no/such/file.txt"
+                        + " | no/such/file.txt\n");
+        output("a Seal exception that goes through Java comes back as itself", """
+                Bomb b = new Bomb();
+                try {
+                    JavaObject.of(b).invoke("explode");
+                } catch (JavaThrownException e) {
+                    System.stdout.println("wrapped: " + e.getMessage());
+                } catch (IllegalStateException e) {
+                    System.stdout.println("itself: " + e.getMessage());
+                }
+                System.stdout.println((int)JavaObject.of(b).invoke("twice", [JavaInt.of(21)]));
+                """, "itself: bang\n42\n", "Bomb", """
+                class Bomb
+                {
+                    public void explode() { throw new IllegalStateException("bang"); }
+                    public int twice(int x) { return 2 * x; }
+                }
+                """);
+    }
+
+    private static void javaArrays() {
+        output("Seal arrays go in as new Java arrays, and casts copy them out", """
+                array<uint<<8>>> bytes = [104, 105, 255];
+                array<int<<8>>> signed = [-1, 2];
+                array<int<<16>>> shorts = [-300, 300];
+                array<int> ints = [1, 2, 3];
+                array<int<<64>>> longs = [9000000000];
+                array<float> floats = [1.5];
+                array<double> doubles = [2.25, 4.5];
+                array<char> chars = ['h', 'i'];
+                array<bit> bits = [true, false];
+                array<string> words = ["b", "a", "c"];
+                array<JavaObject> objects = [JavaInt.of(1), JavaString.of("a"), null];
+                JavaClass arrays = JavaBridge.get("java.util.Arrays");
+                System.stdout.println(arrays.invokeStatic("toString", [JavaArray.of(bytes)]) + " " + arrays.invokeStatic("toString", [JavaArray.of(signed)])
+                        + " " + arrays.invokeStatic("toString", [JavaArray.of(shorts)]) + " " + arrays.invokeStatic("toString", [JavaArray.of(ints)])
+                        + " " + arrays.invokeStatic("toString", [JavaArray.of(longs)]) + " " + arrays.invokeStatic("toString", [JavaArray.of(floats)])
+                        + " " + arrays.invokeStatic("toString", [JavaArray.of(doubles)]) + " " + arrays.invokeStatic("toString", [JavaArray.of(chars)])
+                        + " " + arrays.invokeStatic("toString", [JavaArray.of(bits)]) + " " + arrays.invokeStatic("toString", [JavaArray.of(words)])
+                        + " " + arrays.invokeStatic("toString", [JavaArray.of(objects)]) + " " + JavaArray.of(bytes).javaClass().name());
+                array<uint<<8>>> b = (array<uint<<8>>>)JavaArray.of(bytes);
+                array<int<<8>>> sb = (array<int<<8>>>)JavaArray.of(bytes);
+                array<int<<16>>> s = (array<int<<16>>>)JavaArray.of(shorts);
+                array<int> i = (array<int>)JavaArray.of(ints);
+                array<int<<64>>> l = (array<int<<64>>>)JavaArray.of(longs);
+                array<float> f = (array<float>)JavaArray.of(floats);
+                array<double> d = (array<double>)JavaArray.of(doubles);
+                array<char> c = (array<char>)JavaArray.of(chars);
+                array<bit> t = (array<bit>)JavaArray.of(bits);
+                array<string> w = (array<string>)JavaArray.of(words);
+                array<JavaObject> o = (array<JavaObject>)JavaArray.of(ints);
+                System.stdout.println(b[2] + " " + sb[2] + " " + s[0] + " " + i[2] + " " + l[0] + " " + f[0] + " " + d[1] + " " + c[1] + " " + t[0]
+                        + " " + w[2] + " " + o[1] + " " + o.length());
+                JavaObject sorted = JavaArray.of(words);
+                arrays.invokeStatic("sort", [sorted]);
+                array<string> again = (array<string>)sorted;
+                System.stdout.println(words[0] + " " + again[0] + again[1] + again[2]);   // Java sorted its own copy
+                """, "[104, 105, -1] [-1, 2] [-300, 300] [1, 2, 3] [9000000000] [1.5] [2.25, 4.5] [h, i] [true, false] [b, a, c]"
+                        + " [1, a, null] [B\n255 -1 -300 3 9000000000 1.5 4.5 i true c 2 3\nb abc\n");
+        output("arrays Java makes and fills, typed arrays, and an array for a varargs parameter", """
+                JavaObject buffer = JavaArray.create("int", 3);
+                JavaBridge.get("java.util.Arrays").invokeStatic("fill", [buffer, JavaInt.of(7)]);
+                array<int> filled = (array<int>)buffer;
+                array<uint<<8>>> utf8 = (array<uint<<8>>>)JavaString.of("é!").invoke("getBytes", [JavaString.of("UTF-8")]);
+                array<JavaObject> parts = [JavaString.of("a"), JavaString.of("b")];
+                JavaObject sequences = JavaArray.of("java.lang.CharSequence", parts);
+                array<string> words = ["x", "y", "z"];
+                JavaObject list = JavaBridge.get("java.util.List").invokeStatic("of", [JavaArray.of(words)]);
+                array<string> back = (array<string>)list.invoke("toArray");
+                System.stdout.println(filled[0] + filled[1] + filled[2] + " " + utf8.length() + " " + utf8[0] + " "
+                        + sequences.javaClass().name() + " " + JavaBridge.get("java.lang.String").invokeStatic("join", [JavaString.of("-"), sequences])
+                        + " " + list + " " + back.length());
+                """, "21 3 195 [Ljava.lang.CharSequence; a-b [x, y, z] 3\n");
+        trap("a cast out takes the array type it names", """
+                array<int> xs = (array<int>)JavaString.of("abc").invoke("getBytes");
+                """, "uncaught seal.java.JavaCastException: cannot cast a byte[] to array<int>: it takes an int[]");
+        trap("(array<string>) takes Strings only", """
+                array<JavaObject> mixed = [JavaString.of("a"), JavaInt.of(1)];
+                array<string> xs = (array<string>)JavaArray.of(mixed);
+                """, "uncaught seal.java.JavaCastException: cannot cast to array<string> an array whose element 1 is a java.lang.Integer");
+        trap("a typed array's elements are of its type", """
+                array<JavaObject> mixed = [JavaString.of("a"), JavaInt.of(1)];
+                JavaArray.of("java.lang.String", mixed);
+                """, "uncaught seal.java.JavaCastException: element 1 of an array of java.lang.String can't be a java.lang.Integer");
+        trap("an array of a class that isn't there", """
+                JavaArray.create("demo.Nope", 2);
+                """, "uncaught seal.java.JavaClassNotFoundException: no Java class demo.Nope");
     }
 
     private static void compileErrors() {

@@ -3747,6 +3747,9 @@ final class JvmCode {
     /** A method marked @jvm: a static method of a runtime class ("Strings.at"), or one this backend generates. */
     private void runtimeCall(String spec, Type receiver, List<Type> params, Type ret, Pos at) {
         int dot = spec.indexOf('.');
+        if (spec.startsWith("JavaBridge.")) {
+            g.bridgeCalled(at);
+        }
         ClassDesc owner = ClassDesc.of(JvmGen.RUNTIME + spec.substring(0, dot));
         List<ClassDesc> ps = new ArrayList<>();
         if (receiver != null) {

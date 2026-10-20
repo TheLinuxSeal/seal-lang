@@ -39,7 +39,7 @@ class JavaObject
 
     // Casts take Java's values out: a number cast takes any java.lang.Number (or
     // a Character), converted as Seal converts numbers; (char) a Character,
-    // (bit) a Boolean. Anything else, or null, stops the program.
+    // (bit) a Boolean. Anything else, or null, throws a JavaCastException.
     @overload(Operator.CAST) @jvm("JavaBridge.toInt") public int toInt();
     @overload(Operator.CAST) @jvm("JavaBridge.toLong") public int<<64>> toLong();
     @overload(Operator.CAST) @jvm("JavaBridge.toDouble") public double toDouble();
@@ -49,4 +49,21 @@ class JavaObject
 
     /** Its text, Java's String.valueOf: a String is itself, a list [Ada, Bo], null "null". */
     @overload(Operator.CAST) @jvm("JavaBridge.text") public string text();
+
+    // Casts copy a Java array out (JavaArray has the way in): a byte[] to an
+    // array of int<<8>> or of uint<<8>> (by its bits), a short[] to int<<16>>,
+    // an int[] to int, and so on; (array<string>) takes an array of Strings,
+    // and (array<JavaObject>) any array, its numbers boxed. Another kind of
+    // value, or null, throws a JavaCastException.
+    @overload(Operator.CAST) @jvm("JavaBridge.toBytes") public array<int<<8>>> toBytes();
+    @overload(Operator.CAST) @jvm("JavaBridge.toUnsignedBytes") public array<uint<<8>>> toUnsignedBytes();
+    @overload(Operator.CAST) @jvm("JavaBridge.toShorts") public array<int<<16>>> toShorts();
+    @overload(Operator.CAST) @jvm("JavaBridge.toInts") public array<int> toInts();
+    @overload(Operator.CAST) @jvm("JavaBridge.toLongs") public array<int<<64>>> toLongs();
+    @overload(Operator.CAST) @jvm("JavaBridge.toFloats") public array<float> toFloats();
+    @overload(Operator.CAST) @jvm("JavaBridge.toDoubles") public array<double> toDoubles();
+    @overload(Operator.CAST) @jvm("JavaBridge.toChars") public array<char> toChars();
+    @overload(Operator.CAST) @jvm("JavaBridge.toBooleans") public array<bit> toBooleans();
+    @overload(Operator.CAST) @jvm("JavaBridge.toStrings") public array<string> toStrings();
+    @overload(Operator.CAST) @jvm("JavaBridge.toObjects") public array<JavaObject> toObjects();
 }

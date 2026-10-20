@@ -1,7 +1,8 @@
 # Calling Java from Seal: design
 
-**Status:** reviewed; the first step, B1, is built (§11), and §12 records what building it
-settled. Seal reaches Java first through a
+**Status:** reviewed; B1 and two parts of B2 (the exceptions, Java arrays) are built (§11), and
+§12 records what building them settled. B2's third part, Java calling Seal (§5), waits for a
+different design from review. Seal reaches Java first through a
 **bridge**: a small library that names Java classes, methods and fields as strings and calls them
 while the program runs (§2 to §8). The compiler learns to check those calls, then to compile them
 directly, later (§9); what a bridge can't do at all (a Seal class Java creates by name, extending
@@ -104,8 +105,8 @@ class Main
 **In a package, `seal.java`** (decided on review, built in B1), so that programs import it
 (`import seal.java.*;`) and its names don't take any program's (§12, question 1). Until the shapes
 of §6 come (B3), the types are written `JavaObject` and `JavaClass`; then those will mean the bare
-shapes, `JavaObject<<>>` and `JavaClass<<>>`, as `string` means `string<<>>`. `implement` and the
-exceptions are B2's.
+shapes, `JavaObject<<>>` and `JavaClass<<>>`, as `string` means `string<<>>`. `implement` waits
+for §5's new design.
 
 `JavaBridge`, the way in:
 
@@ -165,8 +166,24 @@ Java type it passes (§2: `JavaString.of("Ada")`, `JavaInt.of(2026)`):
 - **Each `of` gives a `JavaObject<<>>`,** so an argument array's elements share a type and array
   literals need nothing new: `[JavaString.of("Ada"), JavaInt.of(5), task]`.
 - Structs, uniques, fixed arrays, fixed point and addresses have no Java form, so no class takes
-  them. An `array<T>` isn't converted for now (a Java array is a `JavaObject` the bridge can make:
-  §11, B2).
+  them, but an `array<T>` does (below).
+
+**Java arrays** (built in B2): `JavaArray.of(xs)` is a new Java array of a Seal one, and a cast
+copies a Java array out as a new Seal one:
+
+| Seal array | Java array |
+| ---------- | ---------- |
+| `array<int<<8>>>`, `array<uint<<8>>>` (by its bits) | `byte[]` |
+| `array<int<<16>>>`, `array<int>`, `array<int<<64>>>` | `short[]`, `int[]`, `long[]` |
+| `array<float>`, `array<double>`, `array<char>`, `array<bit>` | `float[]`, `double[]`, `char[]`, `boolean[]` |
+| `array<string>` | `String[]`; the cast takes any array of Strings, as `List.toArray()` gives |
+| `array<JavaObject>` | `Object[]`; the cast takes any array, a primitive one's elements boxed |
+
+`JavaArray.of("java.nio.file.Path", elements)` is an array of a named class, and
+`JavaArray.create("byte", n)` one of Java's defaults, for Java to fill (`in.read(buffer)`). Both
+directions copy: an `array<T>` is a unique (§21.3 of the spec), which nothing else may hold, so
+Java can't keep one. An array that is a varargs parameter's type goes to it as the array, as in
+Java (`List.of(JavaArray.of(words))`).
 
 ### 3.2 Java values into Seal
 
@@ -207,7 +224,8 @@ review, §12; until B2, it stops the program with that message).
   so `remove(Object)` takes a box Java makes, as the Java source
   `list.remove(Integer.valueOf(0))` does:
   `JavaBridge.get("java.lang.Integer").invokeStatic("valueOf", [JavaInt.of(0)])`.
-- **Varargs:** the elements one by one (B1), or an array (B2), for the `...` parameter.
+- **Varargs:** the elements one by one, or an array of the parameter's type (§3.1), for the `...`
+  parameter.
 - **Methods of private classes:** a public method of a class that isn't public (the iterator an
   `ArrayList` gives, the list `List.of` makes) is called as a public type it extends or implements
   declares it (`Iterator.hasNext`), as Java code calls it through that type.
@@ -218,7 +236,8 @@ review, §12; until B2, it stops the program with that message).
 
 ## 5. Callbacks: Java calling Seal
 
-`JavaBridge.implement(interfaceName, handler)` makes an object that implements a Java interface,
+**On hold:** review has a different idea for this, so what follows is the first proposal, not
+built. `JavaBridge.implement(interfaceName, handler)` makes an object that implements a Java interface,
 with `java.lang.reflect.Proxy`: each call of one of its methods calls the handler with the
 method's name and its arguments as `JavaObject`s, and returns what the handler returns (converted
 back to a primitive where the method returns one). `JavaHandler` is a Seal interface,
@@ -261,8 +280,8 @@ unit.
 
 ## 7. Exceptions
 
-**Decided on review:** what goes wrong at the bridge is a Seal exception, which `catch` takes, each
-named `Java...Exception`, as below (the names also decided on review):
+**Decided on review, built in B2:** what goes wrong at the bridge is a Seal exception, which
+`catch` takes, each named `Java...Exception`, as below (the names also decided on review):
 
 | Exception | When |
 | --------- | ---- |
@@ -272,12 +291,22 @@ named `Java...Exception`, as below (the names also decided on review):
 | `JavaFieldNotFoundException` | no public field of that name |
 | `JavaAmbiguousCallException` | two methods fit the arguments equally well |
 | `JavaCastException` | a cast out of a `JavaObject` (§3.2) given the wrong kind, or `null` |
-| `JavaThrownException` | the Java code threw: `e.cause()` is what it threw, as a `JavaObject`; `e.javaClassName()` its class's name; `e.is("java.io.IOException")` whether it is one (or a subclass); `e.getMessage()` its message |
+| `JavaThrownException` | the Java code threw: `e.cause()` is what it threw, as a `JavaObject`; `e.javaClassName()` its class's name; `e.is("java.io.IOException")` whether it is one (or a subclass); `e.getMessage()` Java's text of it, its class and message (`java.nio.file.NoSuchFileException: notes.txt`), which an uncaught one reports |
 
-- The bridge unwraps the `InvocationTargetException` reflection puts around what Java threw.
-- A Seal exception thrown by a `JavaHandler`, while Java called it, goes back through the Java
-  code as an unchecked exception (Seal's extend `RuntimeException` on the JVM, docs/JVM.md §7),
-  and reaches the Seal code that called into Java as itself, unless the Java code caught it.
+- What fits none of the kinds is a `JavaException` itself: setting a final field, an array of a
+  negative length. A field set to a value its type can't hold, and an array element of the wrong
+  type, are `JavaCastException`s; a class that can't be created (abstract, an interface) is a
+  `JavaMethodNotFoundException`, as it has no constructor to call.
+- A method of a null `JavaObject` stops the program, as calling one of a null Seal object does
+  (decided in B2).
+- The bridge unwraps the `InvocationTargetException` reflection puts around what Java threw. A
+  Seal exception that went through Java code (a Seal method the bridge called threw it; in time,
+  one Java calls back, §5) comes back as itself, as Seal's exceptions are unchecked on the JVM
+  (docs/JVM.md §7). A Java `Error` (out of memory, a stack overflow) and the runtime's own traps
+  stop the program as they are.
+- The runtime can't name these classes, which are compiled with each program, so it makes them by
+  name through the program's class loader; a program that calls into the bridge gets them all
+  from the compiler, whether or not its code names them.
 
 ## 8. In the compiler and the runtime
 
@@ -287,7 +316,8 @@ named `Java...Exception`, as below (the names also decided on review):
   passed in, marked with its primitive type. `Proxy` handlers come in B2. `seal build` copies both
   beside the program, as it does the rest of the runtime.
 - **The library,** `stdlib/seal/java/`: `JavaBridge`, `JavaClass`, `JavaObject`, `JavaInt` and the
-  other classes of §3.1 (and in B2, `JavaHandler` and the exceptions of §7). Their methods have no
+  other classes of §3.1, `JavaArray`, and the exceptions of §7 (and, with §5's design, what lets
+  Java call Seal). Their methods have no
   Seal body: each is `@jvm("JavaBridge.invoke") public JavaObject invoke(string method);`, the
   runtime's method that does it, which only the library may write.
 - **The checker:** `JavaObject` and `JavaClass` are classes, so a variable may be `null` and `==`
@@ -345,7 +375,7 @@ and masks bits, which the JIT can't keep in registers.
 | **R1**, **done** | §0: the VM is deprecated | `--vm` warns, every suite passes |
 | **R2**, **done** | §0: the library moves into packages | the suites pass with the library in packages |
 | **B1**, **done** | the runtime bridge; `seal.java` with `JavaBridge`, `JavaClass`, `JavaObject` (bare), calls with and without arguments, fields, conversions in (`JavaInt.of` and the others of §3.1) and out (casts); `--classpath` | a program uses `java.util.ArrayList`, `java.util.HashMap`, `java.time.LocalDate` and `java.util.Random` through the bridge, and prints what the same Java program prints |
-| **B2** | the exceptions of §7; `implement` and `JavaHandler`; Java arrays as `JavaObject`s (made with `java.lang.reflect.Array`, for varargs and `byte[]` APIs) | a Java `Thread` runs a Seal lambda, a `Comparator` from Seal sorts a Java list, an `IOException` is caught |
+| **B2**, **done but for §5** | the exceptions of §7 (done); Java arrays as `JavaObject`s, for varargs and `byte[]` APIs (done, §3.1); Java calling Seal (§5), which waits for a different design from review | an `IOException` is caught (done); a Java `Thread` runs Seal code, a `Comparator` from Seal sorts a Java list (with §5) |
 | **B3** | shapes: `JavaObject<<string CLASS>>`, `JavaClass<<string CLASS>>`, their constructors, a shape going where the bare one is wanted (`@implicit`), checked casts | the B1 program written with shaped values |
 | **C1** to **C3** | §9 | a misspelled method is a compile error; the shaped calls of B3's program compile to direct JVM calls |
 | later | removing the VM (§0), as a step of its own; §10, then jars, the Java 21 target, and a Fabric mod (M6) | a Seal mod loads in a Fabric development run |
@@ -377,9 +407,18 @@ Settled while building B1:
 9. **`JavaClass` extends `JavaObject`,** as a Java class is an object: `cls.invoke("getSimpleName")`.
 10. **`JavaObject` isn't one of Seal's objects:** it doesn't go where an `Object` is wanted, and
     `JavaObject.of(o)` takes only an object of a Seal class (a struct or record has no Java form).
-11. **Until B2, what goes wrong stops the program,** as a trap that says what, and an exception the
-    Java code throws stops it as an uncaught one does. B2 makes both Seal exceptions (§7).
+11. **Until B2, what goes wrong stopped the program,** as a trap that said what; B2 made both that
+    and what the Java code throws Seal exceptions (§7).
 12. **Both are `java.lang.Object` on the JVM** (§8), and the runtime casts to `Class` where it needs
     one, which keeps the generated code simple.
 
-Nothing is left to decide before B2.
+Settled while building B2:
+
+13. **A method of a null `JavaObject` stops the program,** as for a null Seal object (§7).
+14. **Arrays are copied going in and coming out,** as an `array<T>` is a unique (§3.1); a cast
+    method that returns a unique makes a new one, so `array<int> xs = (array<int>)a;` holds.
+15. **`JavaThrownException`'s message is Java's text of what it holds,** class and message, so an
+    uncaught one says what Java threw; Java's own message is `e.cause().invoke("getMessage")`.
+
+Still to decide: **§5, Java calling Seal**, for which review has a different idea than `implement`
+and `JavaHandler`.

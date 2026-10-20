@@ -11,8 +11,10 @@ package seal.java;
 // A class is named in full, as the JVM names it (java.util.Map$Entry for a
 // nested one), and found as the program's own classes are: in the JDK, and in
 // the jars `seal run --classpath` names. Only public classes, methods and
-// fields are reached. The bridge runs only on the JVM; what goes wrong at it
-// (no such class, no method the arguments fit) stops the program, for now.
+// fields are reached. The bridge runs only on the JVM. What goes wrong at it
+// throws a JavaException (JavaClassNotFoundException, JavaMethodNotFoundException
+// and the others), and what the Java code throws comes out as a
+// JavaThrownException holding it.
 struct JavaBridge
 {
     /** The class so named: "java.util.ArrayList". */

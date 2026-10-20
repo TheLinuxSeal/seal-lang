@@ -1,0 +1,9 @@
+package seal.java;
+
+// A value of the wrong kind (docs/JAVA.md §7): a cast out of a JavaObject given
+// another kind, or null, as (int) of a String; a field set to a value its type
+// can't hold; an array element of the wrong type.
+class JavaCastException extends(JavaException)
+{
+    public new(string message) { super(message); }
+}

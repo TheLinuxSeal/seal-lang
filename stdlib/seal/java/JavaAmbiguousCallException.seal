@@ -1,0 +1,9 @@
+package seal.java;
+
+// Two overloads fit the arguments equally well, as in a Java call its compiler
+// rejects (docs/JAVA.md §7). Arguments of the exact types (JavaLong.of(x))
+// choose one.
+class JavaAmbiguousCallException extends(JavaException)
+{
+    public new(string message) { super(message); }
+}

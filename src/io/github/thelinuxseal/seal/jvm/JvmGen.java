@@ -459,6 +459,30 @@ public final class JvmGen {
         return null;
     }
 
+    /** seal.java's exceptions, which the bridge's runtime makes by name (docs/JAVA.md §7). */
+    private static final Set<String> BRIDGE_EXCEPTIONS = Set.of("JavaException", "JavaClassNotFoundException",
+            "JavaMethodNotFoundException", "JavaFieldNotFoundException", "JavaAmbiguousCallException", "JavaCastException",
+            "JavaThrownException");
+    private boolean bridgeExceptions;
+
+    /**
+     * A call into the Java bridge: the program gets every one of its exceptions, with their
+     * constructors, as the runtime makes them by name and no code of the program's need name them.
+     */
+    void bridgeCalled(Pos at) {
+        if (bridgeExceptions) {
+            return;
+        }
+        bridgeExceptions = true;
+        for (ClassInfo c : ck.allClasses()) {
+            if (c.builtin && c.pkg.equals("seal.java") && BRIDGE_EXCEPTIONS.contains(c.name)) {
+                for (MemberInfo k : c.constructors) {
+                    constructor(new ClassT(c, List.of(), List.of(), 0), k, Map.of(), at);
+                }
+            }
+        }
+    }
+
     private static MemberInfo noArgConstructor(ClassInfo c) {
         for (MemberInfo m : c.constructors) {
             if (((Constructor) m.member).params().isEmpty()) {

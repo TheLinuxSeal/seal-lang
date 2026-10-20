@@ -27,11 +27,20 @@ import java.util.stream.Collectors;
  * <p>Classes are found by name through the class loader of the Seal class calling in. Methods,
  * constructors and fields are the public ones, reached through public classes; a method is chosen
  * as Java chooses among overloads (§4), and the choice is kept for the next call with the same
- * kinds of arguments. What goes wrong stops the program, for now, as a {@link Trap}.
+ * kinds of arguments.
+ *
+ * <p>What goes wrong throws one of seal.java's exceptions (§7), which this class can't name, as
+ * they are compiled with each program: it makes them by name through the program's class loader.
+ * What the Java code throws comes out in a JavaThrownException, and a Seal exception that went
+ * through Java as itself. A null JavaObject or JavaClass stops the program, as calling a method of
+ * a null Seal object does.
  */
 public final class JavaBridge {
 
     private static final StackWalker WALKER = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
+    /** Where seal.java's classes are on the JVM, and the root of Seal's exceptions. */
+    private static final String SEAL_JAVA = "io.github.thelinuxseal.seal.java.";
+    private static final String SEAL_EXCEPTION = "io.github.thelinuxseal.seal.lang.Exception";
     private static final Object[] NONE = {};
     /** The method or constructor chosen for a class, a name and the kinds of the arguments (§4). */
     private static final Map<List<Object>, Executable> CHOSEN = new ConcurrentHashMap<>();
@@ -64,7 +73,7 @@ public final class JavaBridge {
         try {
             return Class.forName(name, false, caller.getClassLoader());
         } catch (ClassNotFoundException | LinkageError e) {
-            throw new Trap("no Java class " + name + (name.indexOf('.') < 0 ? "; name it in full, as java.util.ArrayList"
+            throw fail("JavaClassNotFoundException", "no Java class " + name + (name.indexOf('.') < 0 ? "; name it in full, as java.util.ArrayList"
                     : name.contains("/") ? "; name it with dots, as java.util.ArrayList" : ""));
         }
     }
@@ -94,7 +103,7 @@ public final class JavaBridge {
         try {
             return f.get(null);
         } catch (IllegalAccessException e) {
-            throw new Trap("can't read " + c.getName() + "." + field + ": " + e.getMessage());
+            throw fail("JavaException", "can't read " + c.getName() + "." + field + ": " + e.getMessage());
         }
     }
 
@@ -135,7 +144,7 @@ public final class JavaBridge {
         try {
             return f.get(t);
         } catch (IllegalAccessException e) {
-            throw new Trap("can't read " + t.getClass().getName() + "." + field + ": " + e.getMessage());
+            throw fail("JavaException", "can't read " + t.getClass().getName() + "." + field + ": " + e.getMessage());
         }
     }
 
@@ -230,26 +239,206 @@ public final class JavaBridge {
         if (unwrap(o) instanceof Character c) {
             return c;
         }
-        throw new Trap(cannotCast(o, "char", "a Character"));
+        throw fail("JavaCastException", cannotCast(o, "char", "a Character"));
     }
 
     public static boolean toBit(Object o) {
         if (unwrap(o) instanceof Boolean b) {
             return b;
         }
-        throw new Trap(cannotCast(o, "bit", "a Boolean"));
+        throw fail("JavaCastException", cannotCast(o, "bit", "a Boolean"));
     }
 
     private static Number number(Object o, String to) {
         if (unwrap(o) instanceof Number n) {
             return n;
         }
-        throw new Trap(cannotCast(o, to, "a Number"));
+        throw fail("JavaCastException", cannotCast(o, to, "a Number"));
     }
 
     private static String cannotCast(Object o, String to, String needs) {
         Object v = unwrap(o);
-        return "cannot cast " + (v == null ? "null" : "a " + v.getClass().getName()) + " to " + to + ": it takes " + needs;
+        return "cannot cast " + (v == null ? "null" : "a " + v.getClass().getTypeName()) + " to " + to + ": it takes " + needs;
+    }
+
+    // ================================================================ Java arrays (§3.1)
+
+    // A Seal array goes in as a new Java array of its own: an array<T> is a unique, which nothing else
+    // may hold. An array of int<<8>> or uint<<8>> is an int[] on the JVM, and becomes a byte[].
+
+    public static Object arrayOfBytes(int[] xs) {
+        byte[] out = new byte[xs.length];
+        for (int i = 0; i < xs.length; i++) {
+            out[i] = (byte) xs[i];
+        }
+        return out;
+    }
+
+    public static Object arrayOfShorts(int[] xs) {
+        short[] out = new short[xs.length];
+        for (int i = 0; i < xs.length; i++) {
+            out[i] = (short) xs[i];
+        }
+        return out;
+    }
+
+    public static Object arrayOfInts(int[] xs) {
+        return xs.clone();
+    }
+
+    public static Object arrayOfLongs(long[] xs) {
+        return xs.clone();
+    }
+
+    public static Object arrayOfFloats(float[] xs) {
+        return xs.clone();
+    }
+
+    public static Object arrayOfDoubles(double[] xs) {
+        return xs.clone();
+    }
+
+    public static Object arrayOfChars(char[] xs) {
+        return xs.clone();
+    }
+
+    public static Object arrayOfBooleans(boolean[] xs) {
+        return xs.clone();
+    }
+
+    public static Object arrayOfStrings(String[] xs) {
+        return xs.clone();
+    }
+
+    public static Object arrayOfObjects(Object[] xs) {
+        Object[] out = new Object[xs.length];
+        for (int i = 0; i < xs.length; i++) {
+            out[i] = unwrap(xs[i]);
+        }
+        return out;
+    }
+
+    /** JavaArray.of(elementClass, xs): an array of that class, as the calling Seal class's loader finds it. */
+    public static Object arrayOfClass(String elementClass, Object[] xs) {
+        Class<?> type = elementType(elementClass, WALKER.getCallerClass());
+        Object out = Array.newInstance(type, xs.length);
+        for (int i = 0; i < xs.length; i++) {
+            Object v = unwrap(xs[i]);
+            try {
+                Array.set(out, i, v);
+            } catch (IllegalArgumentException e) {
+                throw fail("JavaCastException", "element " + i + " of an array of " + type.getName() + " can't be "
+                        + (v == null ? "null" : "a " + v.getClass().getName()));
+            }
+        }
+        return out;
+    }
+
+    /** JavaArray.create(elementClass, length): a new array of Java's defaults. */
+    public static Object newArray(String elementClass, int length) {
+        Class<?> type = elementType(elementClass, WALKER.getCallerClass());
+        if (length < 0) {
+            throw fail("JavaException", "an array of " + type.getName() + " can't have the length " + length);
+        }
+        return Array.newInstance(type, length);
+    }
+
+    /** A class by name, or a primitive type by Java's name for it ("int"). */
+    private static Class<?> elementType(String name, Class<?> caller) {
+        for (Class<?> p : PRIMITIVES) {
+            if (p.getName().equals(name)) {
+                return p;
+            }
+        }
+        return find(name, caller);
+    }
+
+    // Casts copy a Java array out, as a new Seal array.
+
+    public static int[] toBytes(Object o) {
+        byte[] xs = array(o, byte[].class, "array<int<<8>>>", "a byte[]");
+        int[] out = new int[xs.length];
+        for (int i = 0; i < xs.length; i++) {
+            out[i] = xs[i];
+        }
+        return out;
+    }
+
+    public static int[] toUnsignedBytes(Object o) {
+        byte[] xs = array(o, byte[].class, "array<uint<<8>>>", "a byte[]");
+        int[] out = new int[xs.length];
+        for (int i = 0; i < xs.length; i++) {
+            out[i] = xs[i] & 0xff;
+        }
+        return out;
+    }
+
+    public static int[] toShorts(Object o) {
+        short[] xs = array(o, short[].class, "array<int<<16>>>", "a short[]");
+        int[] out = new int[xs.length];
+        for (int i = 0; i < xs.length; i++) {
+            out[i] = xs[i];
+        }
+        return out;
+    }
+
+    public static int[] toInts(Object o) {
+        return array(o, int[].class, "array<int>", "an int[]").clone();
+    }
+
+    public static long[] toLongs(Object o) {
+        return array(o, long[].class, "array<int<<64>>>", "a long[]").clone();
+    }
+
+    public static float[] toFloats(Object o) {
+        return array(o, float[].class, "array<float>", "a float[]").clone();
+    }
+
+    public static double[] toDoubles(Object o) {
+        return array(o, double[].class, "array<double>", "a double[]").clone();
+    }
+
+    public static char[] toChars(Object o) {
+        return array(o, char[].class, "array<char>", "a char[]").clone();
+    }
+
+    public static boolean[] toBooleans(Object o) {
+        return array(o, boolean[].class, "array<bit>", "a boolean[]").clone();
+    }
+
+    /** (array<string>): an array whose elements are all Strings (a String[], or an Object[] such as List.toArray gives). */
+    public static String[] toStrings(Object o) {
+        Object[] xs = array(o, Object[].class, "array<string>", "an array of Strings");
+        String[] out = new String[xs.length];
+        for (int i = 0; i < xs.length; i++) {
+            if (!(xs[i] instanceof String s)) {
+                throw fail("JavaCastException", "cannot cast to array<string> an array whose element " + i + " is "
+                        + (xs[i] == null ? "null" : "a " + xs[i].getClass().getName()) + ": it takes Strings");
+            }
+            out[i] = s;
+        }
+        return out;
+    }
+
+    /** (array<JavaObject>): any Java array, a primitive one's elements boxed. */
+    public static Object[] toObjects(Object o) {
+        Object v = unwrap(o);
+        if (v == null || !v.getClass().isArray()) {
+            throw fail("JavaCastException", cannotCast(o, "array<JavaObject>", "a Java array"));
+        }
+        Object[] out = new Object[Array.getLength(v)];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = Array.get(v, i);
+        }
+        return out;
+    }
+
+    private static <A> A array(Object o, Class<A> type, String to, String needs) {
+        Object v = unwrap(o);
+        if (!type.isInstance(v)) {
+            throw fail("JavaCastException", cannotCast(o, to, needs));
+        }
+        return type.cast(v);
     }
 
     // ================================================================ choosing (§4)
@@ -298,7 +487,7 @@ public final class JavaBridge {
             }
         }
         if (chosen == null) {
-            throw new Trap(noneFits(c, name, isStatic, kinds, all));
+            throw fail("JavaMethodNotFoundException", noneFits(c, name, isStatic, kinds, all));
         }
         CHOSEN.put(key, chosen);
         return chosen;
@@ -306,10 +495,11 @@ public final class JavaBridge {
 
     private static List<Executable> constructors(Class<?> c) {
         if (!accessible(c)) {
-            throw new Trap("can't create a " + c.getName() + ": the class isn't public");
+            throw fail("JavaMethodNotFoundException", "can't create a " + c.getName() + ": the class isn't public");
         }
         if (Modifier.isAbstract(c.getModifiers())) {
-            throw new Trap("can't create a " + c.getName() + ": it is " + (c.isInterface() ? "an interface" : "abstract"));
+            throw fail("JavaMethodNotFoundException", "can't create a " + c.getName() + ": it is "
+                    + (c.isInterface() ? "an interface" : "abstract"));
         }
         return List.of(c.getConstructors());
     }
@@ -452,7 +642,7 @@ public final class JavaBridge {
         if (best.size() == 1) {
             return best.get(0);
         }
-        throw new Trap("the call to " + what(c, name) + " is ambiguous: " + best.stream().map(JavaBridge::signature)
+        throw fail("JavaAmbiguousCallException", "the call to " + what(c, name) + " is ambiguous: " + best.stream().map(JavaBridge::signature)
                 .collect(Collectors.joining(" and ")) + " both fit; pass arguments of the exact types, as JavaLong.of(x)");
     }
 
@@ -514,9 +704,9 @@ public final class JavaBridge {
         try {
             return k.newInstance(arguments(k, args));
         } catch (InvocationTargetException e) {
-            throw sneaky(e.getCause());
+            throw thrown(e.getCause());
         } catch (ReflectiveOperationException | IllegalArgumentException e) {
-            throw new Trap("can't create a " + c.getName() + ": " + e);
+            throw fail("JavaException", "can't create a " + c.getName() + ": " + e);
         }
     }
 
@@ -524,9 +714,9 @@ public final class JavaBridge {
         try {
             return m.invoke(target, arguments(m, args));
         } catch (InvocationTargetException e) {
-            throw sneaky(e.getCause());
+            throw thrown(e.getCause());
         } catch (ReflectiveOperationException | IllegalArgumentException e) {
-            throw new Trap("can't call " + m.getDeclaringClass().getName() + "." + m.getName() + ": " + e);
+            throw fail("JavaException", "can't call " + m.getDeclaringClass().getName() + "." + m.getName() + ": " + e);
         }
     }
 
@@ -559,14 +749,14 @@ public final class JavaBridge {
         try {
             f = c.getField(name);
         } catch (NoSuchFieldException e) {
-            throw new Trap(c.getName() + " has no public field " + name);
+            throw fail("JavaFieldNotFoundException", c.getName() + " has no public field " + name);
         }
         if (Modifier.isStatic(f.getModifiers()) != isStatic) {
-            throw new Trap(c.getName() + "." + name + " is " + (isStatic ? "not static: use getField on an object"
+            throw fail("JavaFieldNotFoundException", c.getName() + "." + name + " is " + (isStatic ? "not static: use getField on an object"
                     : "static: use getStatic on the class"));
         }
         if (!accessible(f.getDeclaringClass())) {
-            throw new Trap(c.getName() + "." + name + " is in a class that isn't public");
+            throw fail("JavaFieldNotFoundException", c.getName() + "." + name + " is in a class that isn't public");
         }
         return f;
     }
@@ -575,18 +765,65 @@ public final class JavaBridge {
         try {
             f.set(target, unwrap(value));
         } catch (IllegalAccessException e) {
-            throw new Trap("can't set " + f.getDeclaringClass().getName() + "." + f.getName()
+            throw fail("JavaException", "can't set " + f.getDeclaringClass().getName() + "." + f.getName()
                     + (Modifier.isFinal(f.getModifiers()) ? ": it is final" : ": " + e.getMessage()));
         } catch (IllegalArgumentException e) {
             Object v = unwrap(value);
-            throw new Trap("can't set " + f.getDeclaringClass().getName() + "." + f.getName() + ", a "
+            throw fail("JavaCastException", "can't set " + f.getDeclaringClass().getName() + "." + f.getName() + ", a "
                     + f.getType().getName() + ", to " + (v == null ? "null" : "a " + v.getClass().getName()));
         }
     }
 
-    /** Throws what the Java code threw, as it is: for now, it stops the program, as an uncaught exception does. */
+    // ================================================================ exceptions (§7)
+
+    /**
+     * One of seal.java's exceptions, made by name through the class loader of the Seal code that
+     * called in (the first class on the stack that isn't this one); a Trap if the program was
+     * compiled without them.
+     */
+    private static RuntimeException fail(String kind, String message) {
+        try {
+            Class<?> c = Class.forName(SEAL_JAVA + kind, true, sealCaller().getClassLoader());
+            return (RuntimeException) c.getConstructor(String.class).newInstance(message);
+        } catch (ReflectiveOperationException | LinkageError | ClassCastException e) {
+            return new Trap(message);
+        }
+    }
+
+    /**
+     * What the Java code threw, as Seal sees it: a Seal exception as itself (a Seal method the
+     * bridge called threw it), and an Error or the runtime's own (a trap, an exit) as they are; a
+     * Java exception in a JavaThrownException holding it, whose message is Java's text of it.
+     */
+    private static RuntimeException thrown(Throwable t) {
+        if (t instanceof Error || t instanceof Trap || t instanceof Exit || isSeal(t.getClass())) {
+            throw JavaBridge.<RuntimeException>rethrow(t);
+        }
+        try {
+            Class<?> c = Class.forName(SEAL_JAVA + "JavaThrownException", true, sealCaller().getClassLoader());
+            return (RuntimeException) c.getConstructor(String.class, Object.class).newInstance(t.toString(), t);
+        } catch (ReflectiveOperationException | LinkageError | ClassCastException e) {
+            throw JavaBridge.<RuntimeException>rethrow(t);
+        }
+    }
+
+    private static boolean isSeal(Class<?> c) {
+        for (Class<?> k = c; k != null; k = k.getSuperclass()) {
+            if (k.getName().equals(SEAL_EXCEPTION)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Class<?> sealCaller() {
+        return WALKER.walk(frames -> frames.map(StackWalker.StackFrame::getDeclaringClass)
+                .filter(c -> c != JavaBridge.class).findFirst().orElse(JavaBridge.class));
+    }
+
+    /** Throws t as it is, checked or not. */
     @SuppressWarnings("unchecked")
-    private static <T extends Throwable> RuntimeException sneaky(Throwable t) throws T {
+    private static <T extends Throwable> T rethrow(Throwable t) throws T {
         throw (T) t;
     }
 }

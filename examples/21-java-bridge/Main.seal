@@ -1,7 +1,8 @@
 // The Java bridge (docs/JAVA.md): Java's own classes, used from Seal through
 // seal.java. Classes, methods and fields are named by strings; Seal values go
-// in by JavaInt.of, JavaString.of and the others, and come out by casts. It
-// runs on the JVM, Seal's backend; the deprecated VM (--vm) has no bridge.
+// in by JavaInt.of, JavaString.of and the others, and come out by casts; arrays
+// by JavaArray.of and casts. What goes wrong is a JavaException. It runs on the
+// JVM, Seal's backend; the deprecated VM (--vm) has no bridge.
 import seal.java.*;
 
 class Main
@@ -63,5 +64,30 @@ class Main
         set.invoke("add", [JavaObject.of(urgent)]);             // the same object: still one
         System.stdout.println("holds urgent: " + (bit)set.invoke("contains", [JavaObject.of(urgent)])
                 + ", size " + (int)set.invoke("size") + ", a " + JavaObject.of(urgent).javaClass().name());
+
+        System.stdout.println("== failures are exceptions ==");
+        try {
+            JavaBridge.get("java.util.Nope");
+        } catch (JavaClassNotFoundException e) {
+            System.stdout.println("caught: " + e.getMessage());
+        }
+        JavaObject missing = JavaBridge.get("java.nio.file.Path").invokeStatic("of", [JavaString.of("no/such/file.txt")]);
+        try {
+            JavaBridge.get("java.nio.file.Files").invokeStatic("readString", [missing]);
+        } catch (JavaThrownException e) {                    // what the Java code threw
+            if (e.is("java.io.IOException")) {
+                System.stdout.println("can't read " + e.cause().invoke("getMessage") + ": a " + e.javaClassName());
+            }
+        }
+
+        System.stdout.println("== Java arrays ==");
+        array<uint<<8>>> utf8 = (array<uint<<8>>>)JavaString.of("héllo").invoke("getBytes", [JavaString.of("UTF-8")]);
+        System.stdout.println("héllo is " + utf8.length() + " bytes in UTF-8; the second is " + utf8[1]);
+        array<string> fruit = ["pear", "apple", "fig"];
+        JavaObject copy = JavaArray.of(fruit);                // a String[] of Java's own
+        JavaBridge.get("java.util.Arrays").invokeStatic("sort", [copy]);
+        array<string> sorted = (array<string>)copy;
+        System.stdout.println("Java sorted its copy: " + sorted[0] + " " + sorted[1] + " " + sorted[2] + "; Seal's still starts with "
+                + fruit[0]);
     }
 }
