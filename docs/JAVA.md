@@ -21,17 +21,16 @@ Seal. A fuller typed design, which this replaces as the first step, is in this f
 - **The standard library moves into packages,** as Java's is: `HashMap` is `seal.util.HashMap`,
   imported as any package's type, and the bridge is `seal.java`. Built in, and visible everywhere
   with no import, are the primitive types, `array<T>` and `array<T><<N>>`, and `string` and
-  `string<<N>>`. Proposed, to confirm (§12, question 6): a `seal.lang` package imported
-  automatically, as `java.lang` is, so that `System.stdout.println` and `throw new
-  IllegalArgumentException(...)` need no import; and this layout:
+  `string<<N>>`. A `seal.lang` package is imported automatically, as `java.lang` is, so that
+  `System.stdout.println` and `throw new IllegalArgumentException(...)` need no import (decided on
+  review). The layout:
 
   | Package | Types |
   | ------- | ----- |
   | `seal.lang` (imported automatically) | `Object`, `System`, `Math`, `Integer`, `Char`, `Double`, `Float`, `Fixed`, `Hash`, `Objects`, `Operator`, `StringBuilder`, `Iterable`, `Runnable`, `AutoCloseable`, and the exceptions `Exception`, `RuntimeException`, `ArithmeticException`, `AssertionError`, `IllegalArgumentException`, `IllegalStateException`, `IndexOutOfBoundsException`, `NumberFormatException`, `UnsupportedOperationException` |
-  | `seal.util` | `List`, `Queue`, `HashMap`, `IntMap`, `Random`, `Iterator`, `Comparator`, `NoSuchElementException` |
+  | `seal.util` | `List`, `Queue`, `HashMap`, `IntMap`, `Random`, `Iterator`, `Comparator`, `NoSuchElementException`, `BigUInt` (and a `BigInt`, if one is written: the library has only `BigUInt` today) |
   | `seal.util.function` | `Function`, `BiFunction`, `Consumer`, `BiConsumer`, `Predicate`, `Supplier` |
   | `seal.io` | `Files`, `File`, `Reader`, `Writer`, `FileReader`, `FileWriter`, `IOException`, `FileNotFoundException` |
-  | `seal.math` | `BigUInt` |
   | `seal.java` | the bridge (§3) |
 
   On the JVM, Seal's `seal.x` is `io.github.thelinuxseal.seal.x` (today all the library is in
@@ -315,6 +314,7 @@ Decided on review:
 2. **The VM retires** (§0), before the bridge.
 3. **Failures are Seal exceptions** named `Java...Exception` (§7).
 5. **A cast out of the wrong kind, or of `null`,** throws a `JavaCastException` (§3.2, §7).
+6. **`seal.lang` is imported automatically,** and the big numbers are in `seal.util` (§0).
 
 Still to decide:
 
@@ -324,7 +324,4 @@ Still to decide:
    Proposed: `JavaObject` gets them too, for Seal's numbers, `bit`, `char`, `string` and class
    objects, so a call reads `names.invoke("add", ["Ada", 5])`. Or: by hand,
    `names.invoke("add", [JavaObject.of("Ada"), JavaObject.of(5)])`.
-6. **`seal.lang`, imported automatically,** with the layout in §0: proposed, so that `System`,
-   `Math`, `Object` and the common exceptions need no import, as in Java. Or: only the built-in
-   types need none, and `import seal.lang.System;` like any other.
 7. **The exceptions' names** in §7.
