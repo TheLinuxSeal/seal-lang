@@ -1,7 +1,7 @@
 # Calling Java from Seal: design
 
-**Status:** proposed, for review; nothing is built yet. The questions in §12 need answers before
-work starts. This is the middle of milestone M6 in docs/JVM.md §13 (jars and the class-file
+**Status:** proposed, for review; nothing is built yet. How integers cross is decided (§5.1); the
+other questions in §12 need answers before work starts. This is the middle of milestone M6 in docs/JVM.md §13 (jars and the class-file
 target, then calling Java, then Mixins), and the way to a Minecraft mod in Seal.
 
 Seal compiles to JVM classes (docs/JVM.md). This document plans the other direction: a Seal
@@ -120,6 +120,19 @@ without a cast and narrows where it is passed, as when calling a Seal method, wi
 showing each. Unsigned types pass their bits (`uint` to Java's `int`), as a cast does; Java has no
 unsigned types, so it reads them as signed. Fixed point has no Java form: cast to `double`.
 
+**Decided: integers keep the representation M3 and M5 gave them** (docs/JVM.md §3, §4). An integer
+of up to 32 bits is a JVM `int`, a wider one a `long`, in locals, parameters, class fields, statics
+and `array<T>` elements; one that must have a place in memory (a field of a struct, an element of a
+fixed array, a variable whose address is taken) is bits in its block's `long[]`, read out where it
+is used. Either way a value reaches Java as the JVM `int` or `long` it already is, or is once read
+out of its block, so crossing needs no conversion of its own.
+
+Also considered: every integer kept in a block, as struct fields are, with a `toJavaInt()` reading
+it out where it meets Java. Set aside because every use of every integer would then be a call that
+shifts and masks bits in an array, which the JIT can't keep in registers or optimize in loops
+(an estimated 10 to 50 times slower for integer code), where today that happens only for values
+that need a place in memory, and docs/JVM.md §4.5 plans to move more values out of blocks, not in.
+
 ### 5.2 Strings, objects, arrays
 
 - **String:** a Java `String` is a Seal `string`, the same object; it already is on the JVM. What a
@@ -130,12 +143,13 @@ unsigned types, so it reads them as signed. Fixed point has no Java form: cast t
 - **Seal's `Object`:** §12, question 1, proposes that Seal's root `Object` become
   `java.lang.Object`, so that every Java object is a Seal `Object` (in a `List<Object>`, for
   `Object` parameters) and every Seal object a Java one.
-- **Arrays:** a Java `T[]` is a Seal `array<T>` for any `T` this table maps: `int[]` is
-  `array<int>`, `String[]` is `array<string>`, `Thread[]` is `array<Thread>`. On the JVM an
-  `array<T>` already is a Java array, but `array<int<<8>>>` is an `int[]` today, which a Java
-  method taking `byte[]` can't use; §12, question 6, proposes 8- and 16-bit integers become
-  `byte` and `short` in arrays and fields. Arrays of arrays (`int[][]`) wait: Seal's `array<T>` is
-  a unique and can't hold arrays.
+- **Arrays:** a Java `T[]` is a Seal `array<T>` where the two are the same JVM array: `int[]` is
+  `array<int>`, `long[]` `array<int<<64>>>`, `char[]` `array<char>`, `boolean[]` `array<bit>`,
+  `String[]` `array<string>`, `Thread[]` `array<Thread>`. An `array<int<<8>>>` or
+  `array<int<<16>>>` is an `int[]` (§5.1), so Java's `byte[]` and `short[]` aren't Seal arrays;
+  how a program hands Java one (a Seal type for Java's arrays, or a copy, which a method that fills
+  the array it is given can't use) is settled when J1 meets them. Arrays of arrays (`int[][]`)
+  wait: Seal's `array<T>` is a unique and can't hold arrays.
 
 ### 5.3 What stays on the Seal side
 
@@ -242,7 +256,7 @@ class, or copy its fields; a fixed array: `array<T>` takes a copy; fixed point: 
 
 | Step | Contents | Done when |
 | ---- | -------- | --------- |
-| **J0** | §12 decided; the class-path reader; `--classpath`; 8- and 16-bit numbers as `byte` and `short` (if decided); Seal's `Object` as `java.lang.Object` (if decided) | the suites pass as now, and the reader lists any JDK class's members |
+| **J0** | §12 decided; the class-path reader; `--classpath`; Seal's `Object` as `java.lang.Object` (if decided) | the suites pass as now, and the reader lists any JDK class's members |
 | **J1** | Java classes without generics: constructors, methods, fields, statics, overloads, varargs, arrays, strings, exceptions caught and thrown, imports and `import static` | a program using `java.time`, `java.util.Random`, `java.util.regex` and `java.nio.file` prints what the same Java program prints |
 | **J2** | Java's generics: type arguments, erasure and casts, boxing, generic methods, wildcards, for-each over `Iterable` | a word count in a `java.util.TreeMap<string, int>` |
 | **J3** | Seal lambdas as Java's functional interfaces; Seal classes implementing Java interfaces, with bridges; Seal objects with `equals`, `hashCode` and `toString` | a stream pipeline (`names.stream().filter(...).map(...).toList()`), and a Java `HashMap` with Seal keys |
@@ -287,9 +301,8 @@ class, or copy its fields; a fixed array: `array<T>` takes a copy; fixed point: 
    `catch (java.lang.Throwable t)` catch what Java throws for them, including Seal's faults (a null
    handle, division by zero), as in Java; Seal's `catch (Exception e)` still never catches a fault.
    Or: faults stay uncatchable, whatever the `catch` names.
-6. **8- and 16-bit numbers as `byte` and `short`:** proposed: yes, in arrays and fields on the JVM,
-   so `array<int<<8>>>` is a Java `byte[]` (and four times smaller); values on the stack stay
-   `int`s, as the JVM's own are.
+6. **Decided: integers stay as M3 and M5 made them** (§5.1), so 8- and 16-bit ones aren't `byte`
+   and `short` in arrays and fields; Java's `byte[]` is settled in J1 (§5.2).
 7. **Java's `String` methods on Seal strings** (`s.strip()`, `s.chars()`): proposed: not now;
    Seal's `string` keeps its own methods.
 8. **The VM:** Java classes can't run on it, and the suites' VM-against-JVM comparison can't cover
