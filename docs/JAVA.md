@@ -4,7 +4,7 @@
 **bridge**: a small library that names Java classes, methods and fields as strings and calls them
 while the program runs (§2 to §8). The compiler learns to check those calls, then to compile them
 directly, later (§9); what a bridge can't do at all (a Seal class Java creates by name, extending
-a Java class, Mixins) comes after that (§10). Before it, the VM retires and the standard
+a Java class, Mixins) comes after that (§10). Before it, the VM is deprecated and the standard
 library moves into packages (§0). §12 records what review decided and what is left. This is the middle of milestone M6 in docs/JVM.md §13, and the way to a Minecraft mod in
 Seal. A fuller typed design, which this replaces as the first step, is in this file's history
 (commit 13c300a).
@@ -13,11 +13,14 @@ Seal. A fuller typed design, which this replaces as the first step, is in this f
 
 **Decided on review:** two changes come first.
 
-- **The VM retires** (docs/JVM.md §13): it can't hold Java objects, and keeping both backends would
-  mean building every feature twice. `vm/` and `codegen/` go, with the tests of the VM itself; the
-  suites check their programs' output on the JVM, against what they expect, instead of comparing
-  two backends; `--vm` goes. Then the library's code that only the VM needed (strings and arrays on
-  `addr` buffers, `StringChars`, the Seal bodies behind `@jvm` methods).
+- **The VM is deprecated** (docs/JVM.md §13, done): it can't hold Java objects, and keeping both
+  backends would mean building every feature twice. Deprecated, as review chose over removing it at
+  once: `--vm` still runs and dumps programs, after a warning on standard error; `vm/` and
+  `codegen/` are `@Deprecated`; and it gets no new features. What it runs today it keeps running,
+  and the suites keep comparing it with the JVM there; the bridge, and what comes after, is the
+  JVM's alone. Removing it, its tests and the library's code that only the VM needs (strings and
+  arrays on `addr` buffers, `StringChars`, the Seal bodies behind `@jvm` methods) is a later step
+  of its own.
 - **The standard library moves into packages,** as Java's is: `HashMap` is `seal.util.HashMap`,
   imported as any package's type, and the bridge is `seal.java`. Built in, and visible everywhere
   with no import, are the primitive types, `array<T>` and `array<T><<N>>`, and `string` and
@@ -241,7 +244,7 @@ unit.
 ## 7. Exceptions
 
 **Decided on review:** what goes wrong at the bridge is a Seal exception, which `catch` takes, each
-named `Java...Exception`. Proposed names, to confirm:
+named `Java...Exception`, as below (the names also decided on review):
 
 | Exception | When |
 | --------- | ---- |
@@ -273,7 +276,8 @@ named `Java...Exception`. Proposed names, to confirm:
   and `java.lang.Class` for a class), with no wrapper, as a `string` is a `java.lang.String`; a
   primitive made by `JavaInt.of` and the others is marked (§4) inside the runtime's box. Casts are
   calls to the runtime.
-- **The VM** is gone by then (§0).
+- **The VM** gets none of it (§0): its code generator reports a program that uses `seal.java` as
+  not available on the VM.
 - **The CLI:** `--classpath` (`-cp`) on `seal run`, so programs reach jars; `seal build` writes the
   classes as now, run beside the jars with `java -cp classes:deps.jar Main`.
 
@@ -315,19 +319,21 @@ and masks bits, which the JIT can't keep in registers.
 
 | Step | Contents | Done when |
 | ---- | -------- | --------- |
-| **R1**, **R2** | §0: the VM retires; the library moves into packages | the suites pass on the JVM alone, with the library in packages |
+| **R1**, **done** | §0: the VM is deprecated | `--vm` warns, every suite passes |
+| **R2** | §0: the library moves into packages | the suites pass with the library in packages |
 | **B1** | the runtime bridge; `seal.java` with `JavaBridge`, `JavaClass`, `JavaObject` (bare), calls with and without arguments, fields, conversions in (`JavaInt.of` and the others of §3.1) and out (casts); `--classpath` | a program uses `java.util.ArrayList`, `java.util.HashMap`, `java.time.LocalDate` and `java.util.Random` through the bridge, and prints what the same Java program prints |
 | **B2** | the exceptions of §7; `implement` and `JavaHandler`; Java arrays as `JavaObject`s (made with `java.lang.reflect.Array`, for varargs and `byte[]` APIs) | a Java `Thread` runs a Seal lambda, a `Comparator` from Seal sorts a Java list, an `IOException` is caught |
 | **B3** | shapes: `JavaObject<<string CLASS>>`, `JavaClass<<string CLASS>>`, their constructors, a shape going where the bare one is wanted (`@implicit`), checked casts | the B1 program written with shaped values |
 | **C1** to **C3** | §9 | a misspelled method is a compile error; the shaped calls of B3's program compile to direct JVM calls |
-| later | §10, then jars, the Java 21 target, and a Fabric mod (M6) | a Seal mod loads in a Fabric development run |
+| later | removing the VM (§0), as a step of its own; §10, then jars, the Java 21 target, and a Fabric mod (M6) | a Seal mod loads in a Fabric development run |
 
 ## 12. Questions
 
 Decided on review:
 
 1. **`seal.java`**, and the whole standard library in packages (§0).
-2. **The VM retires** (§0), before the bridge.
+2. **The VM is deprecated** (§0), before the bridge, rather than removed at once: it keeps running
+   what it runs, gets no new features, and goes in a later step.
 3. **Failures are Seal exceptions** named `Java...Exception` (§7).
 4. **Seal values go into Java by hand,** one class per Java type: `JavaInt.of(5)`,
    `JavaString.of("Ada")` (§3.1), so the call names the Java type, and a value never becomes a
@@ -337,7 +343,6 @@ Decided on review:
    becoming its bare shape: `string`'s now, `JavaObject`'s and `JavaClass`'s in B3 (§6).
 5. **A cast out of the wrong kind, or of `null`,** throws a `JavaCastException` (§3.2, §7).
 6. **`seal.lang` is imported automatically,** and the big numbers are in `seal.util` (§0).
-
-Still to decide:
-
 7. **The exceptions' names** in §7.
+
+Nothing is left to decide before R2.

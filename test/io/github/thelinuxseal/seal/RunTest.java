@@ -16,6 +16,7 @@ import io.github.thelinuxseal.seal.vm.Trap;
 import io.github.thelinuxseal.seal.vm.VM;
 
 /** End-to-end tests: compile programs, run them on the VM, and check output. `java -cp out io.github.thelinuxseal.seal.RunTest`. */
+@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class RunTest {
 
     private static int passed = 0;

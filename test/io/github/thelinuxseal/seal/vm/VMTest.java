@@ -8,10 +8,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-import io.github.thelinuxseal.seal.vm.Program.Function;
-import io.github.thelinuxseal.seal.vm.Program.RtClass;
 
 /** Unit tests for the VM and its memory, independent of the compiler. `java -cp out io.github.thelinuxseal.seal.vm.VMTest`. */
+@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class VMTest {
 
     private static int passed = 0;
@@ -335,7 +334,7 @@ public final class VMTest {
 
     private static void handles() {
         Program p = new Program();
-        p.classes.add(new RtClass("Box", -1, Map.of()));
+        p.classes.add(new Program.RtClass("Box", -1, Map.of()));
         // h = new Box; store 7; delete; h2 = new Box (reuses the slot); h2 != h; load via h traps
         p.functions.add(fn("t", 9, 0, new long[]{7},
                 Op.HNEW, 1, 0, 128,
@@ -353,14 +352,14 @@ public final class VMTest {
         check(newVM(p).run() == 8, "handle store/load, slot reuse with a new generation");
 
         Program stale = new Program();
-        stale.classes.add(new RtClass("Box", -1, Map.of()));
+        stale.classes.add(new Program.RtClass("Box", -1, Map.of()));
         stale.functions.add(fn("t", 9, 0, new long[0],
                 Op.HNEW, 1, 0, 64, Op.HDELETE, 1, Op.HNEW, 2, 0, 64, Op.HLOAD, 3, 1, -1, 0, 8, 0, Op.RET, 3));
         stale.entry = 0;
         trapCheck(stale, "stale handle", "old handle after the slot is reused");
 
         Program bounds = new Program();
-        bounds.classes.add(new RtClass("Box", -1, Map.of()));
+        bounds.classes.add(new Program.RtClass("Box", -1, Map.of()));
         bounds.functions.add(fn("t", 9, 0, new long[0],
                 Op.HNEW, 1, 0, 64, Op.HLOAD, 2, 1, -1, 60, 8, 0, Op.RET, 2));
         bounds.entry = 0;
@@ -374,7 +373,7 @@ public final class VMTest {
 
         // Copy between fixed memory and a dynamic object.
         Program copies = new Program();
-        copies.classes.add(new RtClass("Box", -1, Map.of()));
+        copies.classes.add(new Program.RtClass("Box", -1, Map.of()));
         copies.functions.add(fn("t", 9, 256, new long[]{0x1234},
                 Op.HNEW, 1, 0, 128,
                 Op.FRAME, 2, 0,
@@ -446,9 +445,9 @@ public final class VMTest {
         // Classes: 0 Animal, 1 Dog extends Animal, 2 Cat extends Animal (no override)
         Program p = new Program();
         p.slots.add("speak()");
-        p.classes.add(new RtClass("Animal", -1, Map.of(0, 1)));
-        p.classes.add(new RtClass("Dog", 0, Map.of(0, 2)));
-        p.classes.add(new RtClass("Cat", 0, Map.of(0, 1)));
+        p.classes.add(new Program.RtClass("Animal", -1, Map.of(0, 1)));
+        p.classes.add(new Program.RtClass("Dog", 0, Map.of(0, 2)));
+        p.classes.add(new Program.RtClass("Cat", 0, Map.of(0, 1)));
         p.functions.add(fn("main", 9, 0, new long[]{10},
                 Op.HNEW, 1, 1, 64,
                 Op.VCALL, 0, 1, 1, 2,           // Dog.speak -> 2
@@ -465,17 +464,17 @@ public final class VMTest {
         check(newVM(p).run() == 21, "virtual dispatch and inherited slots");
 
         Program bad = new Program();
-        bad.classes.add(new RtClass("Animal", -1, Map.of()));
-        bad.classes.add(new RtClass("Dog", 0, Map.of()));
+        bad.classes.add(new Program.RtClass("Animal", -1, Map.of()));
+        bad.classes.add(new Program.RtClass("Dog", 0, Map.of()));
         bad.functions.add(fn("main", 4, 0, new long[0], Op.HNEW, 1, 0, 64, Op.CHECKCAST, 2, 1, 1, Op.RETV));
         bad.entry = 0;
         trapCheck(bad, "cannot cast Animal to Dog", "downcast of a parent instance");
 
         Program itf = new Program();
-        itf.classes.add(new RtClass("Drawable", -1, Map.of()));                 // an interface: no objects
-        itf.classes.add(new RtClass("Animal", -1, Map.of(), List.of(0)));        // implements Drawable
-        itf.classes.add(new RtClass("Dog", 1, Map.of()));                       // inherits that
-        itf.classes.add(new RtClass("Rock", -1, Map.of()));
+        itf.classes.add(new Program.RtClass("Drawable", -1, Map.of()));                 // an interface: no objects
+        itf.classes.add(new Program.RtClass("Animal", -1, Map.of(), List.of(0)));        // implements Drawable
+        itf.classes.add(new Program.RtClass("Dog", 1, Map.of()));                       // inherits that
+        itf.classes.add(new Program.RtClass("Rock", -1, Map.of()));
         itf.functions.add(fn("main", 4, 0, new long[]{5}, Op.HNEW, 1, 2, 64, Op.CHECKCAST, 2, 1, 0,
                 Op.CONST, 3, 0, Op.RET, 3));
         itf.entry = 0;
@@ -487,14 +486,14 @@ public final class VMTest {
         trapCheck(notItf, "cannot cast Rock to Drawable", "cast to an interface the class doesn't implement");
 
         Program nullCast = new Program();
-        nullCast.classes.add(new RtClass("Dog", -1, Map.of()));
+        nullCast.classes.add(new Program.RtClass("Dog", -1, Map.of()));
         nullCast.functions.add(fn("main", 4, 0, new long[]{0}, Op.CONST, 1, 0, Op.CHECKCAST, 2, 1, 0, Op.RET, 2));
         nullCast.entry = 0;
         check(newVM(nullCast).run() == 0, "null passes a downcast");
 
         Program missing = new Program();
         missing.slots.add("fly()");
-        missing.classes.add(new RtClass("Dog", -1, Map.of()));
+        missing.classes.add(new Program.RtClass("Dog", -1, Map.of()));
         missing.functions.add(fn("main", 4, 0, new long[0], Op.HNEW, 1, 0, 64, Op.VCALL, 0, 1, 1, -1, Op.RETV));
         missing.entry = 0;
         trapCheck(missing, "Dog has no method fly()", "missing vtable slot");
@@ -618,12 +617,12 @@ public final class VMTest {
     // ================================================================ helpers
 
     /** Builds a function from a mixed list of Ops and integer operands. */
-    private static Function fn(String name, int registers, long frameBits, long[] consts, Object... code) {
+    private static Program.Function fn(String name, int registers, long frameBits, long[] consts, Object... code) {
         List<Integer> out = new ArrayList<>();
         for (Object o : code) {
             out.add(o instanceof Op op ? op.ordinal() : (Integer) o);
         }
-        return new Function(name, out.stream().mapToInt(Integer::intValue).toArray(), consts, registers, frameBits);
+        return new Program.Function(name, out.stream().mapToInt(Integer::intValue).toArray(), consts, registers, frameBits);
     }
 
     private static VM newVM(Program p) {
@@ -632,7 +631,7 @@ public final class VMTest {
         return vm;
     }
 
-    private static long run(Function f) {
+    private static long run(Program.Function f) {
         Program p = new Program();
         p.functions.add(f);
         p.entry = 0;
@@ -648,7 +647,7 @@ public final class VMTest {
         }
     }
 
-    private static void trapCheck(Function f, String expected, String name) {
+    private static void trapCheck(Program.Function f, String expected, String name) {
         Program p = new Program();
         p.functions.add(f);
         p.entry = 0;

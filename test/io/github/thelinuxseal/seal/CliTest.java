@@ -59,12 +59,15 @@ public final class CliTest {
         check(r.code() == 0 && r.out().startsWith("class Main  (Main.seal)") && r.out().contains("static main()int")
                 && r.out().contains("; Main.seal:5") && r.out().contains("ldc \"hi\""), "dump: prints the class files " + r);
 
-        // The VM, being retired, behind --vm (docs/JVM.md §13); --jvm, the default, is still accepted.
+        // The VM, deprecated, behind --vm (docs/JVM.md §13); --jvm, the default, is still accepted.
         r = run("run", "--vm", ok.getParent().toString());
-        check(r.code() == 7 && r.out().equals("hi\n") && r.err().isEmpty(), "run --vm: on the VM " + r);
+        check(r.code() == 7 && r.out().equals("hi\n") && r.err().equals(Main.VM_DEPRECATED + "\n"),
+                "run --vm: on the VM, saying it is deprecated " + r);
         r = run("dump", "--vm", ok.getParent().toString());
-        check(r.code() == 0 && r.out().contains(" Main.main  (registers") && r.out().contains("NATIVE"),
-                "dump --vm: lists the VM's functions " + r);
+        check(r.code() == 0 && r.out().contains(" Main.main  (registers") && r.out().contains("NATIVE")
+                        && r.err().equals(Main.VM_DEPRECATED + "\n"), "dump --vm: lists the VM's functions " + r);
+        r = run("check", "--vm", ok.getParent().toString());
+        check(r.code() == 0 && r.err().isEmpty(), "check --vm: runs nothing, so says nothing " + r);
         r = run("build", "--vm", ok.getParent().toString());
         check(r.code() == 2 && r.err().contains("no --vm form"), "build --vm: is refused " + r);
         r = run("run", "--jvm", ok.getParent().toString());

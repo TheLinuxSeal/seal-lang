@@ -33,7 +33,6 @@ import io.github.thelinuxseal.seal.check.Type;
 import io.github.thelinuxseal.seal.check.Type.*;
 import io.github.thelinuxseal.seal.vm.Op;
 import io.github.thelinuxseal.seal.vm.Program;
-import io.github.thelinuxseal.seal.vm.Program.RtClass;
 
 /**
  * Generates VM bytecode from a checked program.
@@ -48,6 +47,7 @@ import io.github.thelinuxseal.seal.vm.Program.RtClass;
  * memory: in the frame, the heap, static data, or inside a dynamic object.
  * Scalar locals whose address is taken also live in the frame.
  */
+@Deprecated // the VM, behind --vm, is to be removed (docs/JVM.md §13)
 public final class CodeGen {
 
     public record Result(Program program, List<Diagnostic> errors) {
@@ -394,7 +394,7 @@ public final class CodeGen {
         vtable.put(slotId(DESTROY_SLOT), fnId(new FnKey("destroy", t.cls(), t, null, Map.of())));
         ClassT parent = ck.parentType(t);
         List<Integer> interfaces = ck.allInterfacesOf(t).stream().map(this::rtInterfaceId).toList();
-        prog.classes.set(rtClassIds.get(t), new RtClass(qualified(t), parent == null ? -1 : rtClassIds.get(parent),
+        prog.classes.set(rtClassIds.get(t), new Program.RtClass(qualified(t), parent == null ? -1 : rtClassIds.get(parent),
                 vtable, interfaces));
     }
 
@@ -417,7 +417,7 @@ public final class CodeGen {
     /** An interface's id among the runtime classes, for casts to it; it has no vtable and no objects. */
     private int rtInterfaceId(ClassT t) {
         return rtClassIds.computeIfAbsent(t, k -> {
-            prog.classes.add(new RtClass(qualified(k), -1, Map.of(), List.of()));
+            prog.classes.add(new Program.RtClass(qualified(k), -1, Map.of(), List.of()));
             return prog.classes.size() - 1;
         });
     }
@@ -2494,7 +2494,7 @@ public final class CodeGen {
             ifaces.addAll(ck.allInterfacesOf(li.iface()));
             defaultMethods(vtable, ifaces);
             String name = "lambda (" + java.nio.file.Path.of(tb.file).getFileName() + ":" + lam.pos().line() + ")";
-            prog.classes.set(id, new RtClass(name, -1, vtable, ifaces.stream().map(CodeGen.this::rtInterfaceId).toList()));
+            prog.classes.set(id, new Program.RtClass(name, -1, vtable, ifaces.stream().map(CodeGen.this::rtInterfaceId).toList()));
             return id;
         }
 

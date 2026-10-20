@@ -27,6 +27,7 @@ import io.github.thelinuxseal.seal.vm.VM;
  * Random programs check integer widths, conversions and shifts in bulk. `java -cp out
  * io.github.thelinuxseal.seal.JvmTest [random programs] [seed]`.
  */
+@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class JvmTest {
 
     private static int passed = 0;

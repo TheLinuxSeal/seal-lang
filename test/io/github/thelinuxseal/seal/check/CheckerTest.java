@@ -2298,12 +2298,14 @@ public final class CheckerTest {
 
     // ================================================================ helpers
 
+    @SuppressWarnings("deprecation") // the VM's code generator, deprecated, while it is kept
     private static void genErrorCount(String name, Map<String, String> files, int count) {
         List<Diagnostic> d = io.github.thelinuxseal.seal.codegen.CodeGen.generate(Checker.analyze(files), "Main").errors();
         check(d.size() == count, name + ": expected " + count + " error(s), got " + d);
     }
 
     /** Expects the program to pass checking but fail during code generation (instantiation). */
+    @SuppressWarnings("deprecation")
     private static void genError(String name, Map<String, String> files, String expected) {
         Checker c = Checker.analyze(files);
         if (!c.diagnostics().isEmpty()) {

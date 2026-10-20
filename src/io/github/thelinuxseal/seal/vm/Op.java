@@ -18,6 +18,7 @@ package io.github.thelinuxseal.seal.vm;
  * 64-bit comparisons give the right answer. Floats are kept as raw IEEE bits.
  * Addresses are bit addresses into the fixed pool.
  */
+@Deprecated // the VM, behind --vm, is to be removed (docs/JVM.md §13)
 public enum Op {
     CONST("rk"),
     MOV("rr"),

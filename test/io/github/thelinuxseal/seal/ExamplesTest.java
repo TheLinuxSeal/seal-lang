@@ -39,11 +39,14 @@ public final class ExamplesTest {
                     new PrintStream(out, true, StandardCharsets.UTF_8), new PrintStream(err, true, StandardCharsets.UTF_8));
             String got = out.toString(StandardCharsets.UTF_8);
             String expected = Files.readString(expectedFile);
-            if (code == 0 && got.equals(expected) && err.size() == 0) {
+            // --vm says first that it is deprecated; nothing else should reach standard error.
+            String errText = err.toString(StandardCharsets.UTF_8).lines()
+                    .filter(l -> !l.equals(Main.VM_DEPRECATED)).reduce("", (a, b) -> a + b + "\n");
+            if (code == 0 && got.equals(expected) && errText.isEmpty()) {
                 passed++;
             } else {
                 failures.add(dir + ": exit " + code + firstDifference(expected, got)
-                        + (err.size() == 0 ? "" : "\n    stderr: " + err.toString(StandardCharsets.UTF_8).strip()));
+                        + (errText.isEmpty() ? "" : "\n    stderr: " + errText.strip()));
             }
             // On the JVM too (docs/JVM.md §12): the same output, or an error saying it isn't available yet.
             ByteArrayOutputStream jout = new ByteArrayOutputStream();

@@ -33,7 +33,7 @@ import io.github.thelinuxseal.seal.vm.VM;
  *   seal build [options] PATH...   write the class files, and the runtime's, so that `java -cp DIR Main` runs
  *                                  the program (docs/JVM.md)
  *
- *   --vm              run (or dump) on Seal's own VM instead, which is being retired (docs/JVM.md §13)
+ *   --vm              run (or dump) on Seal's own VM instead; deprecated, to be removed (docs/JVM.md §13)
  *   -d DIR            where build writes the class files (default: classes)
  *   --main Class      the class whose main() is the entry point (default Main); com.example.Main for one in a package
  *   --stdlib DIR      where the standard library is (default: the stdlib directory
@@ -126,6 +126,18 @@ public final class Main {
             err.println("build writes JVM class files; it has no --vm form");
             return 2;
         }
+        err.println(VM_DEPRECATED);
+        return runOnVm(command, checker, mainClass, in, out, err);
+    }
+
+    /** What `--vm` prints first, on standard error. */
+    public static final String VM_DEPRECATED =
+            "warning: --vm is deprecated: the VM will be removed, and new features run only on the JVM";
+
+    /** `seal run --vm` and `dump --vm`: the program on the deprecated VM (docs/JVM.md §13). */
+    @SuppressWarnings("deprecation")
+    private static int runOnVm(String command, Checker checker, String mainClass, java.io.InputStream in,
+                               PrintStream out, PrintStream err) {
         CodeGen.Result result = CodeGen.generate(checker, mainClass);
         if (!result.errors().isEmpty()) {
             result.errors().forEach(err::println);

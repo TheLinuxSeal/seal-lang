@@ -7,6 +7,7 @@ import java.util.Arrays;
  * word {@code a / 64}, which gives LSB-first bit order and little-endian byte
  * order: byte k holds bits 8k to 8k+7.
  */
+@Deprecated // the VM, behind --vm, is to be removed (docs/JVM.md §13)
 public final class Memory {
 
     private long[] words;

@@ -26,6 +26,7 @@ import io.github.thelinuxseal.seal.vm.VM;
  * integer arithmetic.
  * `java -cp out io.github.thelinuxseal.seal.FixedPointTest`.
  */
+@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class FixedPointTest {
 
     private static final int CASES = 600;

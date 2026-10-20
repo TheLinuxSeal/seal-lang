@@ -17,6 +17,7 @@ import io.github.thelinuxseal.seal.vm.Trap;
 import io.github.thelinuxseal.seal.vm.VM;
 
 /** Tests for the standard library, run from the project root: `java -cp out io.github.thelinuxseal.seal.StdlibTest`. */
+@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class StdlibTest {
 
     private static int passed = 0;

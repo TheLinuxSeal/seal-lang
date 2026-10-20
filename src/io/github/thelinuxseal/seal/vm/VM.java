@@ -9,8 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-import io.github.thelinuxseal.seal.vm.Program.Function;
-import io.github.thelinuxseal.seal.vm.Program.RtClass;
 
 /**
  * The register VM (§55, §56).
@@ -25,6 +23,7 @@ import io.github.thelinuxseal.seal.vm.Program.RtClass;
  * Dynamic objects live outside the pool, each in its own resizable
  * {@link Memory}, reached through a handle table (§26).
  */
+@Deprecated // the VM, behind --vm, is to be removed (docs/JVM.md §13)
 public final class VM {
 
     public static final long DEFAULT_POOL_BYTES = 16L << 20;
@@ -60,7 +59,7 @@ public final class VM {
     private long maxSteps = Long.MAX_VALUE;
 
     private final class Frame {
-        final Function fn;
+        final Program.Function fn;
         final long[] r;
         final long base;
         int pc;
@@ -69,7 +68,7 @@ public final class VM {
         /** For a destroy function run by HRELEASE: the object to free when it returns, or 0. */
         long freeOnReturn;
 
-        Frame(Function fn, long base, int resultReg) {
+        Frame(Program.Function fn, long base, int resultReg) {
             this.fn = fn;
             this.r = new long[Math.max(1, fn.registers)];
             this.base = base;
@@ -229,7 +228,7 @@ public final class VM {
 
     // ================================================================ calls
 
-    private void enter(Function fn, long[] src, int argBase, int argc, int resultReg, Frame caller) {
+    private void enter(Program.Function fn, long[] src, int argBase, int argc, int resultReg, Frame caller) {
         if (frames.size() >= MAX_CALL_DEPTH) {
             throw trap("call stack overflow (more than " + MAX_CALL_DEPTH + " nested calls)");
         }

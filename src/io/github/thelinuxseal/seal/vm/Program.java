@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 /** A compiled program: everything the VM needs to run. */
+@Deprecated // the VM, behind --vm, is to be removed (docs/JVM.md §13)
 public final class Program {
 
     public static final class Function {

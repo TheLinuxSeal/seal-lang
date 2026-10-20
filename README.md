@@ -92,7 +92,7 @@ seal dump  [options] PATH...   print the class files
 seal build [options] PATH...   write the class files, for java to run
 
   --main Class       the class whose main() runs (default Main; com.example.Main in a package)
-  --vm               run or dump on Seal's old VM instead (being retired, see Status)
+  --vm               run or dump on Seal's old VM instead (deprecated, see Status)
   -d DIR             where build writes class files (default classes)
   -WautoCast         warn about every number converted without a cast
   -WautoCastLossy    warn only about those that may lose data
@@ -120,8 +120,9 @@ strings to structs, uniques and their destructors, records, enums, fixed arrays,
 java -cp classes Main                        # and run them with plain java
 ```
 
-Seal's first backend, a register VM written in Java, is being retired: `--vm` still runs a program
-on it, and the test suites run every program on both and compare. It goes in a later step.
+Seal's first backend, a register VM written in Java, is deprecated: `--vm` still runs a program on
+it, after a warning, and the test suites run every program on both and compare. It gets no new
+features, and goes in a later step.
 
 ## Layout
 

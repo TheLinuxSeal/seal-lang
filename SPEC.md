@@ -2975,7 +2975,7 @@ Only combinations that occur in the program are generated; the compiler never ge
 
 # 56. Register VM
 
-The register VM is Seal's first backend. It is being retired: programs compile to JVM class files by default (docs/JVM.md), and `--vm` runs one on the VM instead.
+The register VM is Seal's first backend. It is deprecated: programs compile to JVM class files by default (docs/JVM.md), and `--vm` runs one on the VM instead, after a warning. It gets no new features, and will be removed.
 
 The VM uses 64-bit arithmetic.
 
@@ -3024,7 +3024,7 @@ The compiler (`src/io/github/thelinuxseal/seal/codegen`) and VM (`.../seal/vm`),
 
 * `main` may be inherited, as in Java: `class Main extends(App)` runs the `main()` that `App` declares (which can call methods `Main` overrides).
 * `seal run DIR` compiles every `.seal` file under `DIR` to JVM class files and runs them in the compiler's JVM (the `seal` script builds the compiler and runs `io.github.thelinuxseal.seal.Main`); `check` only reports errors; `dump` prints the class files, with the Seal line each run of instructions comes from; `seal build -d OUT DIR` writes them, with the runtime classes they use, so that `java -cp OUT Main` runs the program (docs/JVM.md).
-* `--vm` runs (or dumps) the program on the register VM this section describes instead. It is being retired: the JVM backend runs every program the test suites hold, the same.
+* `--vm` runs (or dumps) the program on the register VM this section describes instead, after a warning on standard error that the VM is deprecated: the JVM backend runs every program the test suites hold, the same.
 * The standard library (§42) is loaded from `stdlib/` next to the compiler; `--stdlib DIR` chooses another directory and `--no-stdlib` turns it off. Without it, a minimal built-in `System.stdout` and `System.stderr` (printing numbers, characters and bits) are available.
 * Warnings are off unless asked for: each kind has a `-W` flag that turns it on, and `-Wall` turns on every kind. They go to standard error, before any errors, tagged with their flag (`File.seal:6:9: warning: [-WautoCast] ...`), and don't stop a program from running or make `check` fail. Code in the standard library gives none. The kinds:
 
@@ -3095,7 +3095,7 @@ A precompiled generic class cannot simply assume that every possible `<<...>>` i
 
 # 58. Future Backends
 
-Seal is becoming JVM-only: a backend that compiles to JVM class files is being built, and the VM will be retired once it passes everything (docs/JVM.md). Other possible targets, later:
+Seal is becoming JVM-only: programs compile to JVM class files, and the VM, deprecated, will be removed (docs/JVM.md). Other possible targets, later:
 
 * ahead-of-time native code
 * C interoperability

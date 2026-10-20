@@ -19,6 +19,7 @@ import io.github.thelinuxseal.seal.vm.VM;
  * cannot free). Classes have no destructors, so the programs print how many objects are live, through
  * a native only these tests declare. `java -cp out io.github.thelinuxseal.seal.RefCountTest`.
  */
+@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class RefCountTest {
 
     private static int passed = 0;

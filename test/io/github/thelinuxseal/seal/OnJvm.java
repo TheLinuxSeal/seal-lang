@@ -21,6 +21,7 @@ import io.github.thelinuxseal.seal.vm.Trap;
  * same and end the same way: with the same exit code, the same uncaught exception, or a fault
  * where the VM traps. One it can't compile yet must say so, at a line, and is counted.
  */
+@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 final class OnJvm {
 
     private int same;

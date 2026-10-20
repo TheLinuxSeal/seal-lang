@@ -21,6 +21,7 @@ import io.github.thelinuxseal.seal.vm.VM;
  * into objects, nested generics, layout, and numeric edge cases.
  * `java -cp out io.github.thelinuxseal.seal.LanguageTest`.
  */
+@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class LanguageTest {
 
     private static int passed = 0;

@@ -3,6 +3,7 @@ package io.github.thelinuxseal.seal.vm;
 import java.util.List;
 
 /** A runtime error raised by the VM, with the call stack at the point of failure. */
+@Deprecated // the VM, behind --vm, is to be removed (docs/JVM.md §13)
 public final class Trap extends RuntimeException {
 
     private static final long serialVersionUID = 1L;

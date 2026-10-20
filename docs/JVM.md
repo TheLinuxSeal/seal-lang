@@ -16,7 +16,7 @@ JVM, fast, and can later become Minecraft mods.
 
 - **Decided: Seal becomes JVM-only.** One backend, so every language feature is implemented once.
   The VM stays only while the JVM backend is built, as the reference it is tested against
-  (§12), and is then retired.
+  (§12); it is deprecated now, and will be removed (§13).
 - Compile every Seal program the test suites and examples hold to class files that run on a
   standard JVM, with the same output.
 - Real JVM classes for Seal's classes and interfaces, so that later Java code, and Minecraft, can
@@ -31,7 +31,7 @@ classes yet), Mixins, native compilation, `System.rawAssembly`.
 
 ```text
 .seal files ─ Lexer ─ Parser ─ Checker ─┬─ JvmGen  ─ .class files ─ JVM   (the default)
-                                        └─ CodeGen ─ VM bytecode ─ VM      (--vm, being retired)
+                                        └─ CodeGen ─ VM bytecode ─ VM      (--vm, deprecated)
 ```
 
 The front end stays as it is. The checker already resolves everything a backend needs and hands it
@@ -549,7 +549,8 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 | **M3**, **done** | storage blocks: structs, uniques and their destructors, records, enums, fixed arrays, operators | `RunTest`, `RefCountTest`'s unique cases (all but pointers) |
 | **M4**, **done** | generics and shapes with naming, all integer widths, fixed point, packages | `FixedPointTest`, all examples but pointers |
 | **M5**, **done** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires: the JVM is the default, the VM behind `--vm` |
-| next | removing the VM, `codegen/` and their tests; then the library's VM-only code (the string and array internals on `addr` buffers, `StringChars`, the Seal bodies behind `@jvm`) | |
+| **the VM deprecated**, **done** | `--vm` warns that the VM is deprecated, `vm/` and `codegen/` are `@Deprecated`, and the VM gets no new features: what comes next (the Java bridge, docs/JAVA.md) is the JVM's alone; the suites still compare the two on what both run | `--vm` warns, every suite passes |
+| later, a step of its own | removing the VM, `codegen/` and their tests; then the library's VM-only code (the string and array internals on `addr` buffers, `StringChars`, the Seal bodies behind `@jvm`) | |
 | **M6** (later) | jars, the target class-file version, calling Java classes from Seal, then Mixins (§14) | a first Minecraft mod in Seal |
 
 ## 14. Later: Java and Minecraft

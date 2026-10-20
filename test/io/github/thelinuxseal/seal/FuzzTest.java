@@ -37,6 +37,7 @@ import io.github.thelinuxseal.seal.vm.VM;
  * `java -cp out io.github.thelinuxseal.seal.FuzzTest [rounds] [seed]`. The default (2 rounds, about 80 mutants per
  * program) keeps ./test.sh quick; use more rounds and other seeds for longer runs.
  */
+@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class FuzzTest {
 
     private record Program(String name, Map<String, String> files, List<String> mutable) {
