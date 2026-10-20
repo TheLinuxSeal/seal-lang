@@ -1,4 +1,8 @@
 // Fuzz input: HashMap with string, int and object keys under puts and removals; generic methods.
+import seal.util.HashMap;
+import seal.util.List;
+import seal.util.function.Predicate;
+
 struct Main
 {
     static <K, V> int countWhere(HashMap<K, V> m, Predicate<V> test)

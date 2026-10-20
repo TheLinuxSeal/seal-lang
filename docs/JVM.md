@@ -452,6 +452,11 @@ natives that take `addr` buffers for bytes (byte files) came with M5; every nati
 the default package it would clash between programs and mods, and Java code can't refer to classes
 in the default package at all.
 
+**Done since (docs/JAVA.md §0, R2):** the library is in Seal packages of its own, and each Seal
+package `seal.x` is `io.github.thelinuxseal.seal.x` on the JVM: `seal.util.List` is
+`io.github.thelinuxseal.seal.util.List`. `seal.lang`, which every file sees without an import, keeps
+`io.github.thelinuxseal.seal.lang`, and so do the built-in types in no package (`string`, `array`).
+
 ## 9. Runtime library
 
 A small Java package, `io.github.thelinuxseal.seal.runtime`, shipped with every compiled program:
@@ -572,7 +577,8 @@ Not designed here, but the design keeps the door open:
 - Resources close with `close()` and try-with-resources (§6).
 - Strings are immutable; a bare `string` is a `java.lang.String`, and `string<<N>>` an immutable
   value stored inline (§8.2).
-- The library is in `io.github.thelinuxseal.seal.lang` (§8.3).
+- The library is in `io.github.thelinuxseal.seal.lang` (§8.3), and since R2 in packages, `seal.util` as
+  `io.github.thelinuxseal.seal.util` and so on.
 - Class files target Java 25 (§2).
 - Instantiations are named from their arguments, `List$int`, `Matrix$double$3$3` (§5.1, §5.2).
 - Each method call that has struct locals gets a frame block of its own (§4.2).

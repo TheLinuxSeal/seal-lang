@@ -1,6 +1,10 @@
 // The Java-style conveniences together: enums and switch, for-each, lambdas
 // with the standard functional interfaces, string joining with +, instanceof,
 // and exceptions with try/catch/finally.
+import seal.util.List;
+import seal.util.function.Function;
+import seal.util.function.Predicate;
+
 struct Main
 {
     static List<Card> parseHand(string text)

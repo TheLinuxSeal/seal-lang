@@ -1,5 +1,0 @@
-// Produces a value: Supplier<int> next = () -> counter.next();
-interface Supplier<T>
-{
-    T get();
-}

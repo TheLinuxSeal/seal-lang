@@ -1,3 +1,7 @@
+import seal.io.Files;
+import seal.io.Reader;
+import seal.util.List;
+
 // Strings of 16-bit characters (§39).
 //
 //   string<<N>>  holds up to N characters inline. It never allocates.

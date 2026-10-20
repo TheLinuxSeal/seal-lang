@@ -1,4 +1,6 @@
 // Fuzz input: array literals of numbers, strings, structs-with-strings and handles.
+import seal.util.List;
+
 struct Main
 {
     static int total(array<int><<4>> xs)

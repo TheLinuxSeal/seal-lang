@@ -1,0 +1,18 @@
+package seal.io;
+
+// Reads a text file a line at a time, like Java's BufferedReader (§42.1).
+//
+//   try (FileReader in = new FileReader("data.txt")) {
+//       while (in.hasNextLine()) { string line = in.readLine(); ... }
+//   }
+//
+// or, as it closes itself after the last line:
+//
+//   for (string line : new FileReader("data.txt")) { ... }
+//
+// See Reader for its methods.
+class FileReader extends(Reader)
+{
+    /** Opens the file; throws a FileNotFoundException if it isn't there. */
+    public new(string path) { super(Files.check(Files.nOpen(path, 0))); }
+}

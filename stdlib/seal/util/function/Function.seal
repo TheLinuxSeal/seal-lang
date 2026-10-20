@@ -1,0 +1,7 @@
+package seal.util.function;
+
+// A function from T to R: Function<int, int> twice = x -> x * 2; twice.apply(4)
+interface Function<T, R>
+{
+    R apply(T x);
+}

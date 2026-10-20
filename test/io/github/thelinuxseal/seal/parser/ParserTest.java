@@ -393,17 +393,18 @@ public final class ParserTest {
         check(r.ok() && r.imports().size() == 2 && r.imports().get(0).isStatic() && r.imports().get(0).all()
                 && r.imports().get(0).name().equals("Math") && r.imports().get(1).isStatic() && !r.imports().get(1).all()
                 && r.imports().get(1).name().equals("com.x.Tools.twice"), "static imports: " + r.imports());
-        r = Parser.parse("import com.x.HashMap as XMap;\nimport HashMap as SealHashMap;\nimport static Math.max as biggest;\nclass C { }");
+        r = Parser.parse("import com.x.HashMap as XMap;\nimport seal.util.HashMap as SealHashMap;\nimport static Math.max as biggest;\nclass C { }");
         check(r.ok() && r.imports().size() == 3 && r.imports().get(0).alias().equals("XMap") && r.imports().get(0).bound().equals("XMap")
-                && r.imports().get(1).name().equals("HashMap") && r.imports().get(1).alias().equals("SealHashMap")
+                && r.imports().get(1).name().equals("seal.util.HashMap") && r.imports().get(1).alias().equals("SealHashMap")
                 && r.imports().get(2).isStatic() && r.imports().get(2).name().equals("Math.max")
                 && r.imports().get(2).bound().equals("biggest"), "imports as: " + r.imports());
         r = Parser.parse("import com.x.* as X;\nclass C { }");
         check(r.errors().size() == 1 && r.errors().get(0).message().startsWith("a * import brings many names, and as renames one"),
                 "a * import can't be renamed: " + r.errors());
-        r = Parser.parse("import HashMap;\nclass C { }");
-        check(r.errors().size() == 1 && r.errors().get(0).message().contains("unless it is renamed, as in import HashMap as OtherHashMap;"),
-                "a type outside packages is imported only to rename it: " + r.errors());
+        r = Parser.parse("import HashMap as Map;\nclass C { }");
+        check(r.errors().size() == 1 && r.errors().get(0).message().equals("import names a type in a package by its full name,"
+                        + " as in import seal.util.HashMap; or import com.example.HashMap; a type in no package needs no import"),
+                "an import names a type in a package: " + r.errors());
         r = Parser.parse("import static Math;\nclass C { }");
         check(r.errors().size() == 1 && r.errors().get(0).message().startsWith("import static names a type and its member"),
                 "a static import needs a member: " + r.errors());

@@ -1,0 +1,38 @@
+package seal.util;
+
+// A fixed-size array of T, one- or two-dimensional (the example from §13).
+struct Array<T><<int N>>
+struct Array<T><<int N, int K>>
+{
+    int occupied;
+
+    array<T><<N>> data<<int N>>;
+    array<T><<N, K>> data<<int N, int K>>;
+
+    public int getLength<<int N>>() { return N; }
+    public int getLength<<int N, int K>>() { return N * K; }
+
+    public float getOccFrac<<int N>>() { return (float)occupied / N; }
+    public float getOccFrac<<int N, int K>>() { return (float)occupied / (N * K); }
+
+    public int getOccupied() { return occupied; }
+    public void setOccupied(int n) { occupied = n; }
+
+    public T get<<int N>>(int x) { return data[x]; }
+    public T get<<int N, int K>>(int x, int y) { return data[x][y]; }
+
+    public void set<<int N>>(int x, T value) { data[x] = value; }
+    public void set<<int N, int K>>(int x, int y, T value) { data[x][y] = value; }
+
+    public void fill<<int N>>(T value)
+    {
+        for (int i = 0; i < N; i++) { data[i] = value; }
+    }
+
+    public void fill<<int N, int K>>(T value)
+    {
+        for (int i = 0; i < N; i++) {
+            for (int j = 0; j < K; j++) { data[i][j] = value; }
+        }
+    }
+}

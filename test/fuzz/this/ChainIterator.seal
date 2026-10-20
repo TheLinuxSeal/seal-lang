@@ -1,3 +1,5 @@
+import seal.util.Iterator;
+
 class ChainIterator implements(Iterator<int>)
 {
     Node at;

@@ -92,9 +92,7 @@ public final class JvmRunner {
     private static String sealException(Class<?> c) {
         for (Class<?> k = c; k != null; k = k.getSuperclass()) {
             if (k.getName().equals(JvmGen.LIBRARY_PACKAGE + ".Exception")) {
-                String name = c.getName();
-                return (name.startsWith(JvmGen.LIBRARY_PACKAGE + ".") ? name.substring(JvmGen.LIBRARY_PACKAGE.length() + 1) : name)
-                        .replace('$', '.');
+                return JvmGen.sealName(c.getName());
             }
         }
         return null;
@@ -104,11 +102,8 @@ public final class JvmRunner {
         for (StackTraceElement e : t.getStackTrace()) {
             // Seal's own methods only: not the generated entry points ($run, $init), which have no Seal line.
             if (e.getFileName() != null && e.getFileName().endsWith(".seal") && e.getLineNumber() > 0) {
-                String cls = e.getClassName();
-                if (cls.startsWith(JvmGen.LIBRARY_PACKAGE + ".")) {
-                    cls = cls.substring(JvmGen.LIBRARY_PACKAGE.length() + 1);
-                }
-                sb.append("\n    at ").append(cls.replace('$', '.')).append('.').append(e.getMethodName())
+                String cls = JvmGen.sealName(e.getClassName());
+                sb.append("\n    at ").append(cls).append('.').append(e.getMethodName())
                         .append(" (").append(e.getFileName()).append(':').append(e.getLineNumber()).append(')');
             }
         }

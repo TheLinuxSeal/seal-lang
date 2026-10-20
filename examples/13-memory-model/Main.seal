@@ -1,5 +1,7 @@
 // The memory model (§2.1, §16.1, §26.1): the same operations on a struct,
 // a unique and a class, then strings and lists. No pointers anywhere.
+import seal.util.List;
+
 struct Main
 {
     static void bumpCopy(Counter c) { c.bump(); }        // gets its own copy

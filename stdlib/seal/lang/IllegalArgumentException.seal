@@ -1,0 +1,8 @@
+package seal.lang;
+
+// An argument a method can't accept.
+class IllegalArgumentException extends(RuntimeException)
+{
+    public new() { }
+    public new(string m) { super(m); }
+}

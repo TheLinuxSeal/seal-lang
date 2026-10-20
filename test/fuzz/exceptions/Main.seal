@@ -1,4 +1,6 @@
 // Fuzz input: exceptions through frames holding uniques and handles; finally on every exit.
+import seal.util.List;
+
 struct Main
 {
     static int depth(int n)

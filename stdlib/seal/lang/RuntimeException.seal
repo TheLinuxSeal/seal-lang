@@ -1,0 +1,8 @@
+package seal.lang;
+
+// An exception from a mistake in the program rather than its surroundings.
+class RuntimeException extends(Exception)
+{
+    public new() { }
+    public new(string m) { super(m); }
+}

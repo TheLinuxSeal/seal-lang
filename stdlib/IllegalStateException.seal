@@ -1,6 +1,0 @@
-// A call that isn't allowed in the object's current state, such as adding to a full string<<N>>.
-class IllegalStateException extends(RuntimeException)
-{
-    public new() { }
-    public new(string m) { super(m); }
-}

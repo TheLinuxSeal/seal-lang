@@ -125,27 +125,28 @@ class Player
 
 * A file without `package` is in no package, as small programs are. A file in package `com.example.game` goes in a folder `com/example/game`, which is checked, as the file name is.
 * A type is named in full (`com.example.util.Vec2`) in types and in expressions: `com.example.util.Tools.zero()`, `new org.other.Point(1, 2)`. A nested type adds its own name: `com.example.util.Vec2.Unit`. In an expression, a name that is a variable, field or type comes first, as in Java.
-* A plain name is looked up in this order: the type itself and the types around it (§2.3), the types the file imports by name (by the names it imports them as, below), the types of its own package, the types `*` imports bring, then the standard library. If two `*` imports bring a type of the same name, using it is an error that names both; import the one meant by name.
-* The standard library's types need no import, as `java.lang`'s don't, and are in no package. A type in no package can't have a library type's name. A type in a package can, as Java's `com.example.String` can: in its own package, and in a file that imports it, its name means it; elsewhere the name means the library's.
-* As in Java, a type in a package can't use one that is in no package.
+* A plain name is looked up in this order: the type itself and the types around it (§2.3), the types the file imports by name (by the names it imports them as, below), the types of its own package (for a file in no package, the program's other types in no package), the types `*` imports bring, then `seal.lang`'s and the built-in `string` and `array`. If two `*` imports bring a type of the same name, using it is an error that names both; import the one meant by name.
+* The standard library is in packages too, as Java's is (§42). `seal.lang`'s types (`System`, `Math`, `Integer`, the exceptions, ...) need no import, as `java.lang`'s don't; the others are imported as any package's are: `import seal.util.List;`, `import seal.io.*;`. Using one without an import says which to write: `unknown type List; import it: import seal.util.List;`.
+* A type in no package can't take the name of a `seal.lang` type, nor of `string` or `array`, which every file sees. A type in a package can, as Java's `com.example.String` can: in its own package, and in a file that imports it, its name means it; elsewhere the name means the library's. The names of the library's other packages are free: a program's own `List`, in no package, comes before `seal.util.List` even in a file that imports `seal.util.*`. Package `seal`, and the packages in it, are the library's: a program can't declare one.
+* As in Java, a type in a package can't use one that is in no package, the built-in `string` and `array` aside.
 * `import a.b.Outer;` also makes `Outer.Inner` usable, and `import a.b.Outer.Inner;` and `import a.b.Outer.*;` import nested types themselves. Private nested types can't be imported.
 * Packages don't change access (§17): members are private unless declared otherwise, and top-level types are public, so another package can use any top-level type and its public members.
-* Two packages may have types of the same name (`a.Tools`, `b.Tools`). Stack traces and run-time errors name types in full: `at com.example.game.Main.main (Main.seal:12)`.
+* Two packages may have types of the same name (`a.Tools`, `b.Tools`). Stack traces and run-time errors name types in full: `at com.example.game.Main.main (Main.seal:12)`, `uncaught seal.util.NoSuchElementException`. `seal.lang`'s go by their own names, as programs write them: `uncaught IllegalStateException`.
 
 ### Renaming imports
 
 `import ... as` imports a type under another name, so a file can use two types of the same name:
 
 ```text
-import HashMap as SealHashMap;                       // the standard library's
+import seal.util.HashMap as SealHashMap;             // the standard library's
 import some.util.HashMap as UtilHashMap;             // another one
 
 SealHashMap<string, int> ages = new SealHashMap();
 UtilHashMap.Entry e;                                 // its nested types come with it
 ```
 
-* The file knows the type by the new name only: `HashMap` above still means the library's, and using a renamed type by its own name says so (`unknown type Widget; this file imports other.Widget as W`).
-* A library type, in no package, is imported this way only, to rename it: `import HashMap;` is an error, as it needs no import.
+* The file knows the type by the new name only: using a renamed type by its own name says so (`unknown type Widget; this file imports other.Widget as W`).
+* An import names a type in full, with its package: `import HashMap;` is an error, and so is `import string as Text;`, as a type in no package needs no import.
 * `as` renames one name, so `import some.util.* as U;` is an error. Two imports can't take one name, nor the name of the file's own type. `as` is a word only here: it is still a name everywhere else.
 
 ### Static imports
@@ -153,8 +154,8 @@ UtilHashMap.Entry e;                                 // its nested types come wi
 `import static` brings a type's static members (methods, fields and constants) so they can be used without the type's name, as in Java:
 
 ```text
-import static Math.*;                       // every static member of Math: sqrt(x), sin(a), PI
-import static Integer.MAX_INT;              // one member
+import static seal.lang.Math.*;             // every static member of Math: sqrt(x), sin(a), PI
+import static seal.lang.Integer.MAX_INT;    // one member
 import static com.example.util.Units.*;     // a program's own types too
 
 double r = sqrt(x * x + y * y);
@@ -162,12 +163,12 @@ double area = PI * r * r;
 array<int><<SIZE>> cells;                   // an imported constant is a compile-time value
 ```
 
-* `import static T.name;` brings every static member of T so named (all overloads of a method), and a nested type so named; `import static T.*;` brings all of them. T is named in full; the standard library's types (`Math`, `Integer`, `Char`, `Fixed`, ...) are in no package, so their full names are their names.
-* `import static T.name as other;` brings them under another name: after `import static Math.max as biggest;`, `biggest(a, b)` calls `Math.max`, and `max` isn't imported. Fields and constants too (`import static Units.count as total;`, then `total += 1` changes `Units.count`).
+* `import static T.name;` brings every static member of T so named (all overloads of a method), and a nested type so named; `import static T.*;` brings all of them. T is named in full, the standard library's too, as in Java's `import static java.lang.Math.*;`: `import static Math.*;` is an error that gives the full name, `seal.lang.Math`.
+* `import static T.name as other;` brings them under another name: after `import static seal.lang.Math.max as biggest;`, `biggest(a, b)` calls `Math.max`, and `max` isn't imported. Fields and constants too (`import static Units.count as total;`, then `total += 1` changes `Units.count`).
 * Where a plain name is used, local variables and the type's own members (and those it inherits) come first; then members imported by name; then those `*` static imports bring. A method name brings the overloads of every type imported with it, and the call picks among them as usual.
 * An imported static field can be assigned (`count = 10;` changes `Units.count`). Private and instance members can't be imported.
 * If two `*` static imports bring a field of the same name, using it is an error that names both; write the one meant, as `Math.PI`.
-* An unknown method that a library type has suggests it: `unknown method max; it is a static method of Math, Fixed and Integer: call Math.max(...), or import static Math.max;`.
+* An unknown method that a library type has suggests it: `unknown method max; it is a static method of Math, Fixed and Integer: call Math.max(...), or import static seal.lang.Math.max;`, and outside `seal.lang`, `call Files.readString(...) (with import seal.io.Files;), or import static seal.io.Files.readString;`.
 
 ## 2.5 Records
 
@@ -2328,37 +2329,49 @@ i += 2.5;          // -WautoCast: from int to double in operand of +=
 
 # 42. Standard Library
 
-The standard library is a directory of ordinary source files (`stdlib/`), compiled together with every program, analogous to `java.lang`. Its classes are available without imports. A program cannot define a class with the same name as a library class.
+The standard library is a directory of ordinary source files (`stdlib/`), compiled together with every program. As Java's, it is in packages (§2.4), each in its own folder:
+
+* `seal.lang` (`stdlib/seal/lang/`): what every program uses, which every file sees without an import, as Java's `java.lang`;
+* `seal.util`: collections and other utilities, as `java.util`; `seal.util.function`: the functional interfaces lambdas implement, as `java.util.function`;
+* `seal.io`: files, folders and streams, as `java.io` and `java.nio.file`.
+
+A file imports the types it uses outside `seal.lang`: `import seal.util.List;`, or `import seal.io.*;`. `string` and `array` are built in: they are in no package, and every file sees them. A program's type in no package can't take the name of a `seal.lang` type or a built-in one, and a program can't declare a type in package `seal` or one in it (§2.4).
 
 Library classes may declare `@native("name")` methods, which are implemented by the VM. Programs cannot.
 
-| Class                    | Contents |
-| ------------------------ | -------- |
-| `System`                 | `stdin`, `stdout`, `stderr` (§42.2), `exit(code)`, `rawAssembly(code)` (§42.3), `fail(message)`: print a message and stop with a trap; `nanoTime()` |
-| `Iterable`, `Iterator`   | the interfaces for-each uses (§41.3) |
-| `Runnable`, `Supplier`, `Consumer`, `BiConsumer`, `Predicate`, `Function`, `BiFunction`, `Comparator` | functional interfaces for lambdas (§30.3) |
-| `Double`, `Float`        | `toString` |
-| `HashMap`, `HashMap.Entry`, `Hash` | a hash map keeping insertion order, its entries, and hash codes (§42.4) |
-| `array`                  | arrays sized at run time, `array<T>` (§21.3) |
-| `Operator`               | the operators `@overload` can name (§46) |
-| `Files`, `File`, `Reader`, `FileReader`, `Writer`, `FileWriter`, `IOException`, `FileNotFoundException` | files, folders and the standard streams (§42.1, §42.2); `printf` (§42.6) |
-| `AutoCloseable`          | what try-with-resources closes: `close()` (§41.4) |
-| `Format`                 | the formatter behind `string.format` and `printf` (§42.6) |
-| `Exception` and subclasses | `RuntimeException`, `IllegalArgumentException`, `NumberFormatException`, `IllegalStateException`, `IndexOutOfBoundsException`, `NoSuchElementException`, `ArithmeticException`, `UnsupportedOperationException`, `AssertionError` (§41.4) |
-| `string`                 | strings (§39), immutable values: `length`, `charAt`, `+` and `+=`, `toCharArray`, `==`, `<`, `compare`, `startsWith`, `endsWith`, `indexOf`, `lastIndexOf`, `contains`, `split`, `lines`, `trim`, `substring`, `copy`, `toUpper`, `toLower`, `replace`, `repeat`, `toInt`, `hash`; `new string(chars)`; `string.format` (§42.6) |
-| `StringBuilder`          | text built a piece at a time, as Java's (a class): `append` (anything `print` takes; returns the builder, so calls chain), `insert`, `delete`, `deleteCharAt`, `reverse`, `charAt`, `setCharAt`, `setLength`, `length`, `indexOf`, `toString` (its cast to string) |
-| `Char`                   | `isDigit`, `isLetter`, `isUpper`, `isLower`, `isSpace`, `toUpper`, `toLower`, `digitValue` |
-| `Integer`                | `toString` (decimal or any base), `parse`, `mulExact` (exact, widening multiply: `int<<N>> × int<<P>> → int<<N + P>>`, for any mix of signed and unsigned), `min`, `max`, `abs`, `sign`, `gcd`, `pow`, `rol`, `ror` (§50), `bitCount`, `leadingZeros`, `trailingZeros`, and range constants |
-| `Math`                   | for every kind of number (§42.5): `PI`, `E`, `abs`, `min`, `max`, `clamp`, `floor`, `ceil`, `round`, `sqrt`, `sin`, `cos`, `tan`, `atan2`, `exp`, `log`, `pow`, `hypot` |
-| `Random`                 | xorshift64 generator: `nextU64`, `nextInt`, `nextRange`, `nextDouble`, `nextBit` |
-| `Objects`                | `equals(a, b)`, `hash(x)`, `toString(x)` for values of any type, as Java's `java.util.Objects`; records use them (§2.5) |
-| `List<T>`                | growable list (a class): `add`, `get`, `set`, `insert`, `removeAt`, `removeLast`, `first`, `last`, `indexOf`, `contains`, `sort`, `reverse`, `swap`, `reserve`, `clear` |
-| `Queue<T>`               | FIFO ring buffer (a class): `push`, `pop`, `peek`, `clear` |
-| `IntMap<V>`              | hash map with `int<<64>>` keys (a class): `put`, `get`, `has`, `remove`, `keys`, `clear` |
-| `StringChars`            | on the VM, the buffer behind bare strings' characters; programs don't use it |
-| `Array<T><<N>>`, `Array<T><<N, K>>` | the fixed array from §13, plus `set` and `fill` |
-| `Fixed`                  | fixed-point utilities (§37.1): `mulExact` (exact, widening multiply), `fraction`; also `abs`, `min`, `max`, `floor`, which `Math` has for every number |
-| `BigUInt<<BITS>>`        | fixed-width unsigned integers (§54): `+`, `-`, `*`, `==`, `<`, `<<<`, `<<=`, `divSmall`, `mulAddSmall`, `parse`, `toString` |
+| Type | Package | Contents |
+| ---- | ------- | -------- |
+| `string` | built in | strings (§39), immutable values: `length`, `charAt`, `+` and `+=`, `toCharArray`, `==`, `<`, `compare`, `startsWith`, `endsWith`, `indexOf`, `lastIndexOf`, `contains`, `split`, `lines`, `trim`, `substring`, `copy`, `toUpper`, `toLower`, `replace`, `repeat`, `toInt`, `hash`; `new string(chars)`; `string.format` (§42.6) |
+| `array` | built in | arrays sized at run time, `array<T>` (§21.3) |
+| `StringChars` | built in | on the VM, the buffer behind bare strings' characters; programs don't use it |
+| `System` | `seal.lang` | `stdin`, `stdout`, `stderr` (§42.2), `exit(code)`, `rawAssembly(code)` (§42.3), `fail(message)`: print a message and stop with a trap; `nanoTime()` |
+| `Object` | `seal.lang` | the root of every class (§31) |
+| `Iterable` | `seal.lang` | what for-each goes over (§41.3) |
+| `Runnable` | `seal.lang` | a functional interface for lambdas (§30.3) |
+| `AutoCloseable` | `seal.lang` | what try-with-resources closes: `close()` (§41.4) |
+| `Double`, `Float` | `seal.lang` | `toString` |
+| `Char` | `seal.lang` | `isDigit`, `isLetter`, `isUpper`, `isLower`, `isSpace`, `toUpper`, `toLower`, `digitValue` |
+| `Integer` | `seal.lang` | `toString` (decimal or any base), `parse`, `mulExact` (exact, widening multiply: `int<<N>> × int<<P>> → int<<N + P>>`, for any mix of signed and unsigned), `min`, `max`, `abs`, `sign`, `gcd`, `pow`, `rol`, `ror` (§50), `bitCount`, `leadingZeros`, `trailingZeros`, and range constants |
+| `Math` | `seal.lang` | for every kind of number (§42.5): `PI`, `E`, `abs`, `min`, `max`, `clamp`, `floor`, `ceil`, `round`, `sqrt`, `sin`, `cos`, `tan`, `atan2`, `exp`, `log`, `pow`, `hypot` |
+| `Fixed` | `seal.lang` | fixed-point utilities (§37.1): `mulExact` (exact, widening multiply), `fraction`; also `abs`, `min`, `max`, `floor`, which `Math` has for every number |
+| `Hash` | `seal.lang` | hash codes (§42.4) |
+| `Objects` | `seal.lang` | `equals(a, b)`, `hash(x)`, `toString(x)` for values of any type, as Java's `java.util.Objects`; records use them (§2.5) |
+| `Operator` | `seal.lang` | the operators `@overload` can name (§46) |
+| `StringBuilder` | `seal.lang` | text built a piece at a time, as Java's (a class): `append` (anything `print` takes; returns the builder, so calls chain), `insert`, `delete`, `deleteCharAt`, `reverse`, `charAt`, `setCharAt`, `setLength`, `length`, `indexOf`, `toString` (its cast to string) |
+| `Format` | `seal.lang` | the formatter behind `string.format` and `printf` (§42.6) |
+| `Exception` and subclasses | `seal.lang` | `RuntimeException`, `IllegalArgumentException`, `NumberFormatException`, `IllegalStateException`, `IndexOutOfBoundsException`, `ArithmeticException`, `UnsupportedOperationException`, `AssertionError` (§41.4) |
+| `List<T>` | `seal.util` | growable list (a class): `add`, `get`, `set`, `insert`, `removeAt`, `removeLast`, `first`, `last`, `indexOf`, `contains`, `sort`, `reverse`, `swap`, `reserve`, `clear` |
+| `Queue<T>` | `seal.util` | FIFO ring buffer (a class): `push`, `pop`, `peek`, `clear` |
+| `HashMap`, `HashMap.Entry` | `seal.util` | a hash map keeping insertion order, and its entries (§42.4) |
+| `IntMap<V>` | `seal.util` | hash map with `int<<64>>` keys (a class): `put`, `get`, `has`, `remove`, `keys`, `clear` |
+| `Iterator` | `seal.util` | what an `Iterable` gives for-each (§41.3) |
+| `Comparator` | `seal.util` | an order, for `sort` (§30.3) |
+| `Random` | `seal.util` | xorshift64 generator: `nextU64`, `nextInt`, `nextRange`, `nextDouble`, `nextBit` |
+| `BigUInt<<BITS>>` | `seal.util` | fixed-width unsigned integers (§54): `+`, `-`, `*`, `==`, `<`, `<<<`, `<<=`, `divSmall`, `mulAddSmall`, `parse`, `toString` |
+| `Array<T><<N>>`, `Array<T><<N, K>>` | `seal.util` | the fixed array from §13, plus `set` and `fill` |
+| `NoSuchElementException` | `seal.util` | what a collection throws for an element it doesn't have (§41.4) |
+| `Supplier`, `Consumer`, `BiConsumer`, `Predicate`, `Function`, `BiFunction` | `seal.util.function` | functional interfaces for lambdas (§30.3) |
+| `Files`, `File`, `Reader`, `FileReader`, `Writer`, `FileWriter`, `IOException`, `FileNotFoundException` | `seal.io` | files, folders and the standard streams (§42.1, §42.2); `printf` (§42.6) |
 
 `List`, `Queue` and `IntMap` are classes, like Java's collections: create one with `new`, and variables share it. They keep their elements in `array<T>`s, release them as they are removed, and are freed automatically once nothing refers to them:
 
@@ -2374,7 +2387,7 @@ Errors in library calls (an index out of range, a missing key, text that isn't a
 
 ## 42.1 Files and folders
 
-The standard library reads and writes files and works with folders, in the style of Java's `java.nio.file.Files` and `java.io.File`. Paths are strings, absolute or relative to the folder the program runs in, with `/` between names. Text is read and written as UTF-8.
+The standard library reads and writes files and works with folders, in the style of Java's `java.nio.file.Files` and `java.io.File`, in package `seal.io` (`import seal.io.*;`). Paths are strings, absolute or relative to the folder the program runs in, with `/` between names. Text is read and written as UTF-8.
 
 **`Files`**: whole files and folders at once, as static methods.
 
@@ -2451,7 +2464,7 @@ System.rawAssembly("mov rax, 60\n" + "xor rdi, rdi\n" + "syscall");
 
 ## 42.4 HashMap
 
-`HashMap<K, V>` maps keys to values, as Java's does:
+`HashMap<K, V>` (`import seal.util.HashMap;`) maps keys to values, as Java's does:
 
 ```text
 HashMap<string, int> counts = new HashMap();

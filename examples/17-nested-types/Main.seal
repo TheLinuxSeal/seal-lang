@@ -1,6 +1,8 @@
 // Nested types: a whole program in one file. Types declared inside another
 // are used by their bare name inside it, and by Outer.Name outside it; a
 // nested type that isn't public is private to its outer type.
+import seal.util.List;
+
 struct Main
 {
     enum Priority { LOW, NORMAL, URGENT }

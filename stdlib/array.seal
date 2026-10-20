@@ -1,3 +1,6 @@
+import seal.util.Comparator;
+import seal.util.List;
+
 // An array whose length is chosen when it is made (§21.3):
 //
 //   array<int> xs = new array<int>(n);

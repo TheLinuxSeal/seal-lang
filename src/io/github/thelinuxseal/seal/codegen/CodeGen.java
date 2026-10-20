@@ -302,11 +302,12 @@ public final class CodeGen {
 
     /** A type as traces and run-time errors name it: with its package, as Java's do (com.example.Vec2). */
     private static String qualified(ClassT t) {
-        return t.cls().pkg.isEmpty() ? t.toString() : t.cls().pkg + "." + t;
+        return t.cls().pkg.isEmpty() || t.cls().pkg.equals(Checker.LANG) ? t.toString() : t.cls().pkg + "." + t;
     }
 
     private String fnName(FnKey k) {
-        String owner = k.owner() != null ? qualified(k.owner()) : k.cls().qualifiedName();
+        String owner = k.owner() != null ? qualified(k.owner())
+                : k.cls().pkg.equals(Checker.LANG) ? k.cls().name : k.cls().qualifiedName();
         String binders = k.binders().isEmpty() ? "" : k.binders().entrySet().stream()
                 .map(e -> e.getKey() + "=" + e.getValue()).sorted().collect(Collectors.joining(", ", "[", "]"));
         return switch (k.kind()) {

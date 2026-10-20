@@ -46,7 +46,7 @@ public final class ClassText {
         StringBuilder out = new StringBuilder();
         classes.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey(java.util.Comparator
-                        .comparing((String name) -> name.startsWith(JvmGen.LIBRARY_PACKAGE + "."))
+                        .comparing(JvmGen::isLibrary)
                         .thenComparing(java.util.Comparator.naturalOrder())))
                 .forEach(e -> classText(ClassFile.of().parse(e.getValue()), out));
         return out.toString();

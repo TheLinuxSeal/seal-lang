@@ -21,7 +21,7 @@ Seal. A fuller typed design, which this replaces as the first step, is in this f
   JVM's alone. Removing it, its tests and the library's code that only the VM needs (strings and
   arrays on `addr` buffers, `StringChars`, the Seal bodies behind `@jvm` methods) is a later step
   of its own.
-- **The standard library moves into packages,** as Java's is: `HashMap` is `seal.util.HashMap`,
+- **The standard library moves into packages** (done), as Java's is: `HashMap` is `seal.util.HashMap`,
   imported as any package's type, and the bridge is `seal.java`. Built in, and visible everywhere
   with no import, are the primitive types, `array<T>` and `array<T><<N>>`, and `string` and
   `string<<N>>`. A `seal.lang` package is imported automatically, as `java.lang` is, so that
@@ -30,15 +30,20 @@ Seal. A fuller typed design, which this replaces as the first step, is in this f
 
   | Package | Types |
   | ------- | ----- |
-  | `seal.lang` (imported automatically) | `Object`, `System`, `Math`, `Integer`, `Char`, `Double`, `Float`, `Fixed`, `Hash`, `Objects`, `Operator`, `StringBuilder`, `Iterable`, `Runnable`, `AutoCloseable`, and the exceptions `Exception`, `RuntimeException`, `ArithmeticException`, `AssertionError`, `IllegalArgumentException`, `IllegalStateException`, `IndexOutOfBoundsException`, `NumberFormatException`, `UnsupportedOperationException` |
-  | `seal.util` | `List`, `Queue`, `HashMap`, `IntMap`, `Random`, `Iterator`, `Comparator`, `NoSuchElementException`, `BigUInt` (and a `BigInt`, if one is written: the library has only `BigUInt` today) |
+  | `seal.lang` (imported automatically) | `Object`, `System`, `Math`, `Integer`, `Char`, `Double`, `Float`, `Fixed`, `Hash`, `Objects`, `Operator`, `StringBuilder`, `Format`, `Iterable`, `Runnable`, `AutoCloseable`, and the exceptions `Exception`, `RuntimeException`, `ArithmeticException`, `AssertionError`, `IllegalArgumentException`, `IllegalStateException`, `IndexOutOfBoundsException`, `NumberFormatException`, `UnsupportedOperationException` |
+  | `seal.util` | `List`, `Queue`, `HashMap`, `IntMap`, `Random`, `Iterator`, `Comparator`, `NoSuchElementException`, `BigUInt` (and a `BigInt`, if one is written: the library has only `BigUInt` today), `Array` (the fixed array of the spec's §13) |
   | `seal.util.function` | `Function`, `BiFunction`, `Consumer`, `BiConsumer`, `Predicate`, `Supplier` |
   | `seal.io` | `Files`, `File`, `Reader`, `Writer`, `FileReader`, `FileWriter`, `IOException`, `FileNotFoundException` |
   | `seal.java` | the bridge (§3) |
 
-  On the JVM, Seal's `seal.x` is `io.github.thelinuxseal.seal.x` (today all the library is in
-  `io.github.thelinuxseal.seal.lang`). Every program, test and example that uses a type outside
-  `seal.lang` gains an import.
+  The built-in types' files (`string.seal`, `array.seal`, and the `FixedArray` and `StringChars`
+  they use) stay in no package, at the top of `stdlib/`. On the JVM, Seal's `seal.x` is
+  `io.github.thelinuxseal.seal.x`, and the built-in types are in `io.github.thelinuxseal.seal.lang`
+  with `seal.lang`. Every program, test and example that uses a type outside `seal.lang` gained an
+  import; imports name a type in full (`import static seal.lang.Math.*;`, as Java's
+  `import static java.lang.Math.*;`); a program's type in no package can't take a `seal.lang` or
+  built-in type's name, but can take `seal.util`'s and the others'; and a program can't declare a
+  package `seal` or one in it (SPEC §2.4, §42).
 
 ## 1. Goals
 
@@ -320,7 +325,7 @@ and masks bits, which the JIT can't keep in registers.
 | Step | Contents | Done when |
 | ---- | -------- | --------- |
 | **R1**, **done** | §0: the VM is deprecated | `--vm` warns, every suite passes |
-| **R2** | §0: the library moves into packages | the suites pass with the library in packages |
+| **R2**, **done** | §0: the library moves into packages | the suites pass with the library in packages |
 | **B1** | the runtime bridge; `seal.java` with `JavaBridge`, `JavaClass`, `JavaObject` (bare), calls with and without arguments, fields, conversions in (`JavaInt.of` and the others of §3.1) and out (casts); `--classpath` | a program uses `java.util.ArrayList`, `java.util.HashMap`, `java.time.LocalDate` and `java.util.Random` through the bridge, and prints what the same Java program prints |
 | **B2** | the exceptions of §7; `implement` and `JavaHandler`; Java arrays as `JavaObject`s (made with `java.lang.reflect.Array`, for varargs and `byte[]` APIs) | a Java `Thread` runs a Seal lambda, a `Comparator` from Seal sorts a Java list, an `IOException` is caught |
 | **B3** | shapes: `JavaObject<<string CLASS>>`, `JavaClass<<string CLASS>>`, their constructors, a shape going where the bare one is wanted (`@implicit`), checked casts | the B1 program written with shaped values |
@@ -345,4 +350,4 @@ Decided on review:
 6. **`seal.lang` is imported automatically,** and the big numbers are in `seal.util` (§0).
 7. **The exceptions' names** in §7.
 
-Nothing is left to decide before R2.
+Nothing is left to decide before B1.

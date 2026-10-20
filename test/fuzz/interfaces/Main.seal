@@ -1,4 +1,6 @@
 // Fuzz input: abstract classes and interfaces, with handles stored and replaced.
+import seal.util.List;
+
 struct Main
 {
     static int total(List<Drawable> ds)

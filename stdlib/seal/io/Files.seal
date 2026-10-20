@@ -1,0 +1,207 @@
+package seal.io;
+
+import seal.util.List;
+
+// Whole files and folders at once, like Java's java.nio.file.Files (§42.1).
+//
+//   string text = Files.readString("notes.txt");
+//   Files.writeString("out.txt", "total: " + n + "\n");
+//   for (string line : Files.readAllLines("data.csv")) { ... }
+//   for (string path : Files.walk("src")) { if (path.endsWith(".seal")) { ... } }
+//
+// Paths are strings, absolute or relative to the folder the program runs in,
+// with / between names. Text files are read and written as UTF-8. A failure
+// throws an IOException (FileNotFoundException for a missing file) whose
+// message names the file.
+struct Files
+{
+    // ------------------------------------------------------------ reading and writing
+
+    /** The whole file as text. */
+    public static string readString(string path) { return text(nRead(path)); }
+
+    /** Replaces the file's contents with text, creating it if needed. */
+    public static void writeString(string path, string text) { check(nWrite(path, text, false)); }
+
+    /** Adds text at the end of the file, creating it if needed. */
+    public static void appendString(string path, string text) { check(nWrite(path, text, true)); }
+
+    /** The file's lines, without their line ends. */
+    public static List<string> readAllLines(string path) { return readString(path).lines(); }
+
+    /** Writes each line followed by a line end, replacing the file's contents. */
+    public static void writeLines(string path, List<string> lines)
+    {
+        StringBuilder all = new StringBuilder();
+        for (string line : lines) { all.append(line).append('\n'); }
+        writeString(path, all.toString());
+    }
+
+    /** The file's bytes. */
+    public static List<uint<<8>>> readBytes(string path)
+    {
+        int n = (int)check(nReadBytes(path));
+        addr<uint<<8>>> buf = new<uint<<8>>>(n + 1);
+        nTakeBytes(buf);
+        List<uint<<8>>> out = new List();
+        out.reserve(n);
+        for (int i = 0; i < n; i++) { out.add(&(buf + (int<<64>>)i * 8)); }
+        delete buf;
+        return out;
+    }
+
+    /** Replaces the file's contents with these bytes. */
+    public static void writeBytes(string path, List<uint<<8>>> data)
+    {
+        int n = data.size();
+        addr<uint<<8>>> buf = new<uint<<8>>>(n + 1);
+        for (int i = 0; i < n; i++) { &(buf + (int<<64>>)i * 8) = data.get(i); }
+        int<<64>> status = nWriteBytes(path, buf, n, false);
+        delete buf;
+        check(status);
+    }
+
+    // ------------------------------------------------------------ questions
+
+    public static bit exists(string path) { return check(nExists(path)) == 1; }
+    public static bit isFile(string path) { return check(nIsFile(path)) == 1; }
+    public static bit isDirectory(string path) { return check(nIsDirectory(path)) == 1; }
+
+    /** The file's size in bytes. */
+    public static int<<64>> size(string path) { return check(nSize(path)); }
+
+    /** When the file was last changed, in milliseconds since 1970 (UTC). */
+    public static int<<64>> lastModified(string path) { return check(nModified(path)); }
+
+    /** The full path, with `.` and `..` worked out. */
+    public static string absolutePath(string path) { return text(nAbsolute(path)); }
+
+    // ------------------------------------------------------------ folders
+
+    /** Makes one folder; its parent must exist, and it must not. */
+    public static void createDirectory(string path) { check(nMakeDirectory(path, false)); }
+
+    /** Makes a folder and any missing parents; fine if it already exists. */
+    public static void createDirectories(string path) { check(nMakeDirectory(path, true)); }
+
+    /** A new, empty folder for temporary files, named starting with prefix. */
+    public static string createTempDirectory(string prefix) { return text(nTempDirectory(prefix)); }
+
+    /** The paths of what a folder holds (folder/name), sorted by name; not what is inside subfolders. */
+    public static List<string> list(string folder)
+    {
+        List<string> out = new List();
+        for (string name : names(folder)) { out.add(join(folder, name)); }
+        return out;
+    }
+
+    /**
+     * The folder and everything below it, depth first: each folder comes before what it
+     * holds, sorted by name. For a file, just the file.
+     */
+    public static List<string> walk(string path)
+    {
+        List<string> out = new List();
+        walkInto(path, out);
+        return out;
+    }
+
+    static void walkInto(string path, List<string> out)
+    {
+        out.add(path);
+        if (isDirectory(path)) {
+            for (string name : names(path)) { walkInto(join(path, name), out); }
+        }
+    }
+
+    /** The names (not paths) of what a folder holds, sorted. */
+    private<File> static List<string> names(string folder)
+    {
+        int count = (int)check(nList(folder));
+        List<string> out = new List();
+        if (count > 0) {
+            for (string name : text(nTextLength()).split('\0')) { out.add(name); }
+        }
+        return out;
+    }
+
+    /** folder/name, with one / between them. */
+    public static string join(string folder, string name)
+    {
+        if (folder.isEmpty()) { return name; }
+        if (folder.endsWith("/")) { return folder + name; }
+        return folder + "/" + name;
+    }
+
+    // ------------------------------------------------------------ changing
+
+    /** Deletes a file, or an empty folder. */
+    public static void delete(string path) { check(nDelete(path)); }
+
+    /** Deletes it if it exists; true if it did. */
+    public static bit deleteIfExists(string path)
+    {
+        if (!exists(path)) { return false; }
+        Files.delete(path);
+        return true;
+    }
+
+    /** Deletes a folder and everything in it (or just a file). */
+    public static void deleteRecursively(string path)
+    {
+        List<string> all = walk(path);
+        all.reverse(); // what a folder holds goes before the folder
+        for (string p : all) { Files.delete(p); }
+    }
+
+    /** Copies a file, replacing the target if it exists. */
+    public static void copy(string from, string to) { check(nCopy(from, to)); }
+
+    /** Moves or renames a file or folder, replacing the target if it exists. */
+    public static void move(string from, string to) { check(nMove(from, to)); }
+
+    // ------------------------------------------------------------ the VM's side
+
+    /** A status from a native: the result, or an exception with the message it left. */
+    private<File, Reader, Writer, FileReader, FileWriter> static int<<64>> check(int<<64>> status)
+    {
+        if (status == -2) { throw new FileNotFoundException(string.takeText((int)nTextLength())); }
+        if (status < 0) { throw new IOException(string.takeText((int)nTextLength())); }
+        return status;
+    }
+
+    /** The text a native left, whose length it returned. */
+    private<File, Reader> static string text(int<<64>> status) { return string.takeText((int)check(status)); }
+
+    @native("io_text_length") private<File, Reader> static int<<64>> nTextLength() { }
+    @native("io_read_text") static int<<64>> nRead(string path) { }
+    @native("io_write_text") static int<<64>> nWrite(string path, string text, bit append) { }
+    @native("io_read_bytes") static int<<64>> nReadBytes(string path) { }
+    @native("io_bytes_take") static int<<64>> nTakeBytes(addr<uint<<8>>> buf) { }
+    @native("io_write_bytes") static int<<64>> nWriteBytes(string path, addr<uint<<8>>> buf, int n, bit append) { }
+    @native("io_exists") static int<<64>> nExists(string path) { }
+    @native("io_is_file") static int<<64>> nIsFile(string path) { }
+    @native("io_is_dir") static int<<64>> nIsDirectory(string path) { }
+    @native("io_size") static int<<64>> nSize(string path) { }
+    @native("io_modified") static int<<64>> nModified(string path) { }
+    @native("io_absolute") static int<<64>> nAbsolute(string path) { }
+    @native("io_mkdir") static int<<64>> nMakeDirectory(string path, bit parents) { }
+    @native("io_temp_dir") static int<<64>> nTempDirectory(string prefix) { }
+    @native("io_list") static int<<64>> nList(string folder) { }
+    @native("io_delete") static int<<64>> nDelete(string path) { }
+    @native("io_copy") static int<<64>> nCopy(string from, string to) { }
+    @native("io_move") static int<<64>> nMove(string from, string to) { }
+    @native("io_open") private<FileReader, FileWriter> static int<<64>> nOpen(string path, int mode) { }
+    @native("io_read_line") private<Reader> static int<<64>> nReadLine(int<<64>> file) { }
+    @native("io_write") private<Writer> static int<<64>> nWriteFile(int<<64>> file, string text) { }
+    @native("io_write_char") private<Writer> static int<<64>> nWriteChar(int<<64>> file, char c) { }
+    @native("io_write_int") private<Writer> static int<<64>> nWriteInt(int<<64>> file, int<<64>> x) { }
+    @native("io_write_uint") private<Writer> static int<<64>> nWriteUint(int<<64>> file, uint<<64>> x) { }
+    @native("io_write_float") private<Writer> static int<<64>> nWriteFloat(int<<64>> file, float x) { }
+    @native("io_write_double") private<Writer> static int<<64>> nWriteDouble(int<<64>> file, double x) { }
+    @native("io_write_bit") private<Writer> static int<<64>> nWriteBit(int<<64>> file, bit x) { }
+    @native("io_write_fixed") private<Writer> static int<<64>> nWriteFixed(int<<64>> file, fixed<<int N, int M>> x) { }
+    @native("io_write_ufixed") private<Writer> static int<<64>> nWriteUfixed(int<<64>> file, ufixed<<int N, int M>> x) { }
+    @native("io_flush") private<Writer> static int<<64>> nFlush(int<<64>> file) { }
+    @native("io_close") private<Reader, Writer> static int<<64>> nClose(int<<64>> file) { }
+}

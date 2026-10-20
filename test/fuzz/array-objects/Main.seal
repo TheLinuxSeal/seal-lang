@@ -1,4 +1,6 @@
 // Fuzz input: run-time-sized arrays of numbers, strings and objects, lent, moved, copied and sliced.
+import seal.util.List;
+
 struct Main
 {
     static void bump(array<int> xs) { for (int i = 0; i < xs.length(); i += 1) { xs[i] += i; } }

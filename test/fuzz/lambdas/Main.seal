@@ -1,4 +1,9 @@
 // Fuzz input: lambdas capturing numbers, strings, handles and their enclosing object.
+import seal.util.List;
+import seal.util.function.BiFunction;
+import seal.util.function.Function;
+import seal.util.function.Supplier;
+
 struct Main
 {
     static int applyTwice(Function<int, int> f, int x) { return f.apply(f.apply(x)); }

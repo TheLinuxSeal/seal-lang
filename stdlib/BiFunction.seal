@@ -1,5 +1,0 @@
-// A function of two values: BiFunction<int, int, int> add = (a, b) -> a + b;
-interface BiFunction<A, B, R>
-{
-    R apply(A a, B b);
-}

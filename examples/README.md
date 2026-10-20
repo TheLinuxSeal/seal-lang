@@ -22,7 +22,9 @@ List<Animal> zoo = new List();
 
 From the standard library, `string` is an immutable value, as Java's (methods
 return new strings, and `StringBuilder` builds text), while `List`, `Queue` and
-`IntMap` are classes, shared like Java's collections. Memory is managed for
+`IntMap` are classes, shared like Java's collections. The library is in
+packages: `seal.lang` (`System`, `Math`, the exceptions) needs no import, but a
+file using `List` says `import seal.util.List;`, as in Java. Memory is managed for
 you: nothing needs `free()`, and `delete` is only for `addr` memory. A class
 that holds a resource, as `FileWriter` does, is closed with `close()` or
 try-with-resources.

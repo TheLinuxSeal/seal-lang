@@ -1,0 +1,45 @@
+package seal.util;
+
+// A fast, deterministic pseudo-random generator (xorshift64). Not for cryptography.
+struct Random
+{
+    uint<<64>> state;
+
+    public new() { state = 88172645463325252; }
+
+    public new(uint<<64>> seed)
+    {
+        state = seed;
+        if (state == 0) { state = 88172645463325252; }
+    }
+
+    public uint<<64>> nextU64()
+    {
+        state = state ^ (state <<< 13);
+        state = state ^ (state <<< -7);
+        state = state ^ (state <<< 17);
+        return state;
+    }
+
+    /** A value in [0, bound). */
+    public int nextInt(int bound)
+    {
+        if (bound <= 0) { throw new IllegalArgumentException("Random.nextInt bound must be positive, not " + bound); }
+        return (int)(nextU64() % (uint<<64>>)bound);
+    }
+
+    /** A value in [lo, hi]. */
+    public int nextRange(int lo, int hi)
+    {
+        if (hi < lo) { throw new IllegalArgumentException("Random.nextRange needs lo <= hi"); }
+        return lo + nextInt(hi - lo + 1);
+    }
+
+    /** A value in [0, 1). */
+    public double nextDouble()
+    {
+        return (double)(nextU64() <<< -11) / 9007199254740992.0;
+    }
+
+    public bit nextBit() { return nextU64()[63]; }
+}

@@ -1,5 +1,7 @@
 // Arbitrary fixed-width integers, written in the language itself with
 // value parameters and operator overloading (BigUInt<<BITS>>, §54).
+import seal.util.BigUInt;
+
 struct Main
 {
     static int digitSum(string s)

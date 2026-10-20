@@ -4,6 +4,8 @@ Seal is a programming language that feels like Java, with value types, integers 
 compile-time sizes built into its types.
 
 ```java
+import seal.util.List;
+
 class Main
 {
     record Point(int x, int y) { }
@@ -56,8 +58,9 @@ Point[x=3, y=9]  is 9.49 from the origin
   is its text, as Java's `toString()`.
 - **Optional low-level memory:** `addr<T>` pointers into bit-addressed memory, `sizeof`, and bit
   slices (`x[0..4]`), for code that wants them. Most code never does.
-- **The standard library is written in Seal** ([`stdlib/`](stdlib)): strings, lists, maps, files,
-  math, big integers, formatting.
+- **The standard library is written in Seal** ([`stdlib/`](stdlib)), in packages as Java's is:
+  `seal.lang` (`System`, math, `StringBuilder`, exceptions; no import needed), `seal.util` (lists, maps, big
+  integers), `seal.util.function` and `seal.io` (files).
 
 The full language is described in [`SPEC.md`](SPEC.md).
 
@@ -144,7 +147,7 @@ And at the top of the repository:
 | Path | What's there |
 | ---- | ------------ |
 | `seal` | the command-line script |
-| `stdlib/` | the standard library, in Seal |
+| `stdlib/` | the standard library, in Seal: `seal/lang/`, `seal/util/`, `seal/io/`, and the built-in `string` and `array` |
 | `examples/` | example programs and their output |
 | `test/` | the test suites, run by `./test.sh` |
 | `SPEC.md` | the language specification |

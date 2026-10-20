@@ -1,0 +1,35 @@
+package seal.lang;
+
+import seal.io.Reader;
+import seal.io.Writer;
+
+// The process: its standard streams, exiting, timing.
+struct System
+{
+    /** The program's standard input, output and error (§42.2). */
+    public static Reader stdin = new Reader(1);
+    public static Writer stdout = new Writer(2);
+    public static Writer stderr = new Writer(3);
+
+    /**
+     * Assembly code for a native compiler to place here as it is (§42.3). The VM has no
+     * machine code, so it ignores it: the call compiles to nothing. The code must be a
+     * string literal (or literals joined with +), since it would be assembled, not run.
+     */
+    public static void rawAssembly(string code) { }
+
+    /** Ends the program at once with this exit code (0 means success), as Java's System.exit. */
+    @native("exit") public static void exit(int code) { }
+
+    @native("abort") static void abort() { }
+
+    /** Nanoseconds from an arbitrary starting point, for measuring elapsed time. */
+    @native("time_ns") public static int<<64>> nanoTime() { }
+
+    /** Prints a message to stderr and stops the program with a trap, at once. */
+    public static void fail(string message)
+    {
+        stderr.println(message);
+        abort();
+    }
+}

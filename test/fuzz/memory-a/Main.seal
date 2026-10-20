@@ -1,3 +1,5 @@
+import seal.util.List;
+
 struct Main
 {
     static Res make(int i) { Res r = new Res(i); return r; }

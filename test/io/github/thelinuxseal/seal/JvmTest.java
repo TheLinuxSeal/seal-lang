@@ -623,6 +623,7 @@ public final class JvmTest {
                 pr(xs.removeIf(x -> x % 2 == 0));
                 pr(xs.size());
                 """, "", "Counter", """
+                import seal.util.function.Supplier;
                 class Counter
                 {
                     public int n;
@@ -1394,8 +1395,9 @@ public final class JvmTest {
     private static void same(String name, String body, String... more) {
         Map<String, String> files = new LinkedHashMap<>();
         String extra = more.length > 0 ? more[0] : "";
-        files.put("Main.seal", "struct Main\n{\n" + HELPERS + extra + "    static int main()\n    {\n" + body
-                + "\n        System.stdout.println();\n        return 0;\n    }\n}\n");
+        String main = "struct Main\n{\n" + HELPERS + extra + "    static int main()\n    {\n" + body
+                + "\n        System.stdout.println();\n        return 0;\n    }\n}\n";
+        files.put("Main.seal", Imports.of(main) + main);
         for (int i = 1; i + 1 < more.length; i += 2) {
             files.put(more[i] + ".seal", more[i + 1]);
         }

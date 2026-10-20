@@ -528,6 +528,8 @@ public final class LanguageTest {
                 "zoo/util/Box", """
                         package zoo.util;
 
+                        import seal.util.function.Function;
+
                         class Box<T>
                         {
                             public T value;
@@ -668,6 +670,8 @@ public final class LanguageTest {
                         """,
                 "Pair", "record Pair<A, B>(A first, B second) { }",
                 "Main", """
+                        import seal.util.HashMap;
+                        import seal.util.List;
                         class Main
                         {
                             static void main()
@@ -837,6 +841,7 @@ public final class LanguageTest {
                     delete() { System.stdout.print("~" + id + " "); }
                 }
                 """, "Main", """
+                import seal.util.List;
                 class Main
                 {
                     static void main()
@@ -914,6 +919,8 @@ public final class LanguageTest {
                         }
                         """,
                 "Main", """
+                        import seal.util.BigUInt;
+                        import seal.util.List;
                         class Main
                         {
                             static void main()
@@ -954,7 +961,7 @@ public final class LanguageTest {
                         + " @overload(Operator.CAST) public string text() { ... }");
         compileError("println of an object without a cast to string is reported where it's called", files(
                 "Box", "class Box { public int v; }", "Main", main("Box b = new Box(); System.stdout.println(b);")),
-                "in Writer.println[T=handle<Box>]: Box has no cast to string");
+                "in seal.io.Writer.println[T=handle<Box>]: Box has no cast to string");
         output("cast operators (§46)", files(
                 "Meters", """
                         struct Meters
@@ -1217,6 +1224,7 @@ public final class LanguageTest {
                     public new(int v, Node n) { value = v; next = n; }
                 }
                 """, "Walk", """
+                import seal.util.Iterator;
                 class Walk implements(Iterator<int>)
                 {
                     Node at;
@@ -1225,6 +1233,7 @@ public final class LanguageTest {
                     public int next() { int v = at.value; at = at.next; return v; }
                 }
                 """, "Chain", """
+                import seal.util.Iterator;
                 class Chain implements(Iterable<int>)
                 {
                     Node head;
@@ -1232,6 +1241,7 @@ public final class LanguageTest {
                     public Iterator<int> iterator() { return new Walk(head); }
                 }
                 """, "Main", """
+                import seal.util.List;
                 struct Main
                 {
                     static array<int><<3>> three() { return [7, 8, 9]; }
@@ -1547,6 +1557,8 @@ public final class LanguageTest {
                 2.6457513110645907 7.0 128.0
                 """);
         output("widening in lambdas and for-each", files("Main", """
+                import seal.util.function.Function;
+                import seal.util.function.Supplier;
                 struct Main
                 {
                     static void main()
@@ -1706,6 +1718,7 @@ public final class LanguageTest {
                 }
                 """), "warm plain cool RED2 MERCURYfalse JUPITERtrue 1157 stop ab");
         output("lambdas", files("Counter", """
+                import seal.util.function.Supplier;
                 class Counter
                 {
                     int count;
@@ -1714,6 +1727,12 @@ public final class LanguageTest {
                     public Supplier<int> peek() { return () -> get() * 10; }
                 }
                 """, "Main", """
+                import seal.util.Comparator;
+                import seal.util.List;
+                import seal.util.function.BiFunction;
+                import seal.util.function.Function;
+                import seal.util.function.Predicate;
+                import seal.util.function.Supplier;
                 struct Main
                 {
                     static int applyTwice(Function<int, int> f, int x) { return f.apply(f.apply(x)); }
@@ -1757,6 +1776,7 @@ public final class LanguageTest {
         compileError("a block lambda must return", files("Main", main("Function<int, int> f = x -> { if (x > 1) { return 1; } };")),
                 "the lambda can reach its end without returning a int");
         compileError("a lambda in a struct method can't use its fields", files("P", """
+                import seal.util.function.Supplier;
                 struct P { int v; public Supplier<int> get() { return () -> v; } }
                 """, "Main", main("")), "a lambda in a struct method can't use its fields or methods");
         compileError("an explicit parameter type must match", files("Main", main("Function<int, int> f = (bit b) -> 1;")),
@@ -1887,6 +1907,7 @@ public final class LanguageTest {
                     public void draw() { }
                 }
                 """, "Main", """
+                import seal.util.function.Function;
                 struct Main
                 {
                     static int sign(int x) { return x > 0 ? 1 : x < 0 ? -1 : 0; }
@@ -1960,6 +1981,7 @@ public final class LanguageTest {
                     void shift2(int d) { this.y += d; }
                 }
                 """, "Node", """
+                import seal.util.function.Supplier;
                 class Node
                 {
                     public int value;
@@ -1970,6 +1992,7 @@ public final class LanguageTest {
                     public Supplier<int> getter() { return () -> this.value * 2; }
                 }
                 """, "Main", """
+                import seal.util.function.Supplier;
                 struct Main
                 {
                     static int main()
@@ -2029,6 +2052,7 @@ public final class LanguageTest {
                 pr(bad.size());
                 """)), "in Box<int>.size: int has no methods");
         output("generic methods", files("Box", """
+                import seal.util.function.Function;
                 class Box<T>
                 {
                     public T value;
@@ -2036,6 +2060,8 @@ public final class LanguageTest {
                     public <R> Box<R> map(Function<T, R> f) { return new Box<R>(f.apply(value)); }
                 }
                 """, "Main", """
+                import seal.util.List;
+                import seal.util.function.Function;
                 struct Main
                 {
                     static <T> T largest(List<T> xs)
@@ -2077,6 +2103,7 @@ public final class LanguageTest {
                 }
                 """), "9 zebra 2.5 n4 2 true 0 #20 41");
         compileError("a type parameter nothing gives", files("Main", """
+                import seal.util.List;
                 struct Main { static <T> List<T> empty() { return new List(); } static int main() { List<int> x = empty(); return 0; } }
                 """), "can't tell T for empty from its arguments; give the types, as in x.<T>empty(...)");
         compileError("the wrong number of type arguments", files("Main", """
@@ -2221,6 +2248,7 @@ public final class LanguageTest {
         compileError("several lengths print in the short form", files("Main", main("array<double><<2, 2>> g = 5;")),
                 "expected array<double><<2, 2>>, found integer constant 5");
         output("nested types", files("Inventory", """
+import seal.util.List;
 class Inventory
 {
     public enum Kind { TOOL, FOOD, BLOCK }
@@ -2278,6 +2306,7 @@ class Inventory
     }
 }
 """, "Tree", """
+import seal.util.List;
 class Tree<T>
 {
     static class Node<V>
@@ -2941,6 +2970,7 @@ struct Main
         output("objects on the skipped side of && are never destroyed", files(
                 "Tk", "unique Tk { public int id; public new(int i) { id = i; } delete() { System.stdout.print(id); System.stdout.print(\"~ \"); } }",
                 "Main", """
+                        import seal.util.List;
                         struct Main
                         {
                             static Tk make(int i) { Tk t = new Tk(i); return t; }
@@ -3186,6 +3216,7 @@ struct Main
                     public int compareTo(Version other) { return n - other.n; }
                 }
                 """, "Main", """
+                import seal.util.List;
                 struct Main
                 {
                     static int main()
@@ -3249,11 +3280,11 @@ struct Main
         output("import ... as and import static ... as: two types of one name, and members renamed (§2.4)", files(
                 "some/util/HashMap", util,
                 "Main", """
-                        import HashMap as SealHashMap;
+                        import seal.util.HashMap as SealHashMap;
                         import some.util.HashMap as UtilHashMap;
                         import static some.util.HashMap.twice as double2;
                         import static some.util.HashMap.LIMIT as MAX;
-                        import static Math.max as biggest;
+                        import static seal.lang.Math.max as biggest;
                         import static some.util.HashMap.made as count;
 
                         struct Main
@@ -3267,7 +3298,7 @@ struct Main
                                 e.k = 3;
                                 array<int><<MAX>> xs;
                                 count += 10;
-                                HashMap<string, int> plain = new HashMap(); // still the library's
+                                seal.util.HashMap<string, int> plain = new seal.util.HashMap(); // by its full name, with no import
                                 plain.put("x", 1);
                                 System.stdout.println(ages.get("ada") + " " + mine.size() + " " + double2(21) + " " + MAX + " " + xs.length()
                                         + " " + biggest(3, 9) + " " + e.k + " " + count + " " + UtilHashMap.made + " " + plain.size());
@@ -3276,23 +3307,57 @@ struct Main
                         }
                         """), "36 42 42 7 7 9 3 11 11 1\n");
         compileError("a renamed import doesn't bring its own name", files("Main", """
-                import static Math.max as biggest;
+                import static seal.lang.Math.max as biggest;
 
                 struct Main { static int main() { return max(1, 2); } }
-                """), "unknown method max; this file imports Math.max as biggest");
+                """), "unknown method max; this file imports seal.lang.Math.max as biggest");
         compileError("two imports can't take one name", files("some/util/HashMap", util, "Main", """
                 import some.util.HashMap as Map;
-                import HashMap as Map;
+                import seal.util.HashMap as Map;
 
                 struct Main { static int main() { return 0; } }
-                """), "import HashMap as Map clashes with the import of some.util.HashMap as Map");
+                """), "import seal.util.HashMap as Map clashes with the import of some.util.HashMap as Map");
         compileError("nor the file's own type's", files("some/util/HashMap", util, "Main", """
                 import some.util.HashMap as Main;
 
                 struct Main { static int main() { return 0; } }
                 """), "import some.util.HashMap as Main clashes with Main, declared in this file");
-        compileError("a type in no package still can't take a library type's name", files("HashMap", "class HashMap { }",
-                "Main", main("")), "class HashMap is part of the standard library");
+        compileError("a type in no package can't take the name of one of seal.lang's", files("Integer", "class Integer { }",
+                "Main", main("")), "class Integer is part of the standard library (seal.lang.Integer, which every file sees);"
+                + " choose another name, or put it in a package");
+        compileError("nor of a built-in one", files("string", "class string { }", "Main", main("")),
+                "class string is part of the standard library (string, which every file sees)");
+        compileError("nor a package of the library's", files("seal/util/Extra", "package seal.util; class Extra { }",
+                "Main", main("")), "package seal.util is the standard library's; choose another name for yours");
+        compileError("the library's other types need an import", files("Main", """
+                struct Main { static int main() { List<int> xs = new List(); return xs.size(); } }
+                """), "unknown type List; import it: import seal.util.List;");
+        compileError("an import names its type in full", files("Main", """
+                import static Math.max;
+
+                struct Main { static int main() { return max(1, 2); } }
+                """), "no type Math to import from; an import names a type in full, as in import static seal.lang.Math.max;");
+        output("a program's own type in no package may take a name from seal.util: in its package, it comes before what"
+                + " a * import brings", files("List", """
+                class List
+                {
+                    public int size() { return 5; }
+                }
+                """, "Main", """
+                import seal.util.*;
+
+                struct Main
+                {
+                    static int main()
+                    {
+                        List mine = new List();
+                        Queue<int> q = new Queue();
+                        q.push(7);
+                        System.stdout.println(mine.size() + " " + q.size());
+                        return 0;
+                    }
+                }
+                """), "5 1\n");
     }
 
     private static void powersAndCompileTimeOperators() {
@@ -3580,6 +3645,7 @@ struct Main
                 struct Main { static pure int f(array<int> xs) { xs[0]++; return 0; } static int main() { return 0; } }
                 """), "a pure method can't change an array it was given: xs is its caller's");
         compileError("arrays are the one kind of object a pure method uses", files("Main", """
+                import seal.util.List;
                 struct Main { static pure int f(array<int> xs) { List<int> l = xs.toList(); return l.size(); } static int main() { return 0; } }
                 """), "a pure method can use an array's own methods, but not toList(), which makes a List, a class object");
         compileError("a pure method that never ends is stopped", files("Main", """
@@ -3592,7 +3658,7 @@ struct Main
     }
 
     private static String main(String body) {
-        return "struct Main\n{\n" + HELPERS + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n";
+        return Imports.of(body) + "struct Main\n{\n" + HELPERS + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n";
     }
 
     private static Map<String, String> files(String... pairs) {

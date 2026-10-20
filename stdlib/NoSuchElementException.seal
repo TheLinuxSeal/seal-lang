@@ -1,6 +1,0 @@
-// Asking for something that isn't there: a missing map key, an empty queue.
-class NoSuchElementException extends(RuntimeException)
-{
-    public new() { }
-    public new(string m) { super(m); }
-}

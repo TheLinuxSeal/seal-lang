@@ -255,8 +255,8 @@ public final class StdlibTest {
         try {
             Path f = dir.resolve("left-open.txt");
             Map<String, String> files = new LinkedHashMap<>();
-            files.put("Keep.seal", "struct Keep { public static FileWriter w; }");
-            files.put("Main.seal", "struct Main { static int main() { Keep.w = new FileWriter(\"" + f
+            files.put("Keep.seal", "import seal.io.FileWriter; struct Keep { public static FileWriter w; }");
+            files.put("Main.seal", "import seal.io.FileWriter; struct Main { static int main() { Keep.w = new FileWriter(\"" + f
                     + "\"); Keep.w.write(\"still written\"); return 0; } }");
             Checker checker = Checker.analyze(files, library);
             VM vm = new VM(CodeGen.generate(checker, "Main").program(), new PrintStream(new ByteArrayOutputStream()));
@@ -264,7 +264,7 @@ public final class StdlibTest {
             check(java.nio.file.Files.readString(f).equals("still written"),
                     "a writer left open when the program ends is written out");
 
-            files.put("Main.seal", "struct Main { static int main() { try { Files.writeString(\"" + dir.resolve("no.txt")
+            files.put("Main.seal", "import seal.io.*; struct Main { static int main() { try { Files.writeString(\"" + dir.resolve("no.txt")
                     + "\", \"x\"); } catch (IOException e) { System.stdout.print(e.getMessage()); } return 0; } }");
             checker = Checker.analyze(files, library);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -720,11 +720,11 @@ public final class StdlibTest {
         trap("missing key", """
                 IntMap<int> m = new IntMap();
                 System.stdout.println(m.get(3));
-                """, "uncaught NoSuchElementException: IntMap.get: no key 3");
+                """, "uncaught seal.util.NoSuchElementException: IntMap.get: no key 3");
         trap("empty queue", """
                 Queue<int> q = new Queue();
                 q.pop();
-                """, "uncaught NoSuchElementException: pop on an empty Queue");
+                """, "uncaught seal.util.NoSuchElementException: pop on an empty Queue");
         trap("sort needs <", """
                 List<handle<Thing>> xs = new List();
                 xs.sort();
@@ -810,11 +810,16 @@ public final class StdlibTest {
 
     private static void conflicts() {
         Map<String, String> files = new LinkedHashMap<>();
-        files.put("List.seal", "struct List { }");
+        files.put("Math.seal", "struct Math { }");
         files.put("Main.seal", "struct Main { static int main() { return 0; } }");
         List<Diagnostic> d = Checker.analyze(files, library).diagnostics();
-        check(d.stream().anyMatch(x -> x.message().contains("struct List is part of the standard library")),
-                "redefining a stdlib struct is an error: " + d);
+        check(d.stream().anyMatch(x -> x.message().contains("struct Math is part of the standard library (seal.lang.Math,"
+                        + " which every file sees)")), "redefining a seal.lang struct outside packages is an error: " + d);
+        files.remove("Math.seal");
+        files.put("List.seal", "struct List { public int n; }");
+        files.put("Main.seal", "struct Main { static int main() { List l; return l.n; } }");
+        d = Checker.analyze(files, library).diagnostics();
+        check(d.isEmpty(), "a program's own List, as seal.util.List needs an import: " + d);
     }
 
     // ================================================================ helpers
@@ -840,10 +845,11 @@ public final class StdlibTest {
         files.put("Pt.seal", "class Pt { public int x; public int y; public new(int x, int y) { this.x = x; this.y = y; }"
                 + " @overload(Operator.EQUALS) public bit same(Pt o) { return o != null && x == o.x && y == o.y; }"
                 + " public uint<<64>> hash() { return Hash.of(x * 31 + y); } }");
-        files.put("Main.seal", "struct Main\n{\n"
+        String main = "struct Main\n{\n"
                 + "    static void shout(string s) { s = s.toUpper(); s += \"!\"; System.stdout.println(s); }\n"
                 + "    static void fill(List<int> xs) { while (xs.size() < 5) { xs.add(0); } }\n"
-                + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n");
+                + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n";
+        files.put("Main.seal", Imports.of(main) + main);
         Checker checker = Checker.analyze(files, library);
         if (!checker.diagnostics().isEmpty()) {
             return new Result("", null, "error: " + checker.diagnostics(), 0);

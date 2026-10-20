@@ -2,6 +2,8 @@
 // string holds any number, on the heap. Strings are immutable, as in Java:
 // methods such as toUpper return a new string, s += x stores a new string in
 // s, and a StringBuilder builds text a piece at a time.
+import seal.util.List;
+
 struct Main
 {
     /** A string<<int N>> parameter accepts a fixed string of any capacity, and N is reused in the result. */

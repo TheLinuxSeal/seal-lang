@@ -204,12 +204,12 @@ public final class Parser {
                     }
                 }
                 expect(SEMICOLON, "';' after the import");
-                if (!all && name.indexOf(".") < 0 && (isStatic || alias == null)) {
+                if (!all && name.indexOf(".") < 0) {
                     errors.add(new ParseError(isStatic ? "import static names a type and its member, as in import static"
-                            + " Math.max; or all of its static members, as in import static Math.*;"
-                            : "import names a type in a package, as in import com.example." + name
-                            + "; a type outside packages needs no import, unless it is renamed, as in import " + name
-                            + " as Other" + name + ";", at.line(), at.column()));
+                            + " seal.lang.Math.max; or all of its static members, as in import static seal.lang.Math.*;"
+                            : "import names a type in a package by its full name, as in import seal.util." + name
+                            + "; or import com.example." + name + "; a type in no package needs no import",
+                            at.line(), at.column()));
                 } else {
                     imports.add(new Import(at, name.toString(), all, isStatic, alias));
                 }

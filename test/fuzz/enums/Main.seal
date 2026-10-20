@@ -1,4 +1,6 @@
 // Fuzz input: enums holding strings, switch in both styles, and loops around them.
+import seal.util.List;
+
 struct Main
 {
     static int score(Suit s)

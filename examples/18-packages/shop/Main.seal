@@ -1,8 +1,10 @@
 // Packages and imports (§2.4): each file says its package, which is also its
 // folder (shop/model/Item.seal is in package shop.model), and imports what it
-// uses from other packages. The standard library needs no import.
+// uses from other packages. So does the standard library's: seal.lang (System,
+// Math, the exceptions) needs no import, as Java's java.lang, but seal.util does.
 package shop;
 
+import seal.util.List;          // the standard library's, outside seal.lang
 import shop.model.*;            // every type of shop.model
 import shop.pricing.Discount;   // single types, by name
 import shop.pricing.PercentOff;

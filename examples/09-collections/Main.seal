@@ -1,4 +1,9 @@
 // The standard library's collections: List<T>, Queue<T> and IntMap<V>.
+import seal.util.IntMap;
+import seal.util.List;
+import seal.util.Queue;
+import seal.util.Random;
+
 struct Main
 {
     /** Length of the Collatz sequence from n down to 1, memoized in an IntMap. */

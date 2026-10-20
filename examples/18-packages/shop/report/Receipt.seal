@@ -2,6 +2,7 @@ package shop.report;
 
 import shop.model.Cart;
 import shop.pricing.*;
+import seal.util.List;
 
 /** The lines a cart and its deals come to. Line is in this package, so it needs no import. */
 class Receipt

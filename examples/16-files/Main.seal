@@ -1,6 +1,9 @@
 // Files and folders: building a small project tree, scanning it, writing a
 // report and reading it back. Everything happens in a temporary folder that
 // is deleted at the end.
+import seal.io.*;           // Files, File, FileReader, FileWriter and their exceptions
+import seal.util.List;
+
 struct Main
 {
     /** Counts lines in every file under `root`, by extension: kinds[i] has lines[i]. */

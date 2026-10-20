@@ -1,13 +1,13 @@
 // Static imports (§2.4): a static member of another type, used without the
-// type's name. `import static Math.*;` brings all of Math (sqrt, sin, PI, ...),
+// type's name. `import static seal.lang.Math.*;` brings all of Math (sqrt, sin, PI, ...),
 // `import static space.Vec.dot;` brings one method. The type's own members, and
 // local variables, still come first.
 package space;
 
-import static Math.*;               // every static member of Math
-import static Integer.MAX_INT;      // one constant of the standard library
-import static space.Units.*;        // every constant of Units
-import static space.Vec.dot;        // one method
+import static seal.lang.Math.*;             // every static member of Math
+import static seal.lang.Integer.MAX_INT;    // one constant of the standard library
+import static space.Units.*;                // every constant of Units
+import static space.Vec.dot;                // one method
 import static space.Vec.length;
 
 class Main

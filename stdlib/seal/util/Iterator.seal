@@ -1,0 +1,8 @@
+package seal.util;
+
+// Steps through the elements of an Iterable, one at a time.
+interface Iterator<T>
+{
+    bit hasNext();
+    T next();
+}

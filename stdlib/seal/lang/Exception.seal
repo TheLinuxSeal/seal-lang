@@ -1,0 +1,40 @@
+package seal.lang;
+
+import seal.util.List;
+
+// The root of everything that can be thrown and caught (§41.4), as in Java:
+//
+//   throw new IllegalArgumentException("negative size");
+//   try { ... } catch (IllegalArgumentException e) { System.stdout.println(e.getMessage()); }
+//
+// Exceptions are unchecked: methods don't list what they throw.
+class Exception
+{
+    string message;
+    List<Exception> suppressed;   // null until one is added
+
+    public new() { }
+    public new(string m) { message = m; }
+
+    /** The text given when the exception was made; empty if none. */
+    public string getMessage() { return message; }
+
+    /**
+     * Records an exception thrown while this one was on its way, which would
+     * otherwise be lost: try-with-resources adds what a close() throws to the
+     * exception that left its block (§41.4).
+     */
+    public void addSuppressed(Exception e)
+    {
+        if (e == this) { throw new IllegalArgumentException("an exception can't suppress itself"); }
+        if (suppressed == null) { suppressed = new List(); }
+        suppressed.add(e);
+    }
+
+    /** The exceptions added with addSuppressed, in order. */
+    public array<Exception> getSuppressed()
+    {
+        if (suppressed == null) { return new array<Exception>(0); }
+        return suppressed.toArray();
+    }
+}

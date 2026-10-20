@@ -1,4 +1,6 @@
 // Fuzz input: string literals, character literals, immutable strings sharing buffers, and StringBuilder.
+import seal.util.List;
+
 struct Main
 {
     static int vowels(string s)

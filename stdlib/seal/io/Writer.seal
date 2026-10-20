@@ -1,0 +1,84 @@
+package seal.io;
+
+// Writes text (§42.2): System.stdout and System.stderr, and the base of
+// FileWriter. print and println take strings, characters, numbers and bits,
+// as Java's PrintStream does, and any value whose type casts to string:
+//
+//   System.stdout.println("total: " + total);
+//   System.stderr.println("warning: " + name + " not found");
+//
+// Writing to a closed Writer throws an IOException. Close it with close(), or
+// with try-with-resources; anything still open when the program ends is
+// written out then.
+class Writer implements(AutoCloseable)
+{
+    int<<64>> file;   // the VM's stream, 0 once closed
+
+    private<FileWriter, System> new(int<<64>> file) { this.file = file; }
+
+    public void write(string text) { Files.check(Files.nWriteFile(file, text)); }
+
+    /** text, then a line end. */
+    public void writeLine(string text) { println(text); }
+
+    public void print(string text) { write(text); }
+
+    public void print(char c) { Files.check(Files.nWriteChar(file, c)); }
+    public void print(int x) { Files.check(Files.nWriteInt(file, (int<<64>>)x)); }
+    public void print(int<<int W>> x) { Files.check(Files.nWriteInt(file, (int<<64>>)x)); }
+    public void print(uint<<int W>> x) { Files.check(Files.nWriteUint(file, (uint<<64>>)x)); }
+    public void print(float x) { Files.check(Files.nWriteFloat(file, x)); }
+    public void print(double x) { Files.check(Files.nWriteDouble(file, x)); }
+    public void print(bit x) { Files.check(Files.nWriteBit(file, x)); }
+    public void print(fixed<<int A, int B>> x) { Files.check(Files.nWriteFixed(file, x)); }
+    public void print(ufixed<<int A, int B>> x) { Files.check(Files.nWriteUfixed(file, x)); }
+
+    public void println() { print('\n'); }
+    public void println(string text) { write(text); print('\n'); }
+    public void println(char c) { print(c); print('\n'); }
+    public void println(int x) { print(x); print('\n'); }
+    public void println(int<<int W>> x) { print(x); print('\n'); }
+    public void println(uint<<int W>> x) { print(x); print('\n'); }
+    public void println(float x) { print(x); print('\n'); }
+    public void println(double x) { print(x); print('\n'); }
+    public void println(bit x) { print(x); print('\n'); }
+    public void println(fixed<<int A, int B>> x) { print(x); print('\n'); }
+    public void println(ufixed<<int A, int B>> x) { print(x); print('\n'); }
+
+    /** A fixed-size string, as the bare one. */
+    public void print(string<<int K>> text) { write(text); }
+    public void println(string<<int K>> text) { write(text); print('\n'); }
+
+    /**
+     * Any other value, as its type's cast to string makes it (§46): an enum's name, or what
+     * an @overload(Operator.CAST) method returning string gives, as Java's toString().
+     */
+    public <T> void print(T x) { write((string)x); }
+    public <T> void println(T x) { write((string)x); print('\n'); }
+
+    /** Writes text from a format and values, as Java's printf: printf("%d items%n", n) (§42.6). */
+    public void printf(string fmt) { write(string.format(fmt)); }
+    public <A> void printf(string fmt, A a) { write(string.format(fmt, a)); }
+    public <A, B> void printf(string fmt, A a, B b) { write(string.format(fmt, a, b)); }
+    public <A, B, C> void printf(string fmt, A a, B b, C c) { write(string.format(fmt, a, b, c)); }
+    public <A, B, C, D> void printf(string fmt, A a, B b, C c, D d) { write(string.format(fmt, a, b, c, d)); }
+    public <A, B, C, D, E> void printf(string fmt, A a, B b, C c, D d, E e) { write(string.format(fmt, a, b, c, d, e)); }
+    public <A, B, C, D, E, F> void printf(string fmt, A a, B b, C c, D d, E e, F f) { write(string.format(fmt, a, b, c, d, e, f)); }
+    public <A, B, C, D, E, F, G> void printf(string fmt, A a, B b, C c, D d, E e, F f, G g) { write(string.format(fmt, a, b, c, d, e, f, g)); }
+    public <A, B, C, D, E, F, G, H> void printf(string fmt, A a, B b, C c, D d, E e, F f, G g, H h) { write(string.format(fmt, a, b, c, d, e, f, g, h)); }
+
+    /** Makes sure what was written has reached the file or terminal. */
+    public void flush()
+    {
+        if (file != 0) { Files.check(Files.nFlush(file)); }
+    }
+
+    /** Writes out what is buffered and closes the stream; closing it again does nothing. */
+    public void close()
+    {
+        if (file != 0) {
+            Files.nClose(file);
+            file = 0;
+        }
+    }
+}

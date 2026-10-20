@@ -1,0 +1,16 @@
+package seal.lang;
+
+// Helpers for values of any type, as Java's java.util.Objects. Records use them (§2.5),
+// so a component type without == (or without a cast to string) is only an error where
+// a record's == (or its text) is used.
+struct Objects
+{
+    /** a == b, for any type that has ==. */
+    public static <T> bit equals(T a, T b) { return a == b; }
+
+    /** x as text, as "" + x shows it: a number's text, or its type's cast to string (§46). */
+    public static <T> string toString(T x) { return "" + x; }
+
+    /** x's hash code, as Hash.of gives it (§42.4). */
+    public static <T> uint<<64>> hash(T x) { return Hash.of(x); }
+}

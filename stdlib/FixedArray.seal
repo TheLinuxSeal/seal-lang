@@ -1,3 +1,6 @@
+import seal.util.Comparator;
+import seal.util.List;
+
 // The methods of fixed arrays (§21.1). An array<T><<N>> is the compiler's own
 // type, N elements inline; calling xs.sort() on one calls this struct's sort,
 // whose only field has the array's layout. Programs don't name FixedArray.

@@ -36,6 +36,7 @@ public final class Checker {
 
     /** Source of the implicit root class (§31). */
     private static final String PRELUDE_OBJECT = """
+            package seal.lang;
             class Object
             {
                 /**
@@ -56,6 +57,7 @@ public final class Checker {
      * library classes.
      */
     private static final String PRELUDE_WRITER = """
+            package seal.io;
             class Writer
             {
                 int<<64>> file;
@@ -91,6 +93,8 @@ public final class Checker {
             """;
 
     private static final String PRELUDE_SYSTEM = """
+            package seal.lang;
+            import seal.io.Writer;
             struct System
             {
                 public static Writer stdout = new Writer(2);
@@ -99,6 +103,9 @@ public final class Checker {
             """;
 
     private static final int MAX_INSTANTIATION_DEPTH = 64;
+
+    /** The standard library's package that every file sees without an import, as Java's java.lang. */
+    public static final String LANG = "seal.lang";
 
     /** Library types whose elements are copied in and out, so can't be uniques. */
     private static final Set<String> COPYING_COLLECTIONS = Set.of("array", "List", "Queue", "HashMap", "IntMap", "HashMap.Entry");
@@ -258,8 +265,10 @@ public final class Checker {
         }
     }
 
+    /** A type of the standard library every file sees, by its simple name: a built-in one (string, array) or seal.lang's. */
     public ClassInfo classNamed(String name) {
-        return classes.get(name);
+        ClassInfo c = classes.get(name);
+        return c != null && c.builtin ? c : classes.get(LANG + "." + name);
     }
 
     /** Whether a file is the standard library's (or the built-in prelude), not the program's. */
@@ -699,23 +708,29 @@ public final class Checker {
         List<ClassInfo> order = new ArrayList<>();
         for (String prelude : List.of(PRELUDE_OBJECT, PRELUDE_WRITER, PRELUDE_SYSTEM)) {
             ClassInfo builtin = load("<builtin>", prelude, true);
-            classes.put(builtin.name, builtin);
+            classes.put(builtin.qualifiedName(), builtin);
         }
-        Set<String> libraryNames = new HashSet<>();
         libraryFiles.addAll(library.keySet());
         for (Map.Entry<String, String> e : library.entrySet()) {
             ClassInfo info = load(e.getKey(), e.getValue(), true);
-            if (info != null && addClass(e.getKey(), info, true, order)) {
-                libraryNames.add(info.name);
+            if (info != null) {
+                addClass(e.getKey(), info, true, order);
             }
         }
         for (Map.Entry<String, String> e : sources.entrySet()) {
             ClassInfo info = load(e.getKey(), e.getValue(), false);
             if (info != null) {
-                if (libraryNames.contains(info.name) && info.pkg.isEmpty()) {
-                    file = e.getKey();
+                file = e.getKey();
+                // The types every file sees, seal.lang's and the built-in ones, keep their names where they are seen
+                // without an import: in no package.
+                ClassInfo seen = info.pkg.isEmpty() ? classNamed(info.name) : null;
+                if (seen != null) {
                     report(info.decl.pos(), info.kind.keyword + " " + info.name + " is part of the standard library ("
-                            + classes.get(info.name).file + "); choose another name");
+                            + seen.qualifiedName() + ", which every file sees); choose another name, or put it in a package");
+                    continue;
+                }
+                if (info.pkg.equals("seal") || info.pkg.startsWith("seal.")) {
+                    report(info.pkgPos, "package " + info.pkg + " is the standard library's; choose another name for yours");
                     continue;
                 }
                 addClass(e.getKey(), info, false, order);
@@ -783,9 +798,6 @@ public final class Checker {
                         + baseName(path) + " is in " + (dirs.isEmpty() ? "no folder" : (near.size() < dirs.size() ? ".../" : "")
                         + String.join("/", near)));
             }
-            if (isLibrary) {
-                report(info.pkgPos, "the standard library's types are in no package");
-            }
         }
         ClassInfo existing = classes.get(info.qualifiedName());
         boolean replacesPrelude = existing != null && isLibrary && existing.file.equals("<builtin>")
@@ -827,9 +839,11 @@ public final class Checker {
     /**
      * The type a name means where {@code from} is written, as in Java (§2.4): the type itself
      * or a type nested in it or in a type enclosing it; then a type the file imports by name;
-     * one in the same package; one a `*` import brings; and the standard library's. `A.B` is
-     * B nested in what A means, or the type B in package A. Null if there is none, or if two
-     * `*` imports bring one each ({@link #unknownTypeHint} says which).
+     * one in the same package (for a file in no package, the program's other types in no
+     * package); one a `*` import brings; then seal.lang's, which every file sees, and the
+     * built-in string and array. `A.B` is B nested in what A means, or the type B in package A.
+     * Null if there is none, or if two `*` imports bring one each ({@link #unknownTypeHint} says
+     * which).
      */
     public ClassInfo lookupClass(String name, ClassInfo from) {
         int dot = name.indexOf('.');
@@ -860,13 +874,15 @@ public final class Checker {
         if (!pkg.isEmpty() && classes.get(pkg + "." + name) instanceof ClassInfo c) {
             return c;
         }
+        // In no package, the program's other types in no package; the library's files there (string, array) see only the library's.
+        if (pkg.isEmpty() && classes.get(name) instanceof ClassInfo c && !c.builtin && (from == null || !from.builtin)) {
+            return c;
+        }
         List<ClassInfo> brought = imported(name, imports);
         if (!brought.isEmpty()) {
             return brought.size() == 1 ? brought.get(0) : null;
         }
-        // The standard library's types are seen everywhere; other types outside packages only outside packages.
-        ClassInfo c = classes.get(name);
-        return c != null && (c.builtin || pkg.isEmpty()) ? c : null;
+        return classNamed(name);
     }
 
     /**
@@ -931,8 +947,11 @@ public final class Checker {
         }
         String list = owners.size() == 1 ? owners.get(0)
                 : String.join(", ", owners.subList(0, owners.size() - 1)) + " and " + owners.get(owners.size() - 1);
-        return "; it is a static method of " + list + ": call " + owners.get(0) + "." + name + "(...), or import static "
-                + owners.get(0) + "." + name + ";";
+        ClassInfo first = classes.values().stream().filter(c -> c.builtin && c.outer == null && c.name.equals(owners.get(0)))
+                .findFirst().orElseThrow();
+        String imported = first.pkg.isEmpty() || first.pkg.equals(LANG) ? "" : " (with import " + first.qualifiedName() + ";)";
+        return "; it is a static method of " + list + ": call " + owners.get(0) + "." + name + "(...)" + imported
+                + ", or import static " + first.qualifiedName() + "." + name + ";";
     }
 
     /** The types named {@code name} that `*` imports bring. */
@@ -984,11 +1003,17 @@ public final class Checker {
         }
         List<String> elsewhere = classes.values().stream()
                 .filter(c -> c.simpleName.equals(name) && !c.pkg.isEmpty() && (from == null || !c.pkg.equals(from.pkg)))
-                .map(ClassInfo::qualifiedName).sorted().toList();
+                .map(ClassInfo::qualifiedName).distinct().sorted().toList();
         if (!elsewhere.isEmpty()) {
             return "; import it: import " + String.join("; or import ", elsewhere) + ";";
         }
         return "";
+    }
+
+    /** The full names of the types in packages named {@code simple}: [seal.lang.Math] for Math. */
+    private List<String> inPackages(String simple) {
+        return classes.values().stream().filter(c -> c.outer == null && c.simpleName.equals(simple) && !c.pkg.isEmpty())
+                .map(ClassInfo::qualifiedName).distinct().sorted().toList();
     }
 
     /** `import static T.member;` needs a static member (or nested type) of T so named; `import static T.*;` a type T. */
@@ -996,8 +1021,11 @@ public final class Checker {
         String type = i.all() ? i.name() : i.name().substring(0, i.name().lastIndexOf('.'));
         ClassInfo t = classes.get(type);
         if (t == null || (t.pkg.isEmpty() && !t.builtin && !c.pkg.isEmpty())) {
-            report(i.pos(), "no type " + type + " to import from" + (t == null ? unknownTypeHint(type, c) : "; " + type
-                    + " is in no package, and as in Java, a type in a package can't use one that isn't"));
+            List<String> full = type.indexOf('.') < 0 ? inPackages(type) : List.of();
+            report(i.pos(), "no type " + type + " to import from" + (t != null ? "; " + type
+                    + " is in no package, and as in Java, a type in a package can't use one that isn't"
+                    : !full.isEmpty() ? "; an import names a type in full, as in import static " + full.get(0)
+                    + i.name().substring(type.length()) + (i.all() ? ".*" : "") + ";" : unknownTypeHint(type, c)));
             return;
         }
         if (!canSeeType(c, t)) {
@@ -1042,13 +1070,10 @@ public final class Checker {
             String bound = i.bound();
             String what = "import " + i.name() + (i.alias() == null ? "" : " as " + i.alias());
             if (t == null) {
-                ClassInfo library = classes.get(simple);
                 ClassInfo outside = classes.get(i.name());
                 report(i.pos(), "no type " + i.name() + " to import"
                         + (outside != null && !outside.builtin && outside.pkg.isEmpty() && !c.pkg.isEmpty()
                                 ? "; " + i.name() + " is in no package, and as in Java, a type in a package can't use one that isn't"
-                        : library != null && library.builtin ? "; " + simple + " is in the standard library, which needs no import"
-                                + " (to give it another name, import " + simple + " as Other" + simple + ";)"
                                 : unknownTypeHint(simple, c)));
             } else if (!canSeeType(c, t)) {
                 report(i.pos(), t.name + " is private to " + t.outer.name);
@@ -3044,7 +3069,7 @@ public final class Checker {
     }
 
     private ClassT objectType() {
-        ClassInfo o = classes.get("Object");
+        ClassInfo o = classNamed("Object");
         return new ClassT(o, List.of(), List.of(), 0);
     }
 
@@ -3923,7 +3948,7 @@ public final class Checker {
 
     /** Whether a type is a handle to an Exception (or a subclass). */
     private boolean isException(Type t) {
-        ClassInfo e = classes.get("Exception");
+        ClassInfo e = classNamed("Exception");
         return e != null && t instanceof HandleT h && h.target() instanceof ClassT ct
                 && isSubclass(ct, new ClassT(e, List.of(), List.of(), 0));
     }

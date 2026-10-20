@@ -74,8 +74,15 @@ public final class JvmGen {
     public record Result(Map<String, byte[]> classes, String mainClass, List<Diagnostic> errors) {
     }
 
-    /** The package of the standard library's classes on the JVM (docs/JVM.md §8.3). */
-    public static final String LIBRARY_PACKAGE = "io.github.thelinuxseal.seal.lang";
+    /**
+     * Where the standard library's packages are on the JVM (docs/JVM.md §8.3): seal.util is
+     * io.github.thelinuxseal.seal.util. The built-in types in no package (string, array) are in
+     * {@link #LIBRARY_PACKAGE}, with seal.lang.
+     */
+    public static final String LIBRARY_ROOT = "io.github.thelinuxseal.";
+
+    /** seal.lang on the JVM, where the root Object and Exception are. */
+    public static final String LIBRARY_PACKAGE = LIBRARY_ROOT + Checker.LANG;
 
     /** The runtime's classes, which compiled programs use and `seal build` copies beside them (§9). */
     public static final List<String> RUNTIME_CLASSES = List.of(
@@ -849,13 +856,28 @@ public final class JvmGen {
 
     // ================================================================ classes
 
-    /** A class's JVM binary name: as in Seal, with nested types after a $; the library's in its own package. */
+    /** A class's JVM binary name: as in Seal, with nested types after a $; the library's in its own packages. */
     static String binaryName(ClassInfo c) {
         String name = c.name.replace('.', '$');
         if (c.builtin) {
-            return LIBRARY_PACKAGE + "." + name;
+            return (c.pkg.isEmpty() ? LIBRARY_PACKAGE : LIBRARY_ROOT + c.pkg) + "." + name;
         }
         return c.pkg.isEmpty() ? name : c.pkg + "." + name;
+    }
+
+    /** Whether a JVM binary name is a class of the standard library's. */
+    public static boolean isLibrary(String binaryName) {
+        return binaryName.startsWith(LIBRARY_ROOT + "seal.");
+    }
+
+    /**
+     * The Seal name of a generated class from its binary name, as a program with no imports writes
+     * it: IllegalStateException (seal.lang's), seal.io.IOException, com.example.Main.Inner.
+     */
+    public static String sealName(String binaryName) {
+        String name = binaryName.startsWith(LIBRARY_PACKAGE + ".") ? binaryName.substring(LIBRARY_PACKAGE.length() + 1)
+                : isLibrary(binaryName) ? binaryName.substring(LIBRARY_ROOT.length()) : binaryName;
+        return name.replace('$', '.');
     }
 
     /** The name of an instantiation: List$int, Matrix$double$3$3 (docs/JVM.md §5.1). */

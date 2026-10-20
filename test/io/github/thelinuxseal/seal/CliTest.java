@@ -224,7 +224,7 @@ public final class CliTest {
         check(r.code() == 4 && r.out().equals("name? hi Bo, sum 20\n") && r.err().equals("note: 20\n"),
                 "run: System.exit sets the exit code " + r);
         r = runWithInput("", "run", streams.getParent().toString());
-        check(r.code() == 70 && r.err().startsWith("uncaught NoSuchElementException: no more lines to read"),
+        check(r.code() == 70 && r.err().startsWith("uncaught seal.util.NoSuchElementException: no more lines to read"),
                 "run: reading past the end of input throws " + r);
 
         Path asm = write(dir, "asm/Main.seal", """
@@ -326,10 +326,10 @@ public final class CliTest {
         r = run("run", "--stdlib", dir.resolve("missing").toString(), plain.getParent().toString());
         check(r.code() == 2 && r.err().contains("standard library not found"), "run: missing stdlib directory " + r);
 
-        Path clash = write(dir, "clash/List.seal", "struct List { }");
+        Path clash = write(dir, "clash/Math.seal", "struct Math { }");
         write(dir, "clash/Main.seal", "struct Main { static int main() { return 0; } }");
         r = run("check", clash.getParent().toString());
-        check(r.code() == 1 && r.err().contains("struct List is part of the standard library"), "check: stdlib name clash " + r);
+        check(r.code() == 1 && r.err().contains("struct Math is part of the standard library"), "check: stdlib name clash " + r);
 
         r = run("run");
         check(r.code() == 2 && r.err().contains("usage"), "usage message " + r);
