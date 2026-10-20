@@ -93,7 +93,9 @@ public final class JvmGen {
             "io.github.thelinuxseal.seal.runtime.Block",
             "io.github.thelinuxseal.seal.runtime.Ptr",
             "io.github.thelinuxseal.seal.runtime.Exit",
-            "io.github.thelinuxseal.seal.runtime.Trap");
+            "io.github.thelinuxseal.seal.runtime.Trap",
+            "io.github.thelinuxseal.seal.runtime.JavaBridge",
+            "io.github.thelinuxseal.seal.runtime.JavaPrimitive");
 
     /** The method every main class gets that runs the program and returns its exit code. */
     public static final String RUN_METHOD = "$run";
@@ -1212,6 +1214,11 @@ public final class JvmGen {
         return isString(t) || isArray(t);
     }
 
+    /** A JavaObject or JavaClass: a Java object, held as it is, whose methods are the runtime's JavaBridge's. */
+    static boolean isJava(Type t) {
+        return t instanceof HandleT h && h.target() instanceof ClassT ct && Checker.isJavaReference(ct.cls());
+    }
+
     static boolean isString(Type t) {
         return t instanceof ClassT ct && ct.cls().builtin && ct.cls().name.equals("string");
     }
@@ -1246,6 +1253,7 @@ public final class JvmGen {
     ClassDesc desc(Type t, Pos at) {
         try {
             return switch (t) {
+                case HandleT h when isJava(h) -> CD_Object; // the Java object itself (docs/JAVA.md §8)
                 case HandleT h when h.target() instanceof ClassT ct -> instance(ct).desc;
                 case AddrT a -> PTR; // §4.4
                 case NullT n -> CD_Object;

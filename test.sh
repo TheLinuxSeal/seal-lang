@@ -23,6 +23,7 @@ suites=(
     io.github.thelinuxseal.seal.ExamplesTest
     io.github.thelinuxseal.seal.FuzzTest
     io.github.thelinuxseal.seal.JvmTest
+    io.github.thelinuxseal.seal.JavaBridgeTest
 )
 
 failed=0

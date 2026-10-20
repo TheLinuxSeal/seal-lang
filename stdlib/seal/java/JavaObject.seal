@@ -1,0 +1,52 @@
+package seal.java;
+
+// A Java object (docs/JAVA.md §3): one Java made, or a Seal value passed in
+// (JavaInt.of(5), JavaString.of("Ada"), JavaObject.of(sealObject)). On the JVM
+// it is the Java object itself. Its methods and fields are Java's, named by
+// strings; `==` compares two by identity, and Java's equals is
+// x.invoke("equals", [y]).
+//
+//   JavaObject list = JavaBridge.create("java.util.ArrayList");
+//   list.invoke("add", [JavaString.of("Ada")]);
+//   int n = (int)list.invoke("size");          // a cast takes the value out
+//   System.stdout.println(list);               // its text: [Ada]
+//
+// A JavaObject isn't one of Seal's objects: it doesn't go where an Object is
+// wanted.
+class JavaObject
+{
+    private new() { }
+
+    /** A Seal class's object, as the Java object it already is. */
+    @jvm("JavaBridge.of") public static JavaObject of(Object o);
+
+    /** Calls the public method so named that takes no arguments; its result, or null for void. */
+    @jvm("JavaBridge.invoke") public JavaObject invoke(string method);
+
+    /** Calls the public method so named that the arguments choose, as Java chooses among overloads. */
+    @jvm("JavaBridge.invoke") public JavaObject invoke(string method, array<JavaObject> args);
+
+    /** The public field so named. */
+    @jvm("JavaBridge.getField") public JavaObject getField(string field);
+
+    @jvm("JavaBridge.setField") public void setField(string field, JavaObject value);
+
+    /** Its class: for a number passed in, its box's (java.lang.Integer for JavaInt.of(5)). */
+    @jvm("JavaBridge.javaClass") public JavaClass javaClass();
+
+    /** By identity, as == compares. */
+    @jvm("JavaBridge.hash") public uint<<64>> hash();
+
+    // Casts take Java's values out: a number cast takes any java.lang.Number (or
+    // a Character), converted as Seal converts numbers; (char) a Character,
+    // (bit) a Boolean. Anything else, or null, stops the program.
+    @overload(Operator.CAST) @jvm("JavaBridge.toInt") public int toInt();
+    @overload(Operator.CAST) @jvm("JavaBridge.toLong") public int<<64>> toLong();
+    @overload(Operator.CAST) @jvm("JavaBridge.toDouble") public double toDouble();
+    @overload(Operator.CAST) @jvm("JavaBridge.toFloat") public float toFloat();
+    @overload(Operator.CAST) @jvm("JavaBridge.toChar") public char toChar();
+    @overload(Operator.CAST) @jvm("JavaBridge.toBit") public bit toBit();
+
+    /** Its text, Java's String.valueOf: a String is itself, a list [Ada, Bo], null "null". */
+    @overload(Operator.CAST) @jvm("JavaBridge.text") public string text();
+}

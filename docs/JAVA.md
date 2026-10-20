@@ -1,11 +1,13 @@
 # Calling Java from Seal: design
 
-**Status:** proposed, for review; nothing is built yet. Seal reaches Java first through a
+**Status:** reviewed; the first step, B1, is built (§11), and §12 records what building it
+settled. Seal reaches Java first through a
 **bridge**: a small library that names Java classes, methods and fields as strings and calls them
 while the program runs (§2 to §8). The compiler learns to check those calls, then to compile them
 directly, later (§9); what a bridge can't do at all (a Seal class Java creates by name, extending
 a Java class, Mixins) comes after that (§10). Before it, the VM is deprecated and the standard
-library moves into packages (§0). §12 records what review decided and what is left. This is the middle of milestone M6 in docs/JVM.md §13, and the way to a Minecraft mod in
+library moves into packages (§0). §12 records what review decided and what is left. This is the
+middle of milestone M6 in docs/JVM.md §13, and the way to a Minecraft mod in
 Seal. A fuller typed design, which this replaces as the first step, is in this file's history
 (commit 13c300a).
 
@@ -99,8 +101,11 @@ class Main
 
 ## 3. The library: `seal.java`
 
-**Proposed: in a package, `seal.java`,** as the first package of the standard library, so that
-programs import it (`import seal.java.*;`) and its names don't take any program's (§12, question 1).
+**In a package, `seal.java`** (decided on review, built in B1), so that programs import it
+(`import seal.java.*;`) and its names don't take any program's (§12, question 1). Until the shapes
+of §6 come (B3), the types are written `JavaObject` and `JavaClass`; then those will mean the bare
+shapes, `JavaObject<<>>` and `JavaClass<<>>`, as `string` means `string<<>>`. `implement` and the
+exceptions are B2's.
 
 `JavaBridge`, the way in:
 
@@ -175,9 +180,13 @@ JavaObject<<"java.util.ArrayList">> copy = (JavaObject<<"java.util.ArrayList">>)
 ```
 
 `(int)`, `(int<<64>>)`, `(double)`, `(float)`, `(char)` and `(bit)` take the matching box, and the
-number casts take any `java.lang.Number`, converted as Seal converts numbers. `(string)` takes a
-`String`; to make text of any object, call its `toString`. A value of the wrong kind, or `null`,
-throws a `JavaCastException` saying what it was (decided on review, §12).
+number casts take any `java.lang.Number` (or a `Character`), converted as Seal converts numbers. A
+value of the wrong kind, or `null`, throws a `JavaCastException` saying what it was (decided on
+review, §12; until B2, it stops the program with that message).
+
+`(string)` is the object's text, Java's `String.valueOf`: a `String` is itself, a list
+`[Ada, Bo]`, `null` "null" (settled in B1, §12). Seal's cast to `string` is a type's text, which
+`+` and `println` use (§46 of the spec), so it can't be one that fails.
 
 ## 4. Calls
 
@@ -198,9 +207,13 @@ throws a `JavaCastException` saying what it was (decided on review, §12).
   so `remove(Object)` takes a box Java makes, as the Java source
   `list.remove(Integer.valueOf(0))` does:
   `JavaBridge.get("java.lang.Integer").invokeStatic("valueOf", [JavaInt.of(0)])`.
-- **Varargs:** the elements, or an array (B2), for the `...` parameter.
-- **Fast enough:** each call site keeps the `MethodHandle` it found for the argument classes it
-  saw, so a call repeated with the same kinds of arguments (every tick) skips the lookup.
+- **Varargs:** the elements one by one (B1), or an array (B2), for the `...` parameter.
+- **Methods of private classes:** a public method of a class that isn't public (the iterator an
+  `ArrayList` gives, the list `List.of` makes) is called as a public type it extends or implements
+  declares it (`Iterator.hasNext`), as Java code calls it through that type.
+- **Fast enough:** the method chosen is kept for its class, its name and the kinds of the arguments,
+  so a call repeated with the same kinds of arguments (every tick) skips the lookup; reflection's
+  own `Method.invoke` calls it. (A `MethodHandle` per call site, from an `invokedynamic`, is C2's.)
 - Only public members, through public classes; the bridge never calls `setAccessible`.
 
 ## 5. Callbacks: Java calling Seal
@@ -268,21 +281,26 @@ named `Java...Exception`, as below (the names also decided on review):
 
 ## 8. In the compiler and the runtime
 
-- **The runtime,** a new class `JavaBridge` (Java, in `io.github.thelinuxseal.seal.runtime`): class
-  lookup through the caller's loader, overload choice, conversions, `MethodHandle` caches per call
-  site, `Proxy` handlers, exception unwrapping.
-- **The library,** `stdlib/seal/java/`: `JavaBridge`, `JavaClass`, `JavaObject`, `JavaHandler`,
-  `JavaInt` and the other classes of §3.1, and the exceptions of §7, their members `@jvm` methods
-  of the runtime class (docs/JVM.md §8). The library is in packages by then (§0).
-- **The checker:** nothing new for B1. For B3, `@implicit` constructors in `JavaObject` and
-  `JavaClass` for a shape becoming the bare one (§6); today the checker allows `@implicit` in
-  `string` alone.
-- **The JVM backend:** a `JavaObject` or `JavaClass` is the Java reference itself (`java.lang.Object`,
-  and `java.lang.Class` for a class), with no wrapper, as a `string` is a `java.lang.String`; a
-  primitive made by `JavaInt.of` and the others is marked (§4) inside the runtime's box. Casts are
-  calls to the runtime.
-- **The VM** gets none of it (§0): its code generator reports a program that uses `seal.java` as
-  not available on the VM.
+- **The runtime,** `JavaBridge` (Java, in `io.github.thelinuxseal.seal.runtime`): class lookup
+  through the caller's loader (the class that called in, from a `StackWalker`), overload choice,
+  conversions, the cache of §4, unwrapping what reflection wraps; and `JavaPrimitive`, a number
+  passed in, marked with its primitive type. `Proxy` handlers come in B2. `seal build` copies both
+  beside the program, as it does the rest of the runtime.
+- **The library,** `stdlib/seal/java/`: `JavaBridge`, `JavaClass`, `JavaObject`, `JavaInt` and the
+  other classes of §3.1 (and in B2, `JavaHandler` and the exceptions of §7). Their methods have no
+  Seal body: each is `@jvm("JavaBridge.invoke") public JavaObject invoke(string method);`, the
+  runtime's method that does it, which only the library may write.
+- **The checker:** `JavaObject` and `JavaClass` are classes, so a variable may be `null` and `==`
+  is identity; `JavaClass` extends `JavaObject`. They aren't Seal's objects: their root is Java's,
+  so neither goes where an `Object` is wanted (an error that suggests `JavaObject.of`). For B3,
+  `@implicit` constructors for a shape becoming the bare one (§6); today the checker allows
+  `@implicit` in `string` alone.
+- **The JVM backend:** a `JavaObject` or `JavaClass` is the Java reference itself, typed
+  `java.lang.Object`, with no wrapper and no class of its own, as a `string` is a
+  `java.lang.String`; a cast from `JavaObject` down to `JavaClass` checks for a `java.lang.Class`.
+  Their methods, casts included, are static calls to the runtime with the object first.
+- **The VM** gets none of it (§0): its code generator reports a call into `seal.java` as running
+  only on the JVM.
 - **The CLI:** `--classpath` (`-cp`) on `seal run`, so programs reach jars; `seal build` writes the
   classes as now, run beside the jars with `java -cp classes:deps.jar Main`.
 
@@ -326,7 +344,7 @@ and masks bits, which the JIT can't keep in registers.
 | ---- | -------- | --------- |
 | **R1**, **done** | §0: the VM is deprecated | `--vm` warns, every suite passes |
 | **R2**, **done** | §0: the library moves into packages | the suites pass with the library in packages |
-| **B1** | the runtime bridge; `seal.java` with `JavaBridge`, `JavaClass`, `JavaObject` (bare), calls with and without arguments, fields, conversions in (`JavaInt.of` and the others of §3.1) and out (casts); `--classpath` | a program uses `java.util.ArrayList`, `java.util.HashMap`, `java.time.LocalDate` and `java.util.Random` through the bridge, and prints what the same Java program prints |
+| **B1**, **done** | the runtime bridge; `seal.java` with `JavaBridge`, `JavaClass`, `JavaObject` (bare), calls with and without arguments, fields, conversions in (`JavaInt.of` and the others of §3.1) and out (casts); `--classpath` | a program uses `java.util.ArrayList`, `java.util.HashMap`, `java.time.LocalDate` and `java.util.Random` through the bridge, and prints what the same Java program prints |
 | **B2** | the exceptions of §7; `implement` and `JavaHandler`; Java arrays as `JavaObject`s (made with `java.lang.reflect.Array`, for varargs and `byte[]` APIs) | a Java `Thread` runs a Seal lambda, a `Comparator` from Seal sorts a Java list, an `IOException` is caught |
 | **B3** | shapes: `JavaObject<<string CLASS>>`, `JavaClass<<string CLASS>>`, their constructors, a shape going where the bare one is wanted (`@implicit`), checked casts | the B1 program written with shaped values |
 | **C1** to **C3** | §9 | a misspelled method is a compile error; the shaped calls of B3's program compile to direct JVM calls |
@@ -346,8 +364,22 @@ Decided on review:
    becomes a `string`, was considered and set aside; and a cast method marked `@implicit` would
    be the same thing, declared on the value's type. `@implicit` stays the library's, for a shape
    becoming its bare shape: `string`'s now, `JavaObject`'s and `JavaClass`'s in B3 (§6).
-5. **A cast out of the wrong kind, or of `null`,** throws a `JavaCastException` (§3.2, §7).
+5. **A cast out of the wrong kind, or of `null`,** throws a `JavaCastException` (§3.2, §7); the
+   cast to `string` is the exception, below.
 6. **`seal.lang` is imported automatically,** and the big numbers are in `seal.util` (§0).
 7. **The exceptions' names** in §7.
 
-Nothing is left to decide before B1.
+Settled while building B1:
+
+8. **A `JavaObject`'s cast to `string` is its text,** Java's `String.valueOf`, not a cast that takes
+   only a `String`: Seal's cast to `string` is a type's text, which `+` and `println` use, so it
+   can't fail (§3.2).
+9. **`JavaClass` extends `JavaObject`,** as a Java class is an object: `cls.invoke("getSimpleName")`.
+10. **`JavaObject` isn't one of Seal's objects:** it doesn't go where an `Object` is wanted, and
+    `JavaObject.of(o)` takes only an object of a Seal class (a struct or record has no Java form).
+11. **Until B2, what goes wrong stops the program,** as a trap that says what, and an exception the
+    Java code throws stops it as an uncaught one does. B2 makes both Seal exceptions (§7).
+12. **Both are `java.lang.Object` on the JVM** (§8), and the runtime casts to `Class` where it needs
+    one, which keeps the generated code simple.
+
+Nothing is left to decide before B2.

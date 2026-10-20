@@ -6,8 +6,12 @@ import java.io.PrintStream;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import io.github.thelinuxseal.seal.runtime.Exit;
@@ -34,6 +38,15 @@ public final class JvmRunner {
 
     /** As above, with standard input, and whether the program may use files. */
     public static Outcome run(JvmGen.Result program, InputStream in, PrintStream out, PrintStream err, boolean files) {
+        return run(program, in, out, err, files, List.of());
+    }
+
+    /**
+     * As above, with the jars and class folders whose classes the program reaches through the Java
+     * bridge (docs/JAVA.md §4): its classes' loader sees them, after the JDK's.
+     */
+    public static Outcome run(JvmGen.Result program, InputStream in, PrintStream out, PrintStream err, boolean files,
+                              List<Path> classPath) {
         InputStream oldIn = Natives.in;
         PrintStream oldOut = Natives.out;
         PrintStream oldErr = Natives.err;
@@ -43,8 +56,8 @@ public final class JvmRunner {
         Natives.out = out;
         Natives.err = err;
         Natives.fileAccess = files;
-        try {
-            Class<?> main = Class.forName(program.mainClass(), true, new Loader(program.classes(), JvmRunner.class.getClassLoader()));
+        try (URLClassLoader jars = new URLClassLoader(urls(classPath), JvmRunner.class.getClassLoader())) {
+            Class<?> main = Class.forName(program.mainClass(), true, new Loader(program.classes(), jars));
             MethodHandle run = MethodHandles.publicLookup().findStatic(main, JvmGen.RUN_METHOD,
                     MethodType.methodType(int.class));
             int code;
@@ -63,6 +76,18 @@ public final class JvmRunner {
             Natives.err = oldErr;
             Natives.fileAccess = oldFiles;
         }
+    }
+
+    private static URL[] urls(List<Path> classPath) {
+        URL[] out = new URL[classPath.size()];
+        for (int i = 0; i < out.length; i++) {
+            try {
+                out[i] = classPath.get(i).toUri().toURL();
+            } catch (MalformedURLException e) {
+                throw new IllegalArgumentException("class path entry " + classPath.get(i) + ": " + e.getMessage());
+            }
+        }
+        return out;
     }
 
     /**

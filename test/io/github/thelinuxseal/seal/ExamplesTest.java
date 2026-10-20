@@ -21,6 +21,7 @@ public final class ExamplesTest {
         int passed = 0;
         int jvmSame = 0;
         int jvmNotYet = 0;
+        int jvmOnly = 0;
         List<String> failures = new ArrayList<>();
         List<Path> dirs;
         try (Stream<Path> s = Files.list(Path.of("examples"))) {
@@ -42,7 +43,11 @@ public final class ExamplesTest {
             // --vm says first that it is deprecated; nothing else should reach standard error.
             String errText = err.toString(StandardCharsets.UTF_8).lines()
                     .filter(l -> !l.equals(Main.VM_DEPRECATED)).reduce("", (a, b) -> a + b + "\n");
-            if (code == 0 && got.equals(expected) && errText.isEmpty()) {
+            // The Java bridge runs only on the JVM: the VM, deprecated, says so, and the JVM's output is the one checked.
+            boolean onlyJvm = code == 1 && !errText.isEmpty() && errText.lines().allMatch(l -> l.contains("runs only on the JVM"));
+            if (onlyJvm) {
+                jvmOnly++;
+            } else if (code == 0 && got.equals(expected) && errText.isEmpty()) {
                 passed++;
             } else {
                 failures.add(dir + ": exit " + code + firstDifference(expected, got)
@@ -58,13 +63,16 @@ public final class ExamplesTest {
                 jvmNotYet++;
             } else if (jcode == 0 && jout.toString(StandardCharsets.UTF_8).equals(expected) && jerrText.isEmpty()) {
                 jvmSame++;
+                if (onlyJvm) {
+                    passed++;
+                }
             } else {
                 failures.add("on the JVM: " + dir + ": exit " + jcode + firstDifference(expected, jout.toString(StandardCharsets.UTF_8))
                         + (jerrText.isEmpty() ? "" : "\n    stderr: " + jerrText.strip()));
             }
         }
         System.out.println(passed + " passed, " + failures.size() + " failed  (on the JVM: " + jvmSame + " the same, "
-                + jvmNotYet + " not available yet)");
+                + jvmNotYet + " not available yet, " + jvmOnly + " on the JVM only)");
         failures.forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);

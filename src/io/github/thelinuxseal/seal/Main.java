@@ -36,6 +36,8 @@ import io.github.thelinuxseal.seal.vm.VM;
  *   --vm              run (or dump) on Seal's own VM instead; deprecated, to be removed (docs/JVM.md §13)
  *   -d DIR            where build writes the class files (default: classes)
  *   --main Class      the class whose main() is the entry point (default Main); com.example.Main for one in a package
+ *   --classpath PATH  (or -cp) the jars and class folders whose Java classes `run` lets the program reach through
+ *                     seal.java (docs/JAVA.md), separated as Java's class path is (: on Linux and macOS)
  *   --stdlib DIR      where the standard library is (default: the stdlib directory
  *                     next to the compiler's class files, or the seal.stdlib property)
  *   --no-stdlib       do not load the standard library
@@ -60,8 +62,8 @@ public final class Main {
     /** Runs the command line with the program's standard input, output and error. */
     public static int run(String[] args, java.io.InputStream in, PrintStream out, PrintStream err) throws IOException {
         if (args.length < 2) {
-            err.println("usage: seal run|check|dump|build [--main Class] [--vm] [-d DIR] [-WautoCast] [-WautoCastLossy]"
-                    + " [-Wassert] [-Wall] PATH...");
+            err.println("usage: seal run|check|dump|build [--main Class] [--classpath PATH] [--vm] [-d DIR] [-WautoCast]"
+                    + " [-WautoCastLossy] [-Wassert] [-Wall] PATH...");
             return 2;
         }
         String command = args[0];
@@ -71,9 +73,16 @@ public final class Main {
         Set<Warning> warn = EnumSet.noneOf(Warning.class);
         boolean vm = false;
         Path classDir = Path.of("classes");
+        List<Path> classPath = new ArrayList<>();
         for (int i = 1; i < args.length; i++) {
             if (args[i].equals("--main") && i + 1 < args.length) {
                 mainClass = args[++i];
+            } else if ((args[i].equals("--classpath") || args[i].equals("-cp")) && i + 1 < args.length) {
+                for (String entry : args[++i].split(java.io.File.pathSeparator)) {
+                    if (!entry.isEmpty()) {
+                        classPath.add(Path.of(entry));
+                    }
+                }
             } else if (args[i].equals("--vm")) {
                 vm = true;
             } else if (args[i].equals("--jvm")) {
@@ -119,8 +128,14 @@ public final class Main {
             errors.forEach(err::println);
             return errors.isEmpty() ? 0 : 1;
         }
+        for (Path entry : classPath) {
+            if (!Files.exists(entry)) {
+                err.println("class path entry not found: " + entry);
+                return 2;
+            }
+        }
         if (!vm) {
-            return runOnJvm(command, checker, mainClass, classDir, in, out, err);
+            return runOnJvm(command, checker, mainClass, classDir, classPath, in, out, err);
         }
         if (command.equals("build")) {
             err.println("build writes JVM class files; it has no --vm form");
@@ -162,8 +177,8 @@ public final class Main {
     }
 
     /** `seal run`, `dump` and `build`: the program as JVM class files, run, printed or written (docs/JVM.md). */
-    private static int runOnJvm(String command, Checker checker, String mainClass, Path classDir, java.io.InputStream in,
-                                PrintStream out, PrintStream err) throws IOException {
+    private static int runOnJvm(String command, Checker checker, String mainClass, Path classDir, List<Path> classPath,
+                                java.io.InputStream in, PrintStream out, PrintStream err) throws IOException {
         JvmGen.Result result = JvmGen.generate(checker, mainClass);
         if (!result.errors().isEmpty()) {
             result.errors().forEach(err::println);
@@ -181,7 +196,7 @@ public final class Main {
             err.println("unknown command " + command + "; the commands are run, check, dump and build");
             return 2;
         }
-        JvmRunner.Outcome o = JvmRunner.run(result, in, out, err, true);
+        JvmRunner.Outcome o = JvmRunner.run(result, in, out, err, true, classPath);
         if (o.fault() != null) {
             err.println(JvmRunner.describe(o.fault()));
         }

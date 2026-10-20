@@ -539,6 +539,27 @@ public final class Checker {
         return null;
     }
 
+    /**
+     * A library method the JVM's runtime does and that has no Seal body: seal.java's (docs/JAVA.md),
+     * which run only on the JVM.
+     */
+    public static boolean isJvmOnly(Method md) {
+        return md.body() == null && jvmName(md) != null;
+    }
+
+    /**
+     * seal.java's JavaObject and JavaClass, whose objects are Java's own (docs/JAVA.md §3): on the
+     * JVM a variable holds the Java object itself. They aren't Seal objects, so they don't go
+     * where an Object is wanted.
+     */
+    public static boolean isJavaReference(ClassInfo c) {
+        return c.builtin && c.pkg.equals("seal.java") && (c.name.equals("JavaObject") || c.name.equals("JavaClass"));
+    }
+
+    private static boolean isJavaHandle(Type t) {
+        return t instanceof HandleT h && h.target() instanceof ClassT ct && isJavaReference(ct.cls());
+    }
+
     public ClassInfo declaringClassOf(MemberInfo m) {
         return declaringClass(m);
     }
@@ -3034,7 +3055,7 @@ public final class Checker {
         }
         ExtendsClause chosen = literal != null ? literal : undetermined ? null : binding != null ? binding : unguarded;
         if (chosen == null) {
-            return undetermined ? null : objectType();
+            return undetermined || isJavaReference(c) ? null : objectType(); // a Java object's root is Java's, not Seal's
         }
         Env env = instanceEnv(t, null);
         if (chosen.guard() != null && chosen == binding) {
@@ -3075,8 +3096,8 @@ public final class Checker {
 
     /** Whether {@code sub} is {@code sup}, inherits from it, or implements it (an interface). */
     private boolean isSubclass(ClassT sub, ClassT sup) {
-        if (sup.cls().isRoot() && sub.cls().dynamic) {
-            return true; // every class and interface handle is an Object
+        if (sup.cls().isRoot() && sub.cls().dynamic && !isJavaReference(sub.cls())) {
+            return true; // every class and interface handle is an Object, but a Java object isn't Seal's
         }
         ClassT t = sub;
         for (int i = 0; t != null && i < MAX_INSTANTIATION_DEPTH; i++) {
@@ -3222,7 +3243,7 @@ public final class Checker {
                 if (hasValueBinders(md)) {
                     report(md.pos(), "abstract methods can't have value binders <<int K>>");
                 }
-            } else if (md.body() == null) {
+            } else if (md.body() == null && !(c.builtin && isJvmOnly(md))) {
                 report(md.pos(), "method " + md.name() + " needs a body"
                         + (c.kind == Kind.CLASS ? ", or `abstract` in an abstract class" : ""));
             }
@@ -3491,7 +3512,7 @@ public final class Checker {
             Set<String> reported = new HashSet<>();
             for (ClassT owner : owners) {
                 for (MemberInfo m : owner.cls().all) {
-                    if (!(m.member instanceof Method md) || md.body() != null || !m.existsIn(owner.header())
+                    if (!(m.member instanceof Method md) || md.body() != null || isJvmOnly(md) || !m.existsIn(owner.header())
                             || md.modifiers().isStatic() || md.name().contains(" ")) {
                         continue; // a field's accessors: its holder is checked by fillVirtualFields
                     }
@@ -4795,7 +4816,9 @@ public final class Checker {
         } else if (from instanceof VoidT) {
             report(pos, what + ": expression has no value");
         } else {
-            String hint = from.isNumeric() && to.isNumeric() ? "; use a cast, e.g. (" + to + ")" : "";
+            String hint = from.isNumeric() && to.isNumeric() ? "; use a cast, e.g. (" + to + ")"
+                    : isJavaHandle(from) != isJavaHandle(to) && (isJavaHandle(from) ? to : from) instanceof HandleT
+                    ? "; a JavaObject is Java's object, not Seal's: JavaObject.of(o) passes a Seal object into Java" : "";
             report(pos, what + ": expected " + to + ", found " + from + hint);
         }
     }
@@ -4906,7 +4929,7 @@ public final class Checker {
         Set<String> sigs = new HashSet<>();
         for (ClassT i : all) {
             for (MemberInfo m : i.cls().all) {
-                if (m.member instanceof Method md && md.body() == null
+                if (m.member instanceof Method md && md.body() == null && !isJvmOnly(md)
                         && sigs.add(md.name() + paramTypes(i, m, Map.of()))) {
                     found.add(new Impl(i, m));
                 }

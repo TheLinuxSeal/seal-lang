@@ -1,0 +1,32 @@
+package seal.java;
+
+// A Java class (docs/JAVA.md §3): JavaBridge.get("java.util.Random"), or an
+// object's javaClass(). On the JVM it is the java.lang.Class itself, and as in
+// Java, it is an object too.
+class JavaClass extends(JavaObject)
+{
+    private new() { }
+
+    /** Calls the public static method so named that takes no arguments; its result, or null for void. */
+    @jvm("JavaBridge.invokeStatic") public JavaObject invokeStatic(string method);
+
+    /** Calls the public static method so named that the arguments choose. */
+    @jvm("JavaBridge.invokeStatic") public JavaObject invokeStatic(string method, array<JavaObject> args);
+
+    /** A new object of this class, by its constructor that takes no arguments. */
+    @jvm("JavaBridge.create") public JavaObject create();
+
+    /** A new object of this class, by the constructor the arguments choose. */
+    @jvm("JavaBridge.create") public JavaObject create(array<JavaObject> args);
+
+    /** The public static field so named. */
+    @jvm("JavaBridge.getStatic") public JavaObject getStatic(string field);
+
+    @jvm("JavaBridge.setStatic") public void setStatic(string field, JavaObject value);
+
+    /** Its name, as the JVM gives it: "java.util.Map$Entry". */
+    @jvm("JavaBridge.name") public string name();
+
+    /** Whether o is one of this class: of it, a subclass, or one implementing it. */
+    @jvm("JavaBridge.isInstance") public bit isInstance(JavaObject o);
+}

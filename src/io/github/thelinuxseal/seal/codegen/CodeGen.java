@@ -3360,6 +3360,7 @@ public final class CodeGen {
 
         int operatorValue(Expr site) {
             CallInfo ci = tb.calls.get(site);
+            jvmOnly(ci, site.pos());
             Expr left;
             List<Expr> args;
             if (site instanceof Binary b) {
@@ -3396,6 +3397,7 @@ public final class CodeGen {
 
         void operatorInto(Expr site, Mem dst) {
             CallInfo ci = tb.calls.get(site);
+            jvmOnly(ci, site.pos());
             Expr left;
             List<Expr> args;
             if (site instanceof Binary b) {
@@ -3430,6 +3432,7 @@ public final class CodeGen {
             if (ci == null) {
                 throw new Unsupported(c.pos(), "unresolved call");
             }
+            jvmOnly(ci, c.pos());
             if (ck.isRawAssembly(ci)) {
                 return -1; // assembly is for a native compiler; the VM has nothing to run (§42.3)
             }
@@ -3460,6 +3463,14 @@ public final class CodeGen {
                     withAddress(place(s.target()), tt, addr -> out[0] = invoke(ci, addr, c.args(), d));
                     return out[0];
                 }
+            }
+        }
+
+        /** seal.java's methods (docs/JAVA.md) run only on the JVM: the VM, deprecated, gets no new features. */
+        void jvmOnly(CallInfo ci, Pos at) {
+            if (ci != null && ci.member() != null && ci.member().member instanceof Method md && Checker.isJvmOnly(md)) {
+                throw new Unsupported(at, ck.declaringClassOf(ci.member()).name + "." + md.name()
+                        + " runs only on the JVM: the VM is deprecated, and gets no new features; run without --vm");
             }
         }
 

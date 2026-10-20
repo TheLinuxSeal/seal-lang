@@ -1,0 +1,8 @@
+package seal.java;
+
+// Seal's int<<8>> as Java's byte (docs/JAVA.md §3.1), for a method or constructor that
+// takes one: it prefers byte parameters, as a Java byte does.
+struct JavaByte
+{
+    @jvm("JavaBridge.ofByte") public static JavaObject of(int<<8>> x);
+}

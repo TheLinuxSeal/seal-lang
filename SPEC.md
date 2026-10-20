@@ -2333,7 +2333,8 @@ The standard library is a directory of ordinary source files (`stdlib/`), compil
 
 * `seal.lang` (`stdlib/seal/lang/`): what every program uses, which every file sees without an import, as Java's `java.lang`;
 * `seal.util`: collections and other utilities, as `java.util`; `seal.util.function`: the functional interfaces lambdas implement, as `java.util.function`;
-* `seal.io`: files, folders and streams, as `java.io` and `java.nio.file`.
+* `seal.io`: files, folders and streams, as `java.io` and `java.nio.file`;
+* `seal.java`: Java's own classes, called through the Java bridge (§42.7).
 
 A file imports the types it uses outside `seal.lang`: `import seal.util.List;`, or `import seal.io.*;`. `string` and `array` are built in: they are in no package, and every file sees them. A program's type in no package can't take the name of a `seal.lang` type or a built-in one, and a program can't declare a type in package `seal` or one in it (§2.4).
 
@@ -2372,6 +2373,8 @@ Library classes may declare `@native("name")` methods, which are implemented by 
 | `NoSuchElementException` | `seal.util` | what a collection throws for an element it doesn't have (§41.4) |
 | `Supplier`, `Consumer`, `BiConsumer`, `Predicate`, `Function`, `BiFunction` | `seal.util.function` | functional interfaces for lambdas (§30.3) |
 | `Files`, `File`, `Reader`, `FileReader`, `Writer`, `FileWriter`, `IOException`, `FileNotFoundException` | `seal.io` | files, folders and the standard streams (§42.1, §42.2); `printf` (§42.6) |
+| `JavaBridge`, `JavaClass`, `JavaObject` | `seal.java` | Java's classes and objects, by name (§42.7) |
+| `JavaInt`, `JavaLong`, `JavaShort`, `JavaByte`, `JavaDouble`, `JavaFloat`, `JavaChar`, `JavaBoolean`, `JavaString` | `seal.java` | Seal values passed into Java as Java's types (§42.7) |
 
 `List`, `Queue` and `IntMap` are classes, like Java's collections: create one with `new`, and variables share it. They keep their elements in `array<T>`s, release them as they are removed, and are freed automatically once nothing refers to them:
 
@@ -2551,6 +2554,30 @@ A specifier is `%[flags][width][.precision]conversion`:
 * A value the conversion can't show (`%d` with a string), a malformed specifier, or too few values throws an `IllegalArgumentException` naming the specifier and the format. Extra values are ignored, as in Java.
 * `%s` of an object uses its type's cast to string (§46), as Java's calls `toString()`; formatting an object whose type has none is a compile error, reported at the call.
 * Doubles are formatted by the same rules as Java's, so `%.2f` of `1.005` is `1.01`.
+
+## 42.7 Java classes
+
+On the JVM, a program reaches Java's own classes through `seal.java`, the Java bridge (docs/JAVA.md): classes, methods and fields are named by strings, and found and called while the program runs.
+
+```text
+import seal.java.*;
+
+JavaObject names = JavaBridge.create("java.util.ArrayList");
+names.invoke("add", [JavaString.of("Ada")]);
+int n = (int)names.invoke("size");
+JavaClass math = JavaBridge.get("java.lang.Math");
+double pi = (double)math.getStatic("PI");
+System.stdout.println(names + " " + n);                  // [Ada] 1
+```
+
+* `JavaBridge.get(name)` is a class, a `JavaClass`; `JavaBridge.create(name)` and `create(name, args)` a new object, a `JavaObject`. Classes are named in full as the JVM names them (`java.util.Map$Entry`), and found as the program's own classes are: in the JDK, and in the jars and class folders `seal run --classpath` names.
+* A `JavaObject` has `invoke(method)` and `invoke(method, args)`, `getField`, `setField` and `javaClass()`; a `JavaClass` (which is a `JavaObject` too) has `invokeStatic`, `create`, `getStatic`, `setStatic`, `name()` and `isInstance(o)`. A method's result is a `JavaObject`, `null` for `void`. Only public classes, methods and fields are reached.
+* Arguments are an `array<JavaObject>`. A Seal value goes in by the class for the Java type it is to be: `JavaInt.of(5)` (an `int`), `JavaLong.of`, `JavaShort.of`, `JavaByte.of`, `JavaDouble.of`, `JavaFloat.of`, `JavaChar.of`, `JavaBoolean.of` (of a `bit`), `JavaString.of`, and `JavaObject.of(o)` for an object of a Seal class, which is a JVM object already. Nothing converts by itself; a struct has no Java form.
+* Among overloads, the arguments choose as in Java: first without boxing, then with it, then through varargs (whose elements are passed one by one), and the most specific of those that fit. A number passed in is Java's primitive, so `list.invoke("remove", [JavaInt.of(0)])` calls `remove(int)`, as `list.remove(0)` does in Java; a box Java gave back is an object, and prefers `remove(Object)`.
+* A cast takes a value out: `(int)`, `(int<<64>>)`, `(double)` and `(float)` take any `java.lang.Number` (or a `Character`), `(char)` a `Character`, `(bit)` a `Boolean`. A `JavaObject`'s cast to string is its text, Java's `String.valueOf`, so printing one prints what Java's `toString()` gives.
+* `==` compares `JavaObject`s by identity; Java's `equals` is `x.invoke("equals", [y])`. A `JavaObject` isn't one of Seal's objects: it doesn't go where an `Object` is wanted.
+* For now, what goes wrong at the bridge (no such class, no method the arguments fit, two that fit equally, a cast of the wrong kind) stops the program with a trap that says what, and so does an exception the Java code throws.
+* The bridge runs only on the JVM: with `--vm`, a program that calls it is an error.
 
 ---
 

@@ -1,0 +1,8 @@
+package seal.java;
+
+// Seal's char as Java's char (docs/JAVA.md §3.1), for a method or constructor that
+// takes one: it prefers char parameters, as a Java char does.
+struct JavaChar
+{
+    @jvm("JavaBridge.ofChar") public static JavaObject of(char x);
+}

@@ -1,0 +1,8 @@
+package seal.java;
+
+// Seal's bit as Java's boolean (docs/JAVA.md §3.1), for a method or constructor that
+// takes one: it prefers boolean parameters, as a Java boolean does.
+struct JavaBoolean
+{
+    @jvm("JavaBridge.ofBoolean") public static JavaObject of(bit x);
+}

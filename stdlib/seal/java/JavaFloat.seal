@@ -1,0 +1,8 @@
+package seal.java;
+
+// Seal's float as Java's float (docs/JAVA.md §3.1), for a method or constructor that
+// takes one: it prefers float parameters, as a Java float does.
+struct JavaFloat
+{
+    @jvm("JavaBridge.ofFloat") public static JavaObject of(float x);
+}

@@ -1,0 +1,8 @@
+package seal.java;
+
+// Seal's double as Java's double (docs/JAVA.md §3.1), for a method or constructor that
+// takes one: it prefers double parameters, as a Java double does.
+struct JavaDouble
+{
+    @jvm("JavaBridge.ofDouble") public static JavaObject of(double x);
+}

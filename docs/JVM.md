@@ -24,8 +24,8 @@ JVM, fast, and can later become Minecraft mods.
 - Speed: the JIT compiles Seal code like Java code. Most code should run within a small factor of
   equivalent Java; struct-heavy code somewhat slower (§4.5).
 
-Not goals yet (later phases, §13): calling Java classes from Seal (the language imports no Java
-classes yet), Mixins, native compilation, `System.rawAssembly`.
+Not goals yet (later phases, §13): Mixins, native compilation, `System.rawAssembly`. Calling Java
+classes from Seal has begun, through a bridge (docs/JAVA.md, step B1 done).
 
 ## 2. Pipeline
 
@@ -556,7 +556,7 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 | **M5**, **done** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires: the JVM is the default, the VM behind `--vm` |
 | **the VM deprecated**, **done** | `--vm` warns that the VM is deprecated, `vm/` and `codegen/` are `@Deprecated`, and the VM gets no new features: what comes next (the Java bridge, docs/JAVA.md) is the JVM's alone; the suites still compare the two on what both run | `--vm` warns, every suite passes |
 | later, a step of its own | removing the VM, `codegen/` and their tests; then the library's VM-only code (the string and array internals on `addr` buffers, `StringChars`, the Seal bodies behind `@jvm`) | |
-| **M6** (later) | jars, the target class-file version, calling Java classes from Seal, then Mixins (§14) | a first Minecraft mod in Seal |
+| **M6** (in progress) | jars, the target class-file version, calling Java classes from Seal (docs/JAVA.md: the bridge's first step, B1, is done), then Mixins (§14) | a first Minecraft mod in Seal |
 
 ## 14. Later: Java and Minecraft
 
@@ -564,8 +564,8 @@ Not designed here, but the design keeps the door open:
 
 - Seal classes are real JVM classes with readable names, so Java and Minecraft can see them.
   Calling Java from Seal (importing Java classes, mapping `String` to `string` at the boundary,
-  extending Java classes) is designed in [docs/JAVA.md](JAVA.md), proposed for review: a
-  reflection bridge first (`seal.java.JavaObject`), then checked and direct calls.
+  extending Java classes) is designed in [docs/JAVA.md](JAVA.md): a reflection bridge first
+  (`seal.java.JavaObject`, whose first step is done), then checked and direct calls.
 - Mixins: a Seal declaration that compiles to a standard Mixin class, so Fabric and NeoForge apply
   it like a Java mod's.
 - Several mods bundling different versions of the Seal runtime and library would clash in one

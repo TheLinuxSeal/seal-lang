@@ -1,0 +1,8 @@
+package seal.java;
+
+// A Seal string as Java's java.lang.String (docs/JAVA.md §3.1); on the JVM
+// they are the same.
+struct JavaString
+{
+    @jvm("JavaBridge.ofString") public static JavaObject of(string s);
+}

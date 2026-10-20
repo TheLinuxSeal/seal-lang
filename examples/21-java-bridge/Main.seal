@@ -1,0 +1,67 @@
+// The Java bridge (docs/JAVA.md): Java's own classes, used from Seal through
+// seal.java. Classes, methods and fields are named by strings; Seal values go
+// in by JavaInt.of, JavaString.of and the others, and come out by casts. It
+// runs on the JVM, Seal's backend; the deprecated VM (--vm) has no bridge.
+import seal.java.*;
+
+class Main
+{
+    // A class, so its objects are JVM objects Java can hold; a struct or record has no Java form.
+    class Tag
+    {
+        public string name;
+        public new(string name) { this.name = name; }
+    }
+
+    static void main()
+    {
+        System.stdout.println("== a java.util.TreeMap keeps its keys sorted ==");
+        JavaObject ages = JavaBridge.create("java.util.TreeMap");
+        ages.invoke("put", [JavaString.of("Grace"), JavaInt.of(85)]);
+        ages.invoke("put", [JavaString.of("Ada"), JavaInt.of(36)]);
+        ages.invoke("put", [JavaString.of("Linus"), JavaInt.of(56)]);
+        System.stdout.println(ages);                               // a JavaObject's text is Java's toString()
+        int ada = (int)ages.invoke("get", [JavaString.of("Ada")]); // a cast takes a value out
+        System.stdout.println("first " + ages.invoke("firstKey") + ", Ada is " + ada + ", Bob is " + ages.invoke("get", [JavaString.of("Bob")]));
+
+        System.stdout.println("== iterating a Java list ==");
+        JavaObject colors = JavaBridge.get("java.util.List").invokeStatic("of",
+                [JavaString.of("red"), JavaString.of("green"), JavaString.of("blue")]);   // List.of(E...): varargs
+        JavaObject it = colors.invoke("iterator");
+        while ((bit)it.invoke("hasNext")) {
+            string color = (string)it.invoke("next");
+            System.stdout.print(color.toUpper() + " ");
+        }
+        System.stdout.println((int)colors.invoke("size") + " colors");
+
+        System.stdout.println("== java.time ==");
+        JavaClass dates = JavaBridge.get("java.time.LocalDate");
+        JavaObject start = dates.invokeStatic("of", [JavaInt.of(2026), JavaInt.of(1), JavaInt.of(1)]);
+        JavaObject end = dates.invokeStatic("of", [JavaInt.of(2026), JavaInt.of(10), JavaInt.of(19)]);
+        JavaObject days = JavaBridge.get("java.time.temporal.ChronoUnit").getStatic("DAYS");    // an enum constant
+        System.stdout.println(start + " to " + end + ": " + (int<<64>>)days.invoke("between", [start, end]) + " days, a "
+                + end.invoke("getDayOfWeek"));
+
+        System.stdout.println("== overloads, chosen as Java chooses them ==");
+        JavaClass strings = JavaBridge.get("java.lang.String");
+        System.stdout.println(strings.invokeStatic("valueOf", [JavaChar.of('A')]) + " "   // valueOf(char)
+                + strings.invokeStatic("valueOf", [JavaInt.of(65)]) + " "                  // valueOf(int)
+                + strings.invokeStatic("format", [JavaString.of("[%-5s|%6.2f]"), JavaString.of("pi"), JavaDouble.of(3.14159)]));
+        JavaObject numbers = JavaBridge.create("java.util.ArrayList");
+        for (int n = 10; n <= 40; n += 10) {
+            numbers.invoke("add", [JavaInt.of(n)]);
+        }
+        numbers.invoke("remove", [JavaInt.of(0)]);              // a Seal int is Java's int: remove(int index)
+        JavaObject thirty = JavaBridge.get("java.lang.Integer").invokeStatic("valueOf", [JavaInt.of(30)]);
+        numbers.invoke("remove", [thirty]);                     // a box from Java is an object: remove(Object)
+        System.stdout.println(numbers);
+
+        System.stdout.println("== a Seal object in a Java collection ==");
+        Tag urgent = new Tag("urgent");
+        JavaObject set = JavaBridge.create("java.util.HashSet");
+        set.invoke("add", [JavaObject.of(urgent)]);
+        set.invoke("add", [JavaObject.of(urgent)]);             // the same object: still one
+        System.stdout.println("holds urgent: " + (bit)set.invoke("contains", [JavaObject.of(urgent)])
+                + ", size " + (int)set.invoke("size") + ", a " + JavaObject.of(urgent).javaClass().name());
+    }
+}
