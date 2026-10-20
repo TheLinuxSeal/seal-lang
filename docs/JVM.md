@@ -558,7 +558,8 @@ Not designed here, but the design keeps the door open:
 
 - Seal classes are real JVM classes with readable names, so Java and Minecraft can see them.
   Calling Java from Seal (importing Java classes, mapping `String` to `string` at the boundary,
-  extending Java classes) is designed in [docs/JAVA.md](JAVA.md), proposed for review.
+  extending Java classes) is designed in [docs/JAVA.md](JAVA.md), proposed for review: a
+  reflection bridge first (`seal.java.JavaObject`), then checked and direct calls.
 - Mixins: a Seal declaration that compiles to a standard Mixin class, so Fabric and NeoForge apply
   it like a Java mod's.
 - Several mods bundling different versions of the Seal runtime and library would clash in one

@@ -1,310 +1,290 @@
 # Calling Java from Seal: design
 
-**Status:** proposed, for review; nothing is built yet. How integers cross is decided (§5.1); the
-other questions in §12 need answers before work starts. This is the middle of milestone M6 in docs/JVM.md §13 (jars and the class-file
-target, then calling Java, then Mixins), and the way to a Minecraft mod in Seal.
-
-Seal compiles to JVM classes (docs/JVM.md). This document plans the other direction: a Seal
-program using classes it didn't write, from the JDK (`java.util.ArrayList`, `java.time.LocalDate`)
-or from a jar (Minecraft, Fabric, any library), and Seal classes that Java code uses: implementing
-Java interfaces, extending Java classes, and behaving as Java expects objects to.
+**Status:** proposed, for review; nothing is built yet. Seal reaches Java first through a
+**bridge**: a small library that names Java classes, methods and fields as strings and calls them
+while the program runs (§2 to §8). The compiler learns to check those calls, then to compile them
+directly, later (§9); what a bridge can't do at all (a Seal class Java creates by name, extending
+a Java class, Mixins) comes after that (§10). The questions in §12 need answers before work
+starts. This is the middle of milestone M6 in docs/JVM.md §13, and the way to a Minecraft mod in
+Seal. A fuller typed design, which this replaces as the first step, is in this file's history
+(commit 13c300a).
 
 ## 1. Goals
 
-- Use any public class of the JDK or of a jar on the class path: construct it, call its methods,
-  read and write its fields, use its static members, its generics, its exceptions.
-- Hand Seal code to Java: a Seal lambda where Java wants a `Comparator` or a `Runnable`, a Seal
-  class that implements a Java interface or extends a Java class (Fabric's `ModInitializer`,
-  Minecraft's `Block`), and Seal objects that work as keys of Java maps and print as Java expects.
-- Keep Seal's own model intact: values, uniques, shapes and Seal's generics behave as they do now.
-  What Java can't express (structs, fixed point, addresses) stays on the Seal side, with an error
-  that says so where it would cross.
-- Read Java's classes, never run them, while compiling: no static initializers run, any JDK works.
+- Call any public Java class from Seal now: the JDK's, a jar's on the class path, Minecraft's and
+  Fabric's inside the game. Constructors, static and instance methods, fields.
+- With almost no work in the compiler: the bridge is a library (Seal) over a runtime class (Java)
+  that finds and calls methods by reflection, so it can be built in days, not months.
+- Types that say which Java class a value is (§6), so Seal code is typed where it holds Java
+  objects, and so the compiler can later check and then compile the calls.
+- Seal code that Java calls back: lambdas as Java interfaces (event callbacks), through
+  `java.lang.reflect.Proxy` (§5).
 
-Not goals yet: Mixins and annotations (their own design, after this); Java code calling Seal's
-generic classes (they are instantiated per type, `List$int`, which Java can't name usefully); inner
-(non-static) classes; arrays of arrays (`int[][]`); the VM, which can't run Java classes (§10).
+What a bridge can't do: be a class Java instantiates by name (Fabric's `ModInitializer`
+entrypoint), extend a Java class (a `Block` subclass), or be a Mixin. Those need the compiler (§10).
 
 ## 2. What it looks like
 
 ```text
-import java.util.ArrayList;
-import java.util.HashMap as JavaHashMap;   // the library's HashMap keeps its name (§4)
-import java.time.LocalDate;
-import java.io.IOException;
-import static java.lang.Math.floorMod;
+import seal.java.*;
 
 class Main
 {
     static void main()
     {
-        ArrayList<string> names = new ArrayList();
-        names.add("Ada");
-        names.add("Bo");
-        names.sort((a, b) -> b.length() - a.length());       // a Seal lambda as a java.util.Comparator
-        for (string n : names) { System.stdout.println(n); }  // for-each over a java.lang.Iterable
+        JavaObject<<"java.util.ArrayList">> names = new JavaObject<<"java.util.ArrayList">>();
+        names.invoke("add", ["Ada"]);                      // "Ada" becomes a java.lang.String
+        names.invoke("add", ["Bo"]);
+        int n = (int)names.invoke("size");                 // no arguments: no []
+        string first = (string)names.invoke("get", [0]);
 
-        JavaHashMap<string, int> ages = new JavaHashMap();    // int boxes to Integer and back (§5.4)
-        ages.put("Ada", 36);
-        int age = ages.get("Ada");
+        JavaObject date = JavaBridge.get("java.time.LocalDate").invokeStatic("of", [2026, 10, 19]);
+        System.stdout.println((string)date.invoke("getDayOfWeek").invoke("toString"));
 
-        LocalDate d = LocalDate.of(2026, 10, 19);
-        System.stdout.println(d.getDayOfWeek() + " " + floorMod(-7, 3));
+        JavaObject client = JavaBridge.get("net.minecraft.client.MinecraftClient").invokeStatic("getInstance");
+        client.invoke("tick");
 
         try {
-            java.nio.file.Files.readString(java.nio.file.Path.of("missing"));
-        } catch (IOException e) {                             // a Java exception, caught by its class
-            System.stdout.println("no file: " + e.getMessage());
+            JavaBridge.get("java.nio.file.Files").invokeStatic("readString",
+                    [JavaBridge.get("java.nio.file.Path").invokeStatic("of", ["missing"])]);
+        } catch (JavaException e) {                        // what Java threw, as a Seal exception
+            if (e.is("java.nio.file.NoSuchFileException")) { System.stdout.println("no file"); }
         }
+
+        JavaObject task = JavaBridge.implement("java.lang.Runnable", (method, args) -> {
+            System.stdout.println("run from Java");
+            return null;
+        });
+        JavaBridge.create("java.lang.Thread", [task]).invoke("start");
     }
-}
-
-class Worker extends(java.lang.Thread)                         // a Seal class extending a Java one
-{
-    public void run() { System.stdout.println("working"); }
-}
-
-class Version implements(java.lang.Comparable<Version>)       // and implementing a Java interface
-{
-    public int major;
-    public int compareTo(Version o) { return major - o.major; }
 }
 ```
 
-## 3. Finding Java's classes
+## 3. The library: `seal.java`
 
-- **Proposed:** `--classpath` (`-cp`) on `seal run`, `check`, `build` and `dump` names jars and
-  folders of class files, as `java -cp` does. The JDK's own classes come from the JDK the compiler
-  runs on, through its module image (`jrt:/`), and only from packages its modules export, as
-  `javac` allows: `java.util` yes, `jdk.internal.misc` no.
-- **Proposed: the compiler reads class files; it never loads them.** It reads them with the JDK's
-  class-file API (`java.lang.classfile`), the same one the backend writes with: a class's name,
-  flags, parent and interfaces, its generic signature (the `Signature` attribute), its public and
-  protected fields and methods with their descriptors and generic signatures, varargs flags, and
-  nested classes. Loading the classes instead (reflection) would run their static initializers and
-  tie the compiler to one class loader; reading them needs neither.
-- **Proposed: lazily.** The JDK has thousands of classes and Minecraft tens of thousands. A Java
-  class is read when the program first names it (an import, a full name, a type in a member it
-  uses), then its parents, then the types its members name as each is first needed, and kept for
-  the rest of the compile.
-- Running: `seal run` gives its class loader the class path's jars. `seal build` writes the
-  program's classes as now; the jars are run beside them, `java -cp classes:deps.jar Main`.
+**Proposed: in a package, `seal.java`,** as the first package of the standard library, so that
+programs import it (`import seal.java.*;`) and its names don't take any program's (§12, question 1).
 
-## 4. Names and imports
+`JavaBridge`, the way in:
 
-- **Proposed: one `import` for both.** `import java.util.ArrayList;`, `import java.util.*;`,
-  `import static java.lang.Math.floorMod;`, and a full name anywhere (`new java.util.Random(42)`)
-  work for Java classes as for Seal's packages. A name is looked up as now (§2.4 of the spec): the
-  type itself and around it, imports by name, its own package, `*` imports, the standard library;
-  a name in a package Seal's program doesn't have is then looked for on the class path.
-- `java.lang` isn't imported automatically: Seal's standard library is Seal's `java.lang`.
-  `Thread`, `StringBuilder` (Java's) and `Integer` (Java's) need an import, and Seal's `Math`,
-  `Integer`, `Exception`, `List`, `HashMap` and `Object` keep their meanings.
-- Clashes with the library are what `import ... as` is for: `import java.util.HashMap as
-  JavaHashMap;`. A `*` import of a Java package bringing a name the library has is §12, question 3.
-- A program can't declare packages under `java.` or `javax.`; the JVM refuses to load them anyway.
+| Member | What it does |
+| ------ | ------------ |
+| `static JavaClass<<>> get(string className)` | the class so named (`"java.util.ArrayList"`, `"java.util.Map$Entry"`) |
+| `static JavaObject<<>> create(string className)` | a new object, with the constructor that takes no arguments |
+| `static JavaObject<<>> create(string className, array<JavaObject<<>>> args)` | a new object, with the constructor the arguments choose (§4) |
+| `static JavaObject<<>> implement(string interfaceName, JavaHandler handler)` | an object implementing a Java interface, whose methods call the handler (§5) |
 
-## 5. Types across the border
+`JavaClass`, a Java class:
 
-### 5.1 Numbers
+| Member | What it does |
+| ------ | ------------ |
+| `invokeStatic(string method)`, `invokeStatic(string method, array<JavaObject<<>>> args)` | calls a static method; its result, or `null` for `void` |
+| `create()`, `create(array<JavaObject<<>>> args)` | a new object of this class |
+| `getStatic(string field)`, `setStatic(string field, JavaObject<<>> value)` | a static field |
+| `name()`, `isInstance(JavaObject<<>> o)` | its name; whether `o` is one of it (or a subclass, or implements it) |
 
-| Java | Seal |
-| ---- | ---- |
-| `boolean` | `bit` |
-| `byte`, `short`, `int`, `long` | `int<<8>>`, `int<<16>>`, `int`, `int<<64>>` |
-| `char` | `char` |
-| `float`, `double` | `float`, `double` |
+`JavaObject`, a Java object:
 
-A Java parameter or field takes a Seal number by Seal's own rules (§41.6 of the spec): it widens
-without a cast and narrows where it is passed, as when calling a Seal method, with `-WautoCast`
-showing each. Unsigned types pass their bits (`uint` to Java's `int`), as a cast does; Java has no
-unsigned types, so it reads them as signed. Fixed point has no Java form: cast to `double`.
+| Member | What it does |
+| ------ | ------------ |
+| `invoke(string method)`, `invoke(string method, array<JavaObject<<>>> args)` | calls an instance method; its result, or `null` for `void` |
+| `getField(string field)`, `setField(string field, JavaObject<<>> value)` | a public field |
+| `javaClass()` | its class, as a `JavaClass<<>>` |
+| shaped only: `new()`, `new(array<JavaObject<<>>> args)` | a new object of the shape's class (§6) |
 
-**Decided: integers keep the representation M3 and M5 gave them** (docs/JVM.md §3, §4). An integer
-of up to 32 bits is a JVM `int`, a wider one a `long`, in locals, parameters, class fields, statics
-and `array<T>` elements; one that must have a place in memory (a field of a struct, an element of a
-fixed array, a variable whose address is taken) is bits in its block's `long[]`, read out where it
-is used. Either way a value reaches Java as the JVM `int` or `long` it already is, or is once read
-out of its block, so crossing needs no conversion of its own.
+Every member that invokes or creates has the two forms, with arguments and without, as asked on
+review; the form without passes none. `==` compares two `JavaObject`s by identity, as for Seal's
+classes; `equals` is Java's, `x.invoke("equals", [y])`. Results are `JavaObject<<>>`.
 
-Also considered: every integer kept in a block, as struct fields are, with a `toJavaInt()` reading
-it out where it meets Java. Set aside because every use of every integer would then be a call that
-shifts and masks bits in an array, which the JIT can't keep in registers or optimize in loops
-(an estimated 10 to 50 times slower for integer code), where today that happens only for values
-that need a place in memory, and docs/JVM.md §4.5 plans to move more values out of blocks, not in.
+`JavaException` and `JavaBridgeException` are §7, `JavaHandler` §5.
 
-### 5.2 Strings, objects, arrays
+### 3.1 Seal values into Java
 
-- **String:** a Java `String` is a Seal `string`, the same object; it already is on the JVM. What a
-  `null` String from Java becomes is §12, question 2.
-- **Java classes and interfaces** are Seal class types, held by handles like Seal's classes:
-  shared, garbage-collected, possibly `null`. `==` compares them by identity, as for a Seal class
-  without its own `==`; `a.equals(b)` is Java's.
-- **Seal's `Object`:** §12, question 1, proposes that Seal's root `Object` become
-  `java.lang.Object`, so that every Java object is a Seal `Object` (in a `List<Object>`, for
-  `Object` parameters) and every Seal object a Java one.
-- **Arrays:** a Java `T[]` is a Seal `array<T>` where the two are the same JVM array: `int[]` is
-  `array<int>`, `long[]` `array<int<<64>>>`, `char[]` `array<char>`, `boolean[]` `array<bit>`,
-  `String[]` `array<string>`, `Thread[]` `array<Thread>`. An `array<int<<8>>>` or
-  `array<int<<16>>>` is an `int[]` (§5.1), so Java's `byte[]` and `short[]` aren't Seal arrays;
-  how a program hands Java one (a Seal type for Java's arrays, or a copy, which a method that fills
-  the array it is given can't use) is settled when J1 meets them. Arrays of arrays (`int[][]`)
-  wait: Seal's `array<T>` is a unique and can't hold arrays.
+**Proposed:** a Seal value converts into a `JavaObject` where one is wanted, by itself, through
+`@implicit` constructors, as a `string<<5>>` converts into a `string`. `@implicit` is allowed only
+for the library's `string` today; it would be allowed for the library's `JavaObject` too, and no
+other type (§12, question 4). An array literal whose elements differ (`[2026, "Ada", task]`) where
+an `array<JavaObject<<>>>` is wanted converts each element, which array literals don't do today.
 
-### 5.3 What stays on the Seal side
+| Seal value | Java object |
+| ---------- | ----------- |
+| `int<<8>>`, `int<<16>>`, `int` (any width up to 32), `int<<64>>` (up to 64) | `Byte`, `Short`, `Integer`, `Long` (unsigned ones by their bits) |
+| `char`, `bit` | `Character`, `Boolean` |
+| `float`, `double` | `Float`, `Double` |
+| `string` | the `String` itself |
+| a Seal class's object | the object itself (it is a JVM object already) |
+| `null` | `null` |
 
-Structs, uniques, records, Seal enums, fixed arrays, fixed point and addresses have no Java form.
-Passing one where Java wants an object is an error that says what would cross (a struct: use a
-class, or copy its fields; a fixed array: `array<T>` takes a copy; fixed point: cast to `double`).
+Structs, uniques, fixed arrays, fixed point and addresses have no Java form, and don't convert: an
+error says so where one is passed. An `array<T>` isn't converted for now (a Java array is a
+`JavaObject` the bridge can make: §11, B2).
 
-### 5.4 Generics and boxing
+### 3.2 Java values into Seal
 
-- **Proposed: a Java generic takes Seal type arguments,** `ArrayList<string>`,
-  `HashMap<string, Point>`, checked as Seal checks types. On the JVM it is erased, as Java's own
-  code is: one `java.util.ArrayList` class whatever its argument (not instantiated per type as
-  Seal's generics are), with a `checkcast` where an erased result comes back.
-- **Proposed: numbers box where Java needs an object** (§12, question 4): `ArrayList<int>` holds
-  `Integer`s; a Seal `int` passed to an `Object` parameter or a `T` becomes an `Integer`, and one
-  read back as an `int` is unboxed; unboxing `null` stops the program, as a null handle does. Each
-  width boxes as the JVM holds it: `int<<8>>` as `Byte`, `int<<64>>` and `uint<<64>>` as `Long`,
-  `bit` as `Boolean`, `char` as `Character`. Seal's own generics never box, as now.
-- Generic methods (`Collections.max(xs)`, `List.of(1, 2)`, `Map.of(...)`) infer their type
-  arguments from the arguments and the type wanted, as Seal's generic methods do. Wildcards are
-  read loosely: a `List<? extends Number>` gives `Number`s, a `Comparator<? super T>` takes a
-  `Comparator<T>`. Raw types (`ArrayList` with no arguments) aren't allowed; the JVM checks the
-  casts the erasure needs, so a mistake there is a fault where it happens.
+By casts, which `JavaObject` defines with `@overload(Operator.CAST)` (§46 of the spec):
 
-## 6. Calling Java
+```text
+int n = (int)names.invoke("size");                  // an Integer (or any Number) as an int
+string s = (string)names.invoke("get", [0]);        // a String
+bit empty = (bit)names.invoke("isEmpty");           // a Boolean
+JavaObject<<"java.util.ArrayList">> copy = (JavaObject<<"java.util.ArrayList">>)result;   // §6
+```
 
-- Constructors (`new java.util.Random(42)`), static and instance methods, interface static and
-  default methods, and `java.lang.Object`'s methods on any Java object.
-- Public fields, read and written; `final` ones only read; static ones too, also through
-  `import static`. Protected members from a Seal class that extends the Java one (§7).
-- **Overloads:** a Java method's overloads are Seal overloads of the mapped signatures, and Seal's
-  resolution picks one; where Java would prefer one candidate over another (`println(char)` over
-  `println(int)` for a `char`), Seal's rules already agree. Boxing is a last resort, as in Java.
-- **Varargs:** a `T...` parameter takes an `array<T>`, or the elements, which are put in one.
-- **Exceptions:** a Java method may throw anything, and Seal has no checked exceptions, so nothing
-  is declared. `catch (java.io.IOException e)` catches a Java exception by its class; Seal's
-  `catch (Exception e)` still catches Seal's exceptions, which are a separate tree (Seal's
-  `IOException` isn't `java.io.IOException`). `throw new java.lang.IllegalStateException("x")`
-  throws a Java one. Faults are §12, question 5.
-- `try (java.io.BufferedReader r = ...)` closes anything that implements `java.lang.AutoCloseable`,
-  as it closes Seal's `AutoCloseable`s.
-- `for (T x : xs)` goes over a `java.lang.Iterable`, as over Seal's.
-- **Text:** `"day " + d` with a Java object uses its `toString()`, as a Seal class's cast to
-  `string` is used, and `System.stdout.println(d)` prints it so.
-- A Seal `string`'s methods are Seal's; Java's `String` methods it lacks are §12, question 7.
+`(int)`, `(int<<64>>)`, `(double)`, `(float)`, `(char)` and `(bit)` take the matching box, and the
+number casts take any `java.lang.Number`, converted as Seal converts numbers. `(string)` takes a
+`String`; to make text of any object, call its `toString`. A value of the wrong kind, or `null`,
+throws a `JavaBridgeException` saying what it was (§12, question 5).
 
-## 7. Handing Seal to Java
+## 4. Calls
 
-- **Lambdas:** a Seal lambda goes wherever Java wants an interface with one abstract method
-  (`Runnable`, `Comparator<T>`, `java.util.function.Function<A, B>`, Minecraft's callbacks): it
-  becomes a class implementing that interface, as Seal lambdas already become classes. Its erased
-  method takes `Object`s and casts or unboxes them for the Seal code.
-- **Implementing a Java interface:** `class Version implements(java.lang.Comparable<Version>)`.
-  A Seal method implements a Java one with the same name and mapped parameter types; for a generic
-  interface, the backend also writes the erased bridge the JVM calls (`compareTo(Object)` calling
-  `compareTo(Version)`), as `javac` does. Missing methods are an error, as for Seal interfaces.
-- **Extending a Java class:** `class Worker extends(java.lang.Thread)`. Its constructors call a
-  Java constructor with `super(...)` (or the no-argument one); it overrides Java methods, with
-  bridges where generics need them, and reaches protected members; a `final` class can't be
-  extended, and abstract methods must be implemented.
-- **Seal objects as Java objects:** a Seal class gets `equals(Object)` from its `@overload(
-  Operator.EQUALS)`, `hashCode()` from its `hash()`, and `toString()` from its cast to `string`, so
-  Java's `HashMap` and `HashSet` find Seal keys, and Java prints Seal objects as Seal does. (This
-  needs §12, question 1.)
-- The library's `Runnable`, `Comparator`, `Function`, `Iterable` and `AutoCloseable` stay Seal's
-  own interfaces: a Seal lambda can be either, by what the code wants. Making them Java's would
-  mean erasing Seal's generic interfaces, which Seal instantiates per type; that can come later.
+- **Finding the class:** by name, through the class loader that loaded the Seal class making the
+  call. In `seal run` that loader sees the JDK and the class path's jars (`--classpath`); inside
+  Minecraft it is Fabric's, which sees Minecraft's and every mod's classes. Nested classes are
+  named as the JVM names them, `java.util.Map$Entry`.
+- **Finding the method:** the public methods of that name (with those of the parents and
+  interfaces) that take that many arguments, or more through varargs; among them, the ones whose
+  parameters accept the arguments as Java would (a box unboxed and widened, an object of a
+  subclass); of those, the most specific, as Java picks. None, or two equally specific, throws a
+  `JavaBridgeException` listing the candidates.
+- **Seal's numbers keep their meaning:** a `JavaObject` made from a Seal number remembers it was a
+  number (it is an `Integer` marked as such inside the runtime), so it prefers primitive
+  parameters: `list.invoke("remove", [0])` calls `remove(int)`, not `remove(Object)`, as the Java
+  source `list.remove(0)` does. A box Java gave back is an object, and prefers `Object` parameters.
+- **Varargs:** the elements, or an array (B2), for the `...` parameter.
+- **Fast enough:** each call site keeps the `MethodHandle` it found for the argument classes it
+  saw, so a call repeated with the same kinds of arguments (every tick) skips the lookup.
+- Only public members, through public classes; the bridge never calls `setAccessible`.
 
-## 8. In the compiler
+## 5. Callbacks: Java calling Seal
 
-- **A class-path reader** (`check/JavaClasses` or `jvm/ClassPath`): jars, folders and `jrt:/`,
-  read with `java.lang.classfile`, lazily, cached, knowing which JDK packages are exported.
-- **Java classes in the checker:** each becomes a `ClassInfo`, as Seal's classes are, built from a
-  declaration made from its class file: members with types and no bodies, marked external (as the
-  library's `@native` methods have no bodies), its type parameters Seal's, and a flag saying a
-  Java generic is erased rather than instantiated. They come in on demand, so the checker's
-  per-class steps (headers, members, signatures) must run for a class added while it checks, not
-  only at the start.
-- **A type mapping,** both ways, in one place: Java descriptors and generic signatures to Seal
-  types (§5), and where boxing, unboxing and `checkcast` happen.
-- **The backend:** an external class isn't generated; calls use the descriptor from its class
-  file, exactly, with `invokevirtual`, `invokeinterface`, `invokestatic` or `invokespecial`; erased
-  results get a `checkcast`; numbers box and unbox where §5.4 says; Seal classes implementing or
-  extending Java ones get bridges and the `equals`, `hashCode` and `toString` of §7; the class
-  hierarchy the stack maps need includes Java's classes, from the reader.
-- **The runner and the CLI:** `--classpath`, the jars in `seal run`'s class loader, and a note in
-  `seal build`'s output of what to run it with.
-- **The VM:** can't run Java classes; `--vm` on a program that uses them says so (§12, question 8).
+`JavaBridge.implement(interfaceName, handler)` makes an object that implements a Java interface,
+with `java.lang.reflect.Proxy`: each call of one of its methods calls the handler with the
+method's name and its arguments as `JavaObject`s, and returns what the handler returns (converted
+back to a primitive where the method returns one). `JavaHandler` is a Seal interface,
 
-## 9. Testing
+```text
+interface JavaHandler { JavaObject<<>> call(string method, array<JavaObject<<>>> args); }
+```
 
-- A new suite, `JavaInteropTest`, with programs using the JDK (`java.util`, `java.time`,
-  `java.util.regex`, `java.io`, `java.nio.file`, `java.util.function`, `java.lang.Thread`) and
-  their expected output on the JVM.
-- A small Java library the test compiles with `javac` into its scratch folder and puts on the
-  class path: overloads, varargs, fields, statics, generics, exceptions, a class to extend, an
-  interface to implement, and Java code calling back into the Seal objects it is given, which is
-  the direction only a test written in Java checks.
-- Every generated class passes the bytecode verifier, as now.
-- The errors: an unknown or unexported class, a final class extended, a missing method, a struct
-  passed to Java, unboxing `null`, a `*` import clash.
+so a lambda is one: `(method, args) -> { ...; return null; }`. Its `toString`, `equals` and
+`hashCode` are the Proxy's own (identity). This covers listeners, comparators, tasks and events:
+Fabric's `ServerTickEvents.END_SERVER_TICK.register(...)` takes a functional interface, which
+`implement` makes. It doesn't cover classes (only interfaces), nor a class Java instantiates by
+name (§10).
 
-## 10. Order of work
+## 6. Shapes: `JavaObject<<"java.util.ArrayList">>`
+
+`JavaObject` and `JavaClass` have two shapes: the bare one, `<<>>`, any Java object or class; and
+`<<string CLASS>>`, one of a class known by name, as `Quantity<<"m">>` is a quantity known by its
+unit.
+
+- **Types that say what they hold:** a Seal method taking a
+  `JavaObject<<"net.minecraft.block.Block">>` can't be given a `JavaObject<<"java.util.ArrayList">>`;
+  the compiler says so.
+- **A shaped object goes where a bare one is wanted,** as a `string<<5>>` goes where a `string` is.
+- **A bare one becomes a shaped one by a cast,** `(JavaObject<<"java.util.List">>)o`, which checks
+  `o`'s class while the program runs (a subclass, or a class implementing the interface, is one),
+  so a wrong object fails there, not at a later `invoke`. `null` casts to any shape.
+- **A shaped one's constructors** use its shape's class:
+  `new JavaObject<<"java.util.ArrayList">>()` and `new JavaObject<<"java.util.ArrayList">>([16])`,
+  so the name is written once. `JavaBridge.create(name, ...)` remains for a name known only while
+  the program runs.
+- `JavaBridge.get(name)` gives a bare `JavaClass<<>>`; a shaped class is
+  `new JavaClass<<"net.minecraft.client.MinecraftClient">>()`. (Seal's static members can't read
+  their class's `<<...>>` values, so the shape can't give `invokeStatic` a class by itself.)
+- **The shape is what §9 builds on:** knowing the class of every shaped value, the compiler can
+  check its calls, and later compile them directly, without the program changing.
+
+## 7. Exceptions
+
+- **What Java throws** from a method the bridge called reaches Seal as a `JavaException`, a Seal
+  exception (it extends the library's `Exception`), so `catch` takes it as any other. It holds the
+  Java one: `e.cause()` is it, as a `JavaObject`; `e.javaClassName()` its class's name;
+  `e.is("java.io.IOException")` whether it is one (or a subclass); `e.getMessage()` its message.
+  The bridge unwraps the `InvocationTargetException` reflection puts around it.
+- **What the bridge itself finds wrong** (no class or method by that name, no overload matching,
+  a value converted to the wrong kind) is a `JavaBridgeException`, a Seal exception too.
+- A Seal exception thrown by a `JavaHandler`, while Java called it, goes back through the Java
+  code as an unchecked exception (Seal's extend `RuntimeException` on the JVM, docs/JVM.md §7),
+  and reaches the Seal code that called into Java as itself, unless the Java code caught it.
+
+## 8. In the compiler and the runtime
+
+- **The runtime,** a new class `JavaBridge` (Java, in `io.github.thelinuxseal.seal.runtime`): class
+  lookup through the caller's loader, overload choice, conversions, `MethodHandle` caches per call
+  site, `Proxy` handlers, exception unwrapping.
+- **The library,** `stdlib/seal/java/`: `JavaBridge`, `JavaClass`, `JavaObject`, `JavaHandler`,
+  `JavaException` and `JavaBridgeException`, their members `@jvm` methods of the runtime class
+  (docs/JVM.md §8). The standard library having a package needs the checker to load library files
+  from folders as it loads programs' (§12, question 1).
+- **The checker:** `@implicit` for `JavaObject` too (§3.1), and array literals converting their
+  elements to an `array<JavaObject<<>>>` wanted.
+- **The JVM backend:** a `JavaObject` or `JavaClass` is the Java reference itself (`java.lang.Object`,
+  and `java.lang.Class` for a class), with no wrapper, as a `string` is a `java.lang.String`; a
+  number converted in is marked (§4) inside the runtime's box. Casts are calls to the runtime.
+- **The VM** can't hold Java objects: `--vm` on a program that uses `seal.java` says so (§12,
+  question 2).
+- **The CLI:** `--classpath` (`-cp`) on `seal run`, so programs reach jars; `seal build` writes the
+  classes as now, run beside the jars with `java -cp classes:deps.jar Main`.
+
+## 9. Later: checked calls, then direct ones
+
+The bridge's calls are strings; once it works, the compiler can do more with them, step by step,
+with no change to programs:
+
+- **C1, checked calls:** for a shaped value, the compiler reads its class's class file (with the
+  JDK's class-file API, never loading the class: the JDK's from its module image, jars' from the
+  class path) and checks `invoke`, `invokeStatic`, `getField` and their argument counts against
+  it: a misspelled method is a compile error, with the names it might be.
+- **C2, direct calls:** a call C1 resolves to one method compiles to that method's JVM call
+  (`invokevirtual` with its exact descriptor), not reflection, with the same conversions.
+- **C3, typed results:** where C1 knows a method's result type, `invoke` gives a shaped
+  `JavaObject` of it (`names.invoke("iterator")` a `JavaObject<<"java.util.Iterator">>`).
+
+## 10. Later: what a bridge can't do
+
+These need the compiler to write Java's view of Seal classes, from the earlier typed design:
+
+- **A Seal class implementing a Java interface by name**, which Java can instantiate: Fabric starts
+  a mod by creating the class `fabric.mod.json` names, which implements `ModInitializer`. (Fabric
+  may also accept a static method there, `my.mod.Main::init`, which would let this wait; to check.)
+- **A Seal class extending a Java class** (Minecraft's `Block`, `Item`), with its constructors,
+  overrides, the bridges generics need, and protected members.
+- **Mixins:** Seal declarations compiled to standard Mixin classes with their annotations, which
+  Fabric's own Mixin applies (no port of Mixin: Fabric loads its own).
+- **Seal objects as Java objects:** `equals`, `hashCode` and `toString` from Seal's `==`, `hash()`
+  and cast to `string`, so Java's maps find Seal keys.
+
+**Decided on review:** integers keep the representation M3 and M5 gave them (a JVM `int` or
+`long`, or bits in a block where a value needs a place in memory), so a value crosses to Java as
+the number it already is. Keeping every integer in a block, read out by a `toJavaInt()` where it
+meets Java, was considered and set aside: every use of every integer would be a call that shifts
+and masks bits, which the JIT can't keep in registers.
+
+## 11. Order of work
 
 | Step | Contents | Done when |
 | ---- | -------- | --------- |
-| **J0** | §12 decided; the class-path reader; `--classpath`; Seal's `Object` as `java.lang.Object` (if decided) | the suites pass as now, and the reader lists any JDK class's members |
-| **J1** | Java classes without generics: constructors, methods, fields, statics, overloads, varargs, arrays, strings, exceptions caught and thrown, imports and `import static` | a program using `java.time`, `java.util.Random`, `java.util.regex` and `java.nio.file` prints what the same Java program prints |
-| **J2** | Java's generics: type arguments, erasure and casts, boxing, generic methods, wildcards, for-each over `Iterable` | a word count in a `java.util.TreeMap<string, int>` |
-| **J3** | Seal lambdas as Java's functional interfaces; Seal classes implementing Java interfaces, with bridges; Seal objects with `equals`, `hashCode` and `toString` | a stream pipeline (`names.stream().filter(...).map(...).toList()`), and a Java `HashMap` with Seal keys |
-| **J4** | Seal classes extending Java classes: constructors, overrides, bridges, protected members | a Seal class extends a class from the test's jar, and its Java code calls the Seal overrides |
-| **J5** (rest of M6) | jars from `seal build`, the class-file target (Java 21 for Minecraft), then a Fabric mod: a Seal `ModInitializer` registering a block | the mod loads in a Fabric development run |
-
-## 11. What will be hard
-
-- **Generics:** inferring a Java generic method's type arguments where bounds and wildcards meet
-  (`<T extends Comparable<? super T>>`) is the most involved part; the plan reads wildcards
-  loosely (§5.4) and leaves the exact checks to the casts the JVM makes.
-- **Overloads** where Java's three phases (exact, then boxing, then varargs) and Seal's rules pick
-  differently; tests against what `javac` picks.
-- **Erasure next to monomorphization:** a Seal generic class using a Java generic one
-  (`class Cache<T> { java.util.ArrayList<T> items; }`) is instantiated per `T` by Seal while the
-  Java class stays one, so the boxing and casts depend on each instantiation's `T`.
-- **The checker's phases** assume every class is known when it starts; Java classes arriving on
-  demand need the per-class steps to run for them later.
-- **`null`:** Java hands out `null` where Seal's values never are; strings (§12) and unboxing are
-  where it shows.
-- **Which JDK:** the compiler sees the JDK it runs on; checking against an older one (Minecraft's
-  Java 21) needs `javac --release`'s API data, and waits for J5.
+| **B1** | the runtime bridge; `seal.java` with `JavaBridge`, `JavaClass`, `JavaObject` (bare), calls with and without arguments, fields, conversions in (`@implicit`, array literals) and out (casts); `--classpath` | a program uses `java.util.ArrayList`, `java.util.HashMap`, `java.time.LocalDate` and `java.util.Random` through the bridge, and prints what the same Java program prints |
+| **B2** | `JavaException` and `JavaBridgeException`; `implement` and `JavaHandler`; Java arrays as `JavaObject`s (made with `java.lang.reflect.Array`, for varargs and `byte[]` APIs) | a Java `Thread` runs a Seal lambda, a `Comparator` from Seal sorts a Java list, an `IOException` is caught |
+| **B3** | shapes: `JavaObject<<string CLASS>>`, `JavaClass<<string CLASS>>`, their constructors, checked casts | the B1 program written with shaped values |
+| **C1** to **C3** | §9 | a misspelled method is a compile error; the shaped calls of B3's program compile to direct JVM calls |
+| later | §10, then jars, the Java 21 target, and a Fabric mod (M6) | a Seal mod loads in a Fabric development run |
 
 ## 12. Questions to decide
 
-1. **Seal's `Object` becomes `java.lang.Object`?** Proposed: yes. Every Java object is then a Seal
-   `Object`, and Seal objects get `equals`, `hashCode` and `toString` (§7). Today Seal's `Object`
-   is an interface of its own (docs/JVM.md §5), with `hash()`; that would become `hashCode()`.
-2. **A `null` String from Java:** (a) proposed: a string may be `null` when it comes from Java, as
-   in Java; `s == null` is allowed on any string (an error today), and using a `null` one stops the
-   program, as a null handle does; Seal's own strings still start as `""` and are never `null`.
-   (b) It becomes `""` where it arrives, as a string field never set reads as `""`, losing the
-   difference (`map.get` can't say "absent"). (c) It stops the program where it arrives.
-3. **`import java.util.*;` brings `List` and `HashMap`, which the library has:** (a) proposed:
-   using such a name is an error naming both, as for two `*` imports today; import the one meant
-   by name, or rename it. (b) Java's wins, as `*` imports come before the library. (c) The library
-   always wins over a `*` import.
-4. **Boxing:** proposed: numbers box and unbox by themselves where Java needs objects
-   (`ArrayList<int>`, `Object` parameters), and only there. Or: only Java's wrapper classes
-   (`ArrayList<java.lang.Integer>`), boxed by hand.
-5. **Faults:** proposed: `catch (java.lang.NullPointerException e)` and
-   `catch (java.lang.Throwable t)` catch what Java throws for them, including Seal's faults (a null
-   handle, division by zero), as in Java; Seal's `catch (Exception e)` still never catches a fault.
-   Or: faults stay uncatchable, whatever the `catch` names.
-6. **Decided: integers stay as M3 and M5 made them** (§5.1), so 8- and 16-bit ones aren't `byte`
-   and `short` in arrays and fields; Java's `byte[]` is settled in J1 (§5.2).
-7. **Java's `String` methods on Seal strings** (`s.strip()`, `s.chars()`): proposed: not now;
-   Seal's `string` keeps its own methods.
-8. **The VM:** Java classes can't run on it, and the suites' VM-against-JVM comparison can't cover
-   them. Proposed: retire the VM (docs/JVM.md §13) before J1, so the work is done once; or keep it,
-   with `--vm` refusing programs that use Java and the interop suite JVM-only.
+1. **The library's first package, `seal.java`?** Proposed: yes, as asked; programs
+   `import seal.java.*;`, and the checker loads library files from folders as it does programs'.
+   Or: in no package, as the rest of the library, so `JavaObject` needs no import but takes the
+   name from every program.
+2. **The VM:** the bridge needs the JVM. Proposed: `--vm` refuses programs that use `seal.java`, and
+   the bridge's tests run on the JVM only (the VM can't hold Java objects without a new kind of
+   value of its own).
+3. **Failures as exceptions:** proposed: what Java throws and what the bridge finds wrong are Seal
+   exceptions (`JavaException`, `JavaBridgeException`), which `catch` takes. Or: faults that stop
+   the program, as a null handle does.
+4. **`@implicit` for `JavaObject`:** proposed: yes, for that one library class besides `string`, so
+   `[2026, "Ada"]` and `invoke("add", ["Ada"])` read as they do above. Or: by hand,
+   `JavaObject.of(2026)`.
+5. **Converting `null` or the wrong kind out** (`(int)` of a `String`, `(string)` of `null`):
+   proposed: a `JavaBridgeException`. Or: `null` gives the type's zero (`0`, `""`, `false`).
