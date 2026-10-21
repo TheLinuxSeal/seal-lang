@@ -59,17 +59,9 @@ public final class CliTest {
         check(r.code() == 0 && r.out().startsWith("class Main  (Main.seal)") && r.out().contains("static main()int")
                 && r.out().contains("; Main.seal:5") && r.out().contains("ldc \"hi\""), "dump: prints the class files " + r);
 
-        // The VM, deprecated, behind --vm (docs/JVM.md §13); --jvm, the default, is still accepted.
+        // Seal's VM is removed (docs/JVM.md §13): --vm says so; --jvm, the only backend, is still accepted.
         r = run("run", "--vm", ok.getParent().toString());
-        check(r.code() == 7 && r.out().equals("hi\n") && r.err().equals(Main.VM_DEPRECATED + "\n"),
-                "run --vm: on the VM, saying it is deprecated " + r);
-        r = run("dump", "--vm", ok.getParent().toString());
-        check(r.code() == 0 && r.out().contains(" Main.main  (registers") && r.out().contains("NATIVE")
-                        && r.err().equals(Main.VM_DEPRECATED + "\n"), "dump --vm: lists the VM's functions " + r);
-        r = run("check", "--vm", ok.getParent().toString());
-        check(r.code() == 0 && r.err().isEmpty(), "check --vm: runs nothing, so says nothing " + r);
-        r = run("build", "--vm", ok.getParent().toString());
-        check(r.code() == 2 && r.err().contains("no --vm form"), "build --vm: is refused " + r);
+        check(r.code() == 2 && r.out().isEmpty() && r.err().equals(Main.VM_REMOVED + "\n"), "run --vm: says the VM is removed " + r);
         r = run("run", "--jvm", ok.getParent().toString());
         check(r.code() == 7 && r.out().equals("hi\n") && r.err().isEmpty(), "run --jvm: still runs on the JVM " + r);
         Path classes = dir.resolve("classes");
@@ -390,8 +382,6 @@ public final class CliTest {
         check(r.code() == 0 && r.out().equals("HI! 42\n") && r.err().isEmpty(), "run: Seal uses a .java file's class " + r);
         r = run("check", plain);
         check(r.code() == 0 && r.err().isEmpty(), "check: with a .java file " + r);
-        r = run("run", "--vm", plain);
-        check(r.code() == 2 && r.err().contains("--vm can't run them"), "run --vm: no .java files on the VM " + r);
         r = run("run", plain + "/Main.seal", helper.toString());
         check(r.code() == 0 && r.out().equals("HI! 42\n"), "run: a .java file given by itself " + r);
 
@@ -667,8 +657,6 @@ public final class CliTest {
         check(r.code() == 1 && r.err().contains("no type demo.Greeter to import"), "run: without the class path " + r);
         r = run("run", "--classpath", dir.resolve("java/missing.jar").toString(), prog);
         check(r.code() == 2 && r.err().contains("class path entry not found: "), "run: a missing class path entry " + r);
-        r = run("run", "--vm", "-cp", both, prog);
-        check(r.code() == 1 && r.err().contains("code using Java's classes runs only on the JVM"), "run --vm: no Java on the VM " + r);
         Path classes = dir.resolve("uses-java-classes");
         r = run("build", "-cp", both, "-d", classes.toString(), prog);
         check(r.code() == 0 && Files.isRegularFile(classes.resolve("Main.class"))

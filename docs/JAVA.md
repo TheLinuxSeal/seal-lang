@@ -26,9 +26,10 @@ of milestone M6 in docs/JVM.md §13, and the way to a Minecraft mod in Seal.
   backends would mean building every feature twice. Deprecated, as review chose over removing it at
   once: `--vm` still runs and dumps programs, after a warning on standard error; `vm/` and
   `codegen/` are `@Deprecated`; and it gets no new features. What it runs today it keeps running,
-  and the suites keep comparing it with the JVM there; Java's classes are the JVM's alone. Removing
-  it, its tests and the library's code that only the VM needs (strings and arrays on `addr`
-  buffers, `StringChars`, the Seal bodies behind `@jvm` methods) is a later step of its own.
+  and the suites keep comparing it with the JVM there; Java's classes are the JVM's alone. Since
+  then, it and its tests are removed (docs/JVM.md §13), and `--vm` says so; the library's code that
+  only the VM needed (strings and arrays on `addr` buffers, `StringChars`, the Seal bodies behind
+  `@jvm` methods) is a step of its own.
 - **The standard library moves into packages** (done), as Java's is: `HashMap` is `seal.util.HashMap`,
   imported as any package's type. Built in, and visible everywhere with no import, are the
   primitive types, `array<T>` and `array<T><<N>>`, and `string` and `string<<N>>`. A `seal.lang`
@@ -344,8 +345,8 @@ source beside Seal's for this, are set aside.
 - **The CLI** (built in T1): `--classpath` (`-cp`) for every command, as the compiler reads the
   classes; `seal run` puts the jars in the program's class loader; `seal build` writes the
   program's classes and the runtime's, run beside the jars with `java -cp classes:deps.jar Main`.
-- **The VM** gets none of it (§0): its code generator reports a program using Java's classes as
-  running only on the JVM.
+- **The VM** got none of it (§0): its code generator reported a program using Java's classes as
+  running only on the JVM, until the VM was removed.
 
 ## 7. Testing
 
@@ -399,7 +400,7 @@ Decided on review:
 1. **`seal.java`**, and the whole standard library in packages (§0); **`seal.lang` is imported
    automatically**, and the big numbers are in `seal.util`.
 2. **The VM is deprecated** (§0) rather than removed at once: it keeps running what it runs, gets
-   no new features, and goes in a later step.
+   no new features, and goes in a later step. It is removed since (docs/JVM.md §13).
 3. **Seal values go into Java by hand,** one class per Java type: `JavaInt.of(5)`,
    `JavaString.of("Ada")`, `JavaIntBoxed.of(5)` (§3.1), so the call names the Java type.
    Converting by `@implicit` constructors, or by a cast method marked `@implicit` (the same thing,
@@ -518,7 +519,7 @@ Settled while building them:
 A program's folders can hold `.java` files beside its `.seal` files, and every command compiles
 them with the program, with the JDK's own `javac` (`javax.tools`: no dependency, and no other tool
 to install; a JRE's `java`, which has no `javac`, says so). Their classes go with the program's:
-`seal run` loads them, `build` writes them, `dump` prints them. The VM runs none (§0).
+`seal run` loads them, `build` writes them, `dump` prints them.
 
 They are compiled in two parts, as each side needs the other's classes compiled first to use them:
 

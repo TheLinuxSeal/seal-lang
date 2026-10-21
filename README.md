@@ -108,7 +108,6 @@ seal build [options] PATH...   write the class files, for java to run
 
   --main Class       the class whose main() runs (default Main; com.example.Main in a package)
   --classpath PATH   jars and class folders of the Java classes the program imports (also -cp)
-  --vm               run or dump on Seal's old VM instead (deprecated, see Status)
   -d DIR             where build writes class files (default classes)
   --jar FILE         build a jar instead, which java -jar runs
   --resources DIR    put DIR's files beside the classes (a Fabric mod's fabric.mod.json)
@@ -139,9 +138,8 @@ strings to structs, uniques and their destructors, records, enums, fixed arrays,
 java -cp classes Main                        # and run them with plain java
 ```
 
-Seal's first backend, a register VM written in Java, is deprecated: `--vm` still runs a program on
-it, after a warning, and the test suites run every program on both and compare. It gets no new
-features, and goes in a later step.
+Seal's first backend, a register VM written in Java, is removed: the JVM ran every program the test
+suites hold the same before it went, and the suites now check the JVM's output alone.
 
 ## Layout
 
@@ -151,9 +149,7 @@ The compiler is in the Java package `io.github.thelinuxseal.seal`, under
 | Path | What's there |
 | ---- | ------------ |
 | `lexer/`, `parser/`, `ast/` | reading source into a syntax tree |
-| `check/` | the type checker, which resolves everything a backend needs |
-| `codegen/` | code generation for the VM |
-| `vm/` | the virtual machine |
+| `check/` | the type checker, which resolves everything the backend needs |
 | `jvm/` | code generation for the JVM: class files, and running them |
 | `runtime/` | the Java classes compiled programs use on the JVM |
 | `Main.java` | the command line, which the `seal` script runs |

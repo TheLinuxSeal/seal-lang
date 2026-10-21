@@ -19,9 +19,6 @@ public final class ExamplesTest {
 
     public static void main(String[] args) throws IOException {
         int passed = 0;
-        int jvmSame = 0;
-        int jvmNotYet = 0;
-        int jvmOnly = 0;
         List<String> failures = new ArrayList<>();
         List<Path> dirs;
         try (Stream<Path> s = Files.list(Path.of("examples"))) {
@@ -35,44 +32,19 @@ public final class ExamplesTest {
             }
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ByteArrayOutputStream err = new ByteArrayOutputStream();
-            // On the VM, the reference the JVM is compared with while both are kept (docs/JVM.md §12).
-            int code = Main.run(new String[]{"run", "--vm", dir.toString()},
+            int code = Main.run(new String[]{"run", dir.toString()},
                     new PrintStream(out, true, StandardCharsets.UTF_8), new PrintStream(err, true, StandardCharsets.UTF_8));
             String got = out.toString(StandardCharsets.UTF_8);
             String expected = Files.readString(expectedFile);
-            // --vm says first that it is deprecated; nothing else should reach standard error.
-            String errText = err.toString(StandardCharsets.UTF_8).lines()
-                    .filter(l -> !l.equals(Main.VM_DEPRECATED)).reduce("", (a, b) -> a + b + "\n");
-            // What runs only on the JVM the VM, deprecated, refuses, saying so, and the JVM's output is the one checked.
-            boolean onlyJvm = code == 1 && !errText.isEmpty() && errText.lines().allMatch(l -> l.contains("runs only on the JVM"));
-            if (onlyJvm) {
-                jvmOnly++;
-            } else if (code == 0 && got.equals(expected) && errText.isEmpty()) {
+            String errText = err.toString(StandardCharsets.UTF_8);
+            if (code == 0 && got.equals(expected) && errText.isEmpty()) {
                 passed++;
             } else {
                 failures.add(dir + ": exit " + code + firstDifference(expected, got)
                         + (errText.isEmpty() ? "" : "\n    stderr: " + errText.strip()));
             }
-            // On the JVM too (docs/JVM.md §12): the same output, or an error saying it isn't available yet.
-            ByteArrayOutputStream jout = new ByteArrayOutputStream();
-            ByteArrayOutputStream jerr = new ByteArrayOutputStream();
-            int jcode = Main.run(new String[]{"run", dir.toString()},
-                    new PrintStream(jout, true, StandardCharsets.UTF_8), new PrintStream(jerr, true, StandardCharsets.UTF_8));
-            String jerrText = jerr.toString(StandardCharsets.UTF_8);
-            if (jcode == 1 && !jerrText.isEmpty() && jerrText.lines().allMatch(l -> l.contains("not available on the JVM"))) {
-                jvmNotYet++;
-            } else if (jcode == 0 && jout.toString(StandardCharsets.UTF_8).equals(expected) && jerrText.isEmpty()) {
-                jvmSame++;
-                if (onlyJvm) {
-                    passed++;
-                }
-            } else {
-                failures.add("on the JVM: " + dir + ": exit " + jcode + firstDifference(expected, jout.toString(StandardCharsets.UTF_8))
-                        + (jerrText.isEmpty() ? "" : "\n    stderr: " + jerrText.strip()));
-            }
         }
-        System.out.println(passed + " passed, " + failures.size() + " failed  (on the JVM: " + jvmSame + " the same, "
-                + jvmNotYet + " not available yet, " + jvmOnly + " on the JVM only)");
+        System.out.println(passed + " passed, " + failures.size() + " failed");
         failures.forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);

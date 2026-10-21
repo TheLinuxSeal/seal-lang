@@ -28,10 +28,10 @@ import java.util.stream.Stream;
 
 /**
  * The standard library's natives on the JVM (docs/JVM.md §8.3): static methods named after their
- * {@code @native} names, which compiled programs call. They do what the VM's do (vm/VM.java), with
- * the same results, error texts and status codes, so a program behaves the same on both. As on
- * the VM, a file operation returns its status, and the text it produces (a file's contents, a line,
- * an error message) is kept for the library to take with {@link #takeText}.
+ * {@code @native} names, which compiled programs call. They give the results, error texts and
+ * status codes the removed VM's natives gave. A file operation returns its status, and the text it
+ * produces (a file's contents, a line, an error message) is kept for the library to take with
+ * {@link #takeText}.
  */
 public final class Natives {
 
@@ -61,8 +61,31 @@ public final class Natives {
     private static long nextFileId = 4;
     private static BufferedReader stdinLines;
 
-    /** Forgets what an earlier run left: open files, kept text, buffered input. */
+    /**
+     * For the tests: how many rounds of loops a program generated to count them may run
+     * (JvmGen.generateCountingSteps), as one whose loop never ends stops then.
+     */
+    public static long stepLimit = Long.MAX_VALUE;
+    /**
+     * And the {@link System#nanoTime} past which such a program stops at its next round: a loop
+     * whose rounds grow (a string joined to itself) may run long before the limit.
+     */
+    public static long stepDeadline = Long.MAX_VALUE;
+    private static long steps;
+
+    /** A round of a loop, in a program generated to count them: past the limit or the deadline, the program stops. */
+    public static void step() {
+        if (++steps > stepLimit) {
+            throw new Trap("step limit: more than " + stepLimit + " rounds of loops");
+        }
+        if (stepDeadline != Long.MAX_VALUE && System.nanoTime() > stepDeadline) {
+            throw new Trap("step limit: loops past the time allowed");
+        }
+    }
+
+    /** Forgets what an earlier run left: open files, kept text, buffered input, the rounds counted. */
     public static void reset() {
+        steps = 0;
         ioText = "";
         ioBytes = new byte[0];
         openFiles.clear();

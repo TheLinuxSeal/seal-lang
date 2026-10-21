@@ -15,19 +15,18 @@ import java.util.Map;
 import java.util.Random;
 
 import io.github.thelinuxseal.seal.check.Checker;
-import io.github.thelinuxseal.seal.codegen.CodeGen;
 import io.github.thelinuxseal.seal.jvm.JvmGen;
 import io.github.thelinuxseal.seal.jvm.JvmRunner;
-import io.github.thelinuxseal.seal.vm.Trap;
-import io.github.thelinuxseal.seal.vm.VM;
 
 /**
- * The JVM backend against the VM (docs/JVM.md §12): every program runs on both, and must print the
- * same and end with the same exit code; every class it generates must pass the bytecode verifier.
- * Random programs check integer widths, conversions and shifts in bulk. `java -cp out
- * io.github.thelinuxseal.seal.JvmTest [random programs] [seed]`.
+ * The JVM backend (docs/JVM.md §12): every program must print what is expected and end with the
+ * expected exit code, and every class it generates must pass the bytecode verifier. Random
+ * programs check integer widths, conversions and shifts in bulk, against the output recorded in
+ * test/random-programs.txt, which the VM gave before it was removed and the JVM gave the same.
+ * `java -cp out io.github.thelinuxseal.seal.JvmTest [random programs] [seed]`; with
+ * -Dseal.random.record=true, it records the outputs of the random programs anew, after a change
+ * to what they are.
  */
-@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class JvmTest {
 
     private static int passed = 0;
@@ -56,6 +55,7 @@ public final class JvmTest {
         pointers();
         random(randomPrograms, seed);
         randomPure(Math.max(1, randomPrograms / 3), seed);
+        writeRecorded();
 
         System.out.println(passed + " passed, " + failures.size() + " failed");
         failures.forEach(f -> System.out.println("FAIL: " + f));
@@ -76,7 +76,7 @@ public final class JvmTest {
     }
 
     private static void integers() {
-        same("wrapping at every width", """
+        same("wrapping at every width", "-128 0 3 65533 131071 -1073741824 -2147483648 4294967295 1 8589934591 -4611686018427387904 -9223372036854775808 18446744073709551615 0 0 \n", """
                 int<<8>> a = 127; a++; pr(a);
                 uint<<4>> b = 15; b++; pr(b);
                 int<<3>> c = -4; c--; pr(c);
@@ -93,7 +93,7 @@ public final class JvmTest {
                 uint<<1>> n = 1; n++; pr(n);
                 int<<1>> o = -1; o--; pr(o);
                 """);
-        same("division and remainder, signed and unsigned", """
+        same("division and remainder, signed and unsigned", "-3 -1 -2147483646 2147483647 5 1 6148914691236517205 1 1 -128 -2 571 3 -9223372036854775808 0 \n", """
                 int a = -7; pr(a / 2); pr(a % 2); pr(-2147483647 - 1 / -1);
                 uint b = 4294967295; pr(b / 2); pr(b % 10); pr(b / 4000000000);
                 uint<<64>> c = 18446744073709551615; pr(c / 3); pr(c % 7); pr(c / 18446744073709551614);
@@ -101,7 +101,7 @@ public final class JvmTest {
                 uint<<12>> f = 4000; pr(f / 7); pr(f % 7);
                 int<<64>> g = -9223372036854775807 - 1; pr(g / -1); pr(g % -1);
                 """);
-        same("unsigned comparisons", """
+        same("unsigned comparisons", "true false true true true false true true true true false \n", """
                 uint big = 4294967295; uint one = 1;
                 pr(big > one); pr(big < one); pr(big >= 4294967295); pr(one <= big);
                 uint<<64>> huge = 18446744073709551615; uint<<64>> small = 5;
@@ -109,14 +109,14 @@ public final class JvmTest {
                 uint<<16>> u = 65535; pr(u > 3);
                 char ch = 'z'; pr(ch > 'a'); pr(ch < 'a');
                 """);
-        same("bitwise operators and negation", """
+        same("bitwise operators and negation", "-86 -85 5 213 170 170 170 213 -549755813888 -549755813887 18446744073709551614 18446744073709551615 4294967295 4294967294 \n", """
                 int<<8>> a = 85; pr(~a); pr(-a); pr(a & 15); pr(a | 128); pr(a ^ 255);
                 uint<<8>> b = 85; pr(~b); pr(b ^ 255); pr(b | 128);
                 int<<40>> c = 549755813887; pr(~c); pr(-c);
                 uint<<64>> d = 1; pr(~d); pr(-d);
                 uint e = 1; pr(-e); pr(~e);
                 """);
-        same("shifts in both directions, past the width too", """
+        same("shifts in both directions, past the width too", "160 10 0 0 -10 -1 0 144 25 0 56 -50 -1 -1 1 9223372036854775808 0 -1 0 1 4294967280 128 4096 \n", """
                 int x = 40; pr(x <<< 2); pr(x <<< -2); pr(x <<< 40); pr(x <<< -40);
                 int n = -40; pr(n <<< -2); pr(n <<< -50); pr(n <<< 31);
                 uint<<8>> u = 200; pr(u <<< 1); pr(u <<< -3); pr(u <<< 8);
@@ -126,13 +126,13 @@ public final class JvmTest {
                 uint<<32>> q = 4294967295; pr(q <<< -31); pr(q <<< 4);
                 int amount = -3; int y = 1024; y <<= amount; pr(y); y <<= 5; pr(y);
                 """);
-        same("increments as expressions", """
+        same("increments as expressions", "5 6 7 7 5 -8 -8 -7 b b c 2.5 \n", """
                 int i = 5; pr(i++); pr(i); pr(++i); pr(i--); pr(--i);
                 int<<4>> j = 7; pr(++j); pr(j++); pr(j);
                 char c = 'a'; c++; pr(c); pr(c++); pr(c);
                 double d = 1.5; d++; pr(d);
                 """);
-        same("compound assignments", """
+        same("compound assignments", "8 -56 88 9 13 12 4 4611686018427387904 -9223372036854775808 7 7 \n", """
                 int a = 10; a += 5; a -= 3; a *= 4; a /= 3; a %= 7; a &= 6; a |= 9; a ^= 3; pr(a);
                 int<<8>> b = 100; b += 100; pr(b); b *= 3; pr(b);
                 int c = 7; c += 2.9; pr(c); c *= 1.5; pr(c); c -= 0.5; pr(c);
@@ -143,7 +143,7 @@ public final class JvmTest {
     }
 
     private static void conversions() {
-        same("casts between integer widths", """
+        same("casts between integer widths", "-1912276171 2382691125 53 53 -135056262347 964455365429 18446742839141661493 \ufb35 -1 1 4294967295 -1 4294967295 -1 18446744073709551615 4294967295 -1 65 65 9 \n", """
                 int<<64>> big = -1234567890123;
                 pr((int)big); pr((uint)big); pr((int<<8>>)big); pr((uint<<8>>)big); pr((int<<40>>)big); pr((uint<<40>>)big);
                 pr((uint<<64>>)big); pr((char)big); pr((int<<1>>)big); pr((uint<<1>>)big);
@@ -151,7 +151,7 @@ public final class JvmTest {
                 int i = -1; pr((uint<<64>>)i); pr((uint)i); pr((int<<64>>)i);
                 char c = 'A'; pr((int)c); pr((uint<<8>>)c); pr((int<<8>>)(c + 200));
                 """);
-        same("integers to floating point and back", """
+        same("integers to floating point and back", "9.007199254740992E15 9.007199E15 1.8446744073709552E19 1.8446744E19 4.294967295E9 4.2949673E9 -7.0 -7.0 3 -3 3 9223372036854775807 -1 -1 9223372036854775807 -9223372036854775808 0 0 0 2 2.75 27499999232 4294967294 18446744073709551614 A \n", """
                 int<<64>> a = 9007199254740993; pr((double)a); pr((float)a);
                 uint<<64>> b = 18446744073709551615; pr((double)b); pr((float)b);
                 uint c = 4294967295; pr((double)c); pr((float)c);
@@ -163,7 +163,7 @@ public final class JvmTest {
                 float f = 2.75; pr((int)f); pr((double)f); pr((int<<64>>)(f * 1e10));
                 double small = -2.5; pr((uint)small); pr((uint<<64>>)small); pr((char)65.7);
                 """);
-        same("implicit narrowing where stored and passed", """
+        same("implicit narrowing where stored and passed", "2 46 7 255 4 -24 \n", """
                 int a = 2.5; pr(a);
                 int<<8>> b = a + 300; pr(b);
                 double d = 7.9; int e = d; pr(e);
@@ -174,7 +174,7 @@ public final class JvmTest {
                 static int half(double x) { return x / 2; }
                 static int<<8>> small(int x) { return x; }
                 """);
-        same("mixed arithmetic widens", """
+        same("mixed arithmetic widens", "7.5 14.0 3 1100 98 0 b 2.5 0.75 \n", """
                 int i = 7; double d = 0.5; pr(i + d); pr(i * 2.0); pr(i / 2);
                 int<<8>> s = 100; int t = 1000; pr(s + t);
                 char c = 'a'; pr(c + 1); pr(c - 'a'); pr((char)(c + 1));
@@ -183,7 +183,7 @@ public final class JvmTest {
     }
 
     private static void control() {
-        same("if, while, for and labeled loops", """
+        same("if, while, for and labeled loops", "1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz \n104 0 1 2 10 11 12 20 21 22 \n5 0 \n", """
                 for (int i = 1; i <= 15; i++) {
                     if (i % 15 == 0) { System.stdout.print("FizzBuzz"); }
                     else if (i % 3 == 0) { System.stdout.print("Fizz"); }
@@ -211,7 +211,7 @@ public final class JvmTest {
                 for (;;) { k--; if (k == 0) { break; } }
                 pr(k);
                 """);
-        same("switch statements", """
+        same("switch statements", "small small two many three falls many falls many five many \n2 \n", """
                 for (int i = 0; i < 7; i++) {
                     switch (i) {
                         case 0, 1 -> System.stdout.print("small ");
@@ -228,7 +228,7 @@ public final class JvmTest {
                 char c = 'b';
                 switch (c) { case 'a' -> pr(1); case 'b' -> pr(2); default -> pr(3); }
                 """);
-        same("short-circuit operators run only what they must", """
+        same("short-circuit operators run only what they must", "1 true 3 false 5 6 true 7 8 true 9 10 false 12 13 14 100 \n", """
                 pr(yes(1) || yes(2)); pr(no(3) && yes(4)); pr(no(5) || yes(6)); pr(!(yes(7) && no(8)));
                 bit x = yes(9) ? no(10) : yes(11); pr(x);
                 if (no(12) || (yes(13) && !no(14))) { pr(100); }
@@ -236,12 +236,12 @@ public final class JvmTest {
                 static bit yes(int i) { System.stdout.print(i); System.stdout.print(' '); return true; }
                 static bit no(int i) { System.stdout.print(i); System.stdout.print(' '); return false; }
                 """);
-        same("the conditional operator", """
+        same("the conditional operator", "10 2.0 p 5000000000 \n", """
                 int a = 5;
                 pr(a > 3 ? 10 : 20); pr(a > 7 ? 1.5 : 2); pr(a < 0 ? 'n' : 'p');
                 int<<64>> big = a > 3 ? 5000000000 : a; pr(big);
                 """);
-        same("a for-each over an Iterable's numbers isn't needed: while with early returns", """
+        same("a for-each over an Iterable's numbers isn't needed: while with early returns", "4 32 \n", """
                 pr(firstOver(10)); pr(firstOver(1000));
                 """, """
                 static int firstOver(int limit)
@@ -257,7 +257,7 @@ public final class JvmTest {
     }
 
     private static void calls() {
-        same("recursion", """
+        same("recursion", "6765 2432902008176640000 9 21 true false \n", """
                 pr(fib(20)); pr(fact(20)); pr(ack(2, 3)); pr(gcd(1071, 462)); pr(isEven(10)); pr(isEven(7));
                 """, """
                 static int fib(int n) { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); }
@@ -272,7 +272,7 @@ public final class JvmTest {
                 static bit isEven(int n) { if (n == 0) { return true; } return isOdd(n - 1); }
                 static bit isOdd(int n) { if (n == 0) { return false; } return isEven(n - 1); }
                 """);
-        same("overloads with the same JVM descriptor, and binders", """
+        same("overloads with the same JVM descriptor, and binders", "8 16 32 -8 8 16 32 -8 64 10 600 \n", """
                 int<<8>> small = 5; int<<16>> mid = 300; int plain = 7; uint<<8>> u = 200;
                 pr(f(small)); pr(f(mid)); pr(f(plain)); pr(f(u));
                 pr(width(small)); pr(width(mid)); pr(width(plain)); pr(width(u)); pr(width((int<<64>>)1));
@@ -286,7 +286,7 @@ public final class JvmTest {
                 static int width(uint<<int W>> x) { return -W; }
                 static int<<W>> twice(int<<int W>> x) { return x * 2; }
                 """);
-        same("static methods of other types and the library", """
+        same("static methods of other types and the library", "144 100 9 5 1.4142135623730951 1024.0 4 2147483647 100 -3.0 3.141592653589793 6 \n", """
                 pr(Util.square(12)); pr(Util.LIMIT); pr(Math.max(3, 9)); pr(Math.abs(-5)); pr(Math.sqrt(2.0));
                 pr(Math.pow(2.0, 10.0)); pr(Integer.max(4, -4)); pr(Integer.MAX_INT); pr(Math.abs((int<<8>>)-100));
                 pr(Math.floor(-2.5)); pr(Math.PI); pr(Integer.gcd(12, 18));
@@ -297,7 +297,7 @@ public final class JvmTest {
                     public static int square(int x) { return x * x; }
                 }
                 """);
-        same("void methods and early returns", """
+        same("void methods and early returns", "01234\nnegative\n\n", """
                 count(5); count(-1);
                 """, """
                 static void count(int n)
@@ -310,18 +310,18 @@ public final class JvmTest {
     }
 
     private static void floatsAndBits() {
-        same("floating point and its printing", """
+        same("floating point and its printing", "0.30000000000000004 1.0E10 0.3333333333333333 -0.0 100.0 1.0E-5 1.23456789E7 0.1 0.3 1.0E10 Infinity NaN false true false false Infinity -Infinity true -0.30000000000000004 \n", """
                 double a = 0.1 + 0.2; pr(a); pr(1e10); pr(1.0 / 3); pr(-0.0); pr(100.0); pr(1e-5); pr(12345678.9);
                 float f = 0.1; pr(f); pr(f * 3); pr((float)1e10); pr(f / 0);
                 double nan = 0.0 / 0.0; pr(nan); pr(nan == nan); pr(nan != nan); pr(nan < 1.0); pr(nan >= 1.0);
                 pr(1.0 / 0.0); pr(-1.0 / 0.0); pr(2.5 > 2); pr(-a);
                 """);
-        same("bits", """
+        same("bits", "true false true false false true true \n", """
                 bit t = true; bit f = false;
                 pr(t ^ f); pr(t & f); pr(t | f); pr(!t); pr(t == f); pr(t != f);
                 bit x = 3 < 4 && 5 > 4; pr(x);
                 """);
-        same("characters", """
+        same("characters", "qq\nabcde\n65 B r\n16 \n true \n", """
                 char c = 'q'; System.stdout.print(c); System.stdout.println(c);
                 for (char x = 'a'; x <= 'e'; x++) { System.stdout.print(x); }
                 System.stdout.println();
@@ -329,7 +329,7 @@ public final class JvmTest {
                 char next = (char)(c + 1); System.stdout.println(next);
                 pr(c - 'a'); pr('\\n'); pr('\\u00e9' > 'z');
                 """);
-        same("constants and compile-time values", """
+        same("constants and compile-time values", "17 64 7 3 3.5 -2147483648 18446744073709551615 text joined at compile time\na text block\n  indented\n\n\n", """
                 pr(sizeof(int<<17>>)); pr(sizeof(double)); pr(1 + 2 * 3); pr(7 / 2); pr(7.0 / 2);
                 pr(Integer.MIN_INT); pr(Integer.MAX_UINT64);
                 System.stdout.println("text" + " joined" + " at compile time");
@@ -375,17 +375,16 @@ public final class JvmTest {
                     static int main() { System.stdout.print("before "); System.stdout.print(divide(1, 0)); return 0; }
                 }
                 """);
-        Run vm = onVm(fault, "Main");
         Run jvm = onJvm(fault, "Main");
-        check(vm.code() == 70 && jvm.code() == 70 && vm.output().equals(jvm.output()) && jvm.output().equals("before ")
+        check(jvm.code() == 70 && jvm.output().equals("before ")
                         && jvm.fault() != null && JvmRunner.describe(jvm.fault()).startsWith("trap: division by zero")
                         && JvmRunner.describe(jvm.fault()).contains("at Main.divide (Main.seal:3)"),
-                "division by zero stops both\n    VM  " + vm + "\n    JVM " + jvm
+                "division by zero stops the program\n    JVM " + jvm
                         + (jvm.fault() == null ? "" : "\n    " + JvmRunner.describe(jvm.fault())));
     }
 
     private static void classes() {
-        same("inheritance, constructors, super and virtual calls", """
+        same("inheritance, constructors, super and virtual calls", "Rex says woof, ... on 4 legs Thing says ... on 4 legs 2 4 Rex fetches true false Rex fetches true true true \n", """
                 Animal a = new Dog("Rex");
                 Animal b = new Animal("Thing");
                 pr(a.describe()); pr(b.describe()); pr(Animal.count); pr(a.legs);
@@ -412,7 +411,7 @@ public final class JvmTest {
                     public string fetch() { return name + " fetches"; }
                 }
                 """);
-        same("interfaces, default methods, abstract classes and abstract fields", """
+        same("interfaces, default methods, abstract classes and abstract fields", "9 square of area 9 <square> square 12 circle of area 12 (circle) \n", """
                 Shape s = new Square(3);
                 Named n = new Square(2);
                 pr(s.area()); pr(s.describe()); pr(n.label()); pr(n.name);
@@ -448,7 +447,7 @@ public final class JvmTest {
                     public string label() { return "(" + name + ")"; }
                 }
                 """);
-        same("generic classes, instantiated per type", """
+        same("generic classes, instantiated per type", "6 five! 5 10 fivefive x \n", """
                 Box<int> a = new Box(); a.value = 5;
                 Box<string> b = new Box(); b.value = "five";
                 Box<Box<int>> c = new Box(); c.value = a;
@@ -469,7 +468,7 @@ public final class JvmTest {
                     public static <X, Y> Pair<X, Y> of(X x, Y y) { Pair<X, Y> p = new Pair(); p.first = x; p.second = y; return p; }
                 }
                 """);
-        same("operators and casts to string on classes", """
+        same("operators and casts to string on classes", "$4.25 total: $4.25 true false true true 575 \n", """
                 Money a = new Money(150);
                 Money b = new Money(275);
                 Money c = a + b;
@@ -521,7 +520,7 @@ public final class JvmTest {
     }
 
     private static void exceptions() {
-        same("try, catch and finally, with every way out", """
+        same("try, catch and finally, with every way out", "finally0 10 one finally1 11 other two finally2 12 finally3 30 body0 fin0 fin1 body2 fin2 fin3 inner-fin caught inner outer-fin 7 deep \n", """
                 pr(f(0)); pr(f(1)); pr(f(2)); pr(f(3));
                 for (int i = 0; i < 4; i++) {
                     try {
@@ -573,7 +572,7 @@ public final class JvmTest {
                     public new(string m, int c) { super(m); code = c; }
                 }
                 """);
-        same("try-with-resources closes, in reverse, and keeps what close throws", """
+        same("try-with-resources closes, in reverse, and keeps what close throws", "open a open b 1 close b close a open c close c body 1 close c \n", """
                 try (Res a = new Res("a", false); Res b = new Res("b", false)) { pr(1); }
                 try (Res a = new Res("c", true)) {
                     throw new IllegalArgumentException("body");
@@ -602,7 +601,7 @@ public final class JvmTest {
     }
 
     private static void lambdas() {
-        same("lambdas capture copies, and this", """
+        same("lambdas capture copies, and this", "15 100 200 2 42 hi 5 432100true 2 \n", """
                 int base = 10;
                 Function<int, int> add = x -> x + base;
                 base = 99;
@@ -633,7 +632,7 @@ public final class JvmTest {
     }
 
     private static void strings() {
-        same("strings: joining, comparing, searching, building", """
+        same("strings: joining, comparing, searching, building", "Hello, world42! 15 o 7 true world HELLO, WORLD42! hello, world42! HeLLo, worLd42! ababab trim me| false true -1 true true 8 4 c ff -1233 246 1.5 2.5 true c 200 -5 0,1,2,3,4 4,3,2,1,0 fixed and 5 zbc string index 100 out of range for length 15 not a decimal integer: \"12x\" \n", """
                 string s = "Hello";
                 s += ", world";
                 s += 42;
@@ -662,7 +661,7 @@ public final class JvmTest {
     }
 
     private static void collections() {
-        same("lists, queues, maps and arrays", """
+        same("lists, queues, maps and arrays", "al bo cy 1 false al cy 2 2470 49 v2 false 37 -1 2 ada=37 bob=40 123453 8 7 2 0 true index 9 out of range for an array of length 5 removeLast on an empty List \n", """
                 List<string> names = new List();
                 names.add("cy"); names.add("al"); names.add("bo");
                 names.sort();
@@ -693,7 +692,7 @@ public final class JvmTest {
                 try { xs[9] = 1; } catch (IndexOutOfBoundsException e) { pr(e.getMessage()); }
                 try { List<int> empty = new List(); empty.removeLast(); } catch (NoSuchElementException e) { pr(e.getMessage()); }
                 """);
-        same("++ and += on elements, through [] and []=", """
+        same("++ and += on elements, through [] and []=", "3 2 2 5 7 7 5 b 12 24 \n", """
                 array<int> counts = new array<int>(3);
                 string word = "abcabca";
                 for (int i = 0; i < word.length(); i++) { counts[word.charAt(i) - 'a']++; }
@@ -710,7 +709,7 @@ public final class JvmTest {
                 counts[2] *= counts[1];
                 pr(cs[0]); pr(counts[1]); pr(counts[2]);
                 """);
-        same("files, read and written", """
+        same("files, read and written", "14 3 one;two;three;true txt true false \n", """
                 string dir = Files.createTempDirectory("seal-jvm");
                 Files.writeString(dir + "/a.txt", "one\\ntwo\\n");
                 try (FileWriter w = new FileWriter(dir + "/a.txt", true)) { w.println("three"); }
@@ -725,7 +724,7 @@ public final class JvmTest {
 
     /** Structs, uniques, records, enums and fixed arrays, in storage blocks (docs/JVM.md §4, M3). */
     private static void values() {
-        same("structs are values: copied, passed, returned, changed in place", """
+        same("structs are values: copied, passed, returned, changed in place", "1 10 101 1 11 4 33 1233 1 99 7 10 11 4 6 0 0 true true \n", """
                 Vec a = new Vec(1, 2);
                 Vec b = a;
                 b.x = 10;
@@ -768,7 +767,7 @@ public final class JvmTest {
                     public Vec v;
                 }
                 """);
-        same("operators on structs, and structs in arrays", """
+        same("operators on structs, and structs in arrays", "8 2 -3 true false 8 1 7 4 14 8 2 \n", """
                 Num a = new Num(3);
                 Num b = new Num(5);
                 pr((a + b).v); pr((b - a).v); pr((-a).v); pr(a < b); pr(a >= b);
@@ -800,7 +799,7 @@ public final class JvmTest {
                     @overload(Operator.EQUALS) public bit eq(Num o) { return v == o.v; }
                 }
                 """);
-        same("records and enums", """
+        same("records and enums", "4 6 true false Point[x=1, y=2] lo 5 is above hi 1 7 GREEN 1 true 3 RED GREEN BLUE g blue 40 planet 0 \n", """
                 Point p = new Point(1, 2);
                 Point q = p.plus(new Point(3, 4));
                 pr(q.x()); pr(q.y); pr(p == new Point(1, 2)); pr(p == q); pr("" + p);
@@ -840,7 +839,7 @@ public final class JvmTest {
                     @overload(Operator.CAST) public string text() { return "planet " + ordinal(); }
                 }
                 """);
-        same("fixed arrays: copies, nesting, loops, length parameters, bounds", """
+        same("fixed arrays: copies, nesting, loops, length parameters, bounds", "5 1 5 2 75 18 15 4 0 8 0 77 5 6 4 index 9 out of range for an array of length 5 index -1 out of range for an array of length 5 \n", """
                 array<int><<5>> a = [5, 1, 4, 2, 3];
                 array<int><<5>> b = a;
                 b.sort();
@@ -868,7 +867,7 @@ public final class JvmTest {
                 """, """
                     static int sum(array<int><<int N>> xs) { int s = 0; for (int x : xs) { s += x; } return s * N; }
                 """, "Vec", "struct Vec { public int x; }", "Grid", "class Grid { public array<int><<4>> cells; }");
-        same("uniques: destroyed in reverse order, on every way out of their scope", """
+        same("uniques: destroyed in reverse order, on every way out of their scope", "in ~2 ~1 ~9 ~8 1 ~8 0 0 ~4 ~4 ~4 ~5 caught making made pair ~7 ~7 ~7 end \n~pair ~2 ~1 ~6 ", """
                 { Noisy<<1>> a; Noisy<<2>> b; pr("in"); }
                 pr(early(true)); pr(early(false));
                 for (int i = 0; i < 3; i++) {
@@ -890,7 +889,7 @@ public final class JvmTest {
                     static Noisy<<6>> make() { Noisy<<6>> n; pr("making"); return n; }
                 """, "Noisy", "unique Noisy<<int ID>> { delete() { System.stdout.print(\"~\" + ID + \" \"); } }",
                 "Pair", "unique Pair { Noisy<<1>> a; Noisy<<2>> b; delete() { System.stdout.print(\"~pair \"); } }");
-        same("uniques: assigned, as temporaries, in conditions, in static fields", """
+        same("uniques: assigned, as temporaries, in conditions, in static fields", "+1 +2 ~1 after +3 3 ~3 +11 ~11 y +4 ~0 +5 ~5 caught +6 ~6 caught +7 ~7 caught end \n~2 ~4 ", """
                 Tag a = new Tag(1);
                 a = new Tag(2);
                 pr("after");
@@ -930,7 +929,7 @@ public final class JvmTest {
 
     /** Fixed point (docs/JVM.md §3.2, M4): its scaled integer wherever a number goes, and its text. */
     private static void fixedPoint() {
-        same("fixed point in fields, structs, arrays and statics, as text, through Math and Format", """
+        same("fixed point in fields, structs, arrays and statics, as text, through Math and Format", "-3.375 -0.66796875 1.5 2.25 false true -2 -2.25 -2.25 -0.125 -0.5 6.25 0.0 -1.5;0.25;7.9375;3.75 -2.25 1.5 -2.250 1.5 0.3 -3.0 -2.0 2.0 2.25 1.414215087890625 -3.375 0.75 0.5 0.25 0.5 152415765.279024660587310791015625 1763.66828572750091552734375 57.6796875 \n", """
                 fixed<<8, 8>> a = 1.5;
                 fixed<<8, 8>> b = -2.25;
                 pr(a * b); pr(a / b); pr(a % b); pr(-b); pr(a < b); pr(a == 1.5); pr((int)b); pr((double)b);
@@ -974,7 +973,7 @@ public final class JvmTest {
 
     /** Addresses (docs/JVM.md §4.4, M5): a block and a bit offset, checked as the VM checks them. */
     private static void pointers() {
-        same("addresses of locals, parameters, fields, elements and statics; arithmetic; new and delete", """
+        same("addresses of locals, parameters, fields, elements and statics; arithmetic; new and delete", "43 6 3 7 32 3 4 1 true true true 40 28 4321made ~9  hi 4294967295 \n", """
                 int x = 10;
                 addr<int> p = *x;
                 &p = 42;
@@ -1038,35 +1037,101 @@ public final class JvmTest {
 
     private static final int[] WIDTHS = {1, 2, 3, 7, 8, 9, 15, 16, 17, 31, 32, 33, 48, 63, 64};
 
+    /** Where the random programs' outputs are recorded, for the default seed and count. */
+    private static final Path RECORDED = Path.of("test/random-programs.txt");
+    private static final Map<String, String> recorded = new LinkedHashMap<>();
+    private static final Map<String, String> recording = new LinkedHashMap<>();
+
     /**
      * Random programs over random integer widths, chars, fixed point and floating point: casts,
-     * arithmetic, shifts, comparisons, compound assignments and ++, each value printed, on both
-     * backends.
+     * arithmetic, shifts, comparisons, compound assignments and ++, each value printed, against
+     * their recorded output (with another seed, there is none: they need only run).
      */
-    private static void random(int count, long seed) {
+    private static void random(int count, long seed) throws IOException {
         Random rnd = new Random(seed);
         for (int p = 0; p < count; p++) {
             Gen g = new Gen(rnd);
             String body = g.program();
             Map<String, String> files = Map.of("Main.seal", "struct Main\n{\n" + HELPERS
                     + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n");
-            Run vm = onVm(files, "Main");
-            if (vm.error() != null) {
-                failures.add("random program " + p + " (seed " + seed + ") doesn't compile: " + vm.error() + "\n" + body);
-                continue;
-            }
             Run jvm = onJvm(files, "Main");
-            check(jvm.error() == null && vm.output().equals(jvm.output()) && vm.code() == jvm.code(),
-                    "random program " + p + " (seed " + seed + ")\n" + body + "\n    VM  " + vm + "\n    JVM " + jvm
-                            + firstDifference(vm.output(), jvm.output()));
+            String where = "random program " + p + " (seed " + seed + ")\n" + body + "\n    JVM " + jvm;
+            compareRecorded("random program " + p, seed, jvm, where);
         }
     }
 
     /**
-     * Random pure methods (§17.2), each worked out twice: while compiling, as a const field's value,
-     * and while the program runs; each line prints both, which must be the same, on both backends.
+     * Checks a random program's run against its recorded output, or (recording) records it: by its
+     * key, for the default seed alone.
      */
-    private static void randomPure(int count, long seed) {
+    private static void compareRecorded(String key, long seed, Run jvm, String where) throws IOException {
+        if (jvm.error() != null || jvm.fault() != null) {
+            failures.add(where);
+            return;
+        }
+        String line = jvm.code() + "\t" + escape(jvm.output());
+        if (seed != 1) {
+            check(true, where);
+        } else if (Boolean.getBoolean("seal.random.record")) {
+            recording.put(key, line);
+        } else {
+            if (recorded.isEmpty()) {
+                for (String l : Files.readAllLines(RECORDED)) {
+                    int tab = l.indexOf('\t');
+                    recorded.put(l.substring(0, tab), l.substring(tab + 1));
+                }
+            }
+            String expected = recorded.get(key);
+            check(line.equals(expected), where + (expected == null ? "\n    no output recorded for it"
+                    : firstDifference(unescape(expected.substring(expected.indexOf('\t') + 1)), jvm.output())));
+        }
+    }
+
+    /** Writes what {@link #compareRecorded} recorded. */
+    private static void writeRecorded() throws IOException {
+        if (!recording.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            recording.forEach((k, v) -> sb.append(k).append('\t').append(v).append('\n'));
+            Files.writeString(RECORDED, sb);
+        }
+    }
+
+    /** An output on one line: a backslash doubled, and what isn't printable ASCII as \\uXXXX. */
+    private static String escape(String s) {
+        StringBuilder sb = new StringBuilder();
+        for (char ch : s.toCharArray()) {
+            if (ch == '\\') {
+                sb.append("\\\\");
+            } else if (ch < 0x20 || ch > 0x7e) {
+                sb.append(String.format("\\u%04x", (int) ch));
+            } else {
+                sb.append(ch);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String unescape(String s) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch == '\\' && s.charAt(i + 1) == 'u') {
+                sb.append((char) Integer.parseInt(s.substring(i + 2, i + 6), 16));
+                i += 5;
+            } else if (ch == '\\') {
+                sb.append(s.charAt(++i));
+            } else {
+                sb.append(ch);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Random pure methods (§17.2), each worked out twice: while compiling, as a const field's value,
+     * and while the program runs; each line prints both, which must be the same, and as recorded.
+     */
+    private static void randomPure(int count, long seed) throws IOException {
         Random rnd = new Random(seed);
         for (int p = 0; p < count; p++) {
             StringBuilder members = new StringBuilder();
@@ -1086,20 +1151,18 @@ public final class JvmTest {
             }
             Map<String, String> files = Map.of("Main.seal", "struct Main\n{\n" + HELPERS + members
                     + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n");
-            Run vm = onVm(files, "Main");
-            String where = "random pure methods " + p + " (seed " + seed + ")\n" + members;
-            if (vm.error() != null) {
-                failures.add(where + "\n    don't compile: " + vm.error());
-                continue;
-            }
+            Run jvm = onJvm(files, "Main");
+            String where = "random pure methods " + p + " (seed " + seed + ")\n" + members + "\n    JVM " + jvm;
             boolean same = true;
-            for (String line : vm.output().split("\n")) {
+            for (String line : jvm.output().split("\n")) {
                 String[] two = line.trim().split(" ");
                 same &= two.length == 2 && two[0].equals(two[1]);
             }
-            Run jvm = onJvm(files, "Main");
-            check(same && jvm.error() == null && vm.output().equals(jvm.output()) && vm.code() == jvm.code(),
-                    where + "\n    VM  " + vm + "\n    JVM " + jvm + firstDifference(vm.output(), jvm.output()));
+            if (!same) {
+                failures.add(where + "\n    the value worked out while compiling isn't the one worked out while running");
+                continue;
+            }
+            compareRecorded("random pure methods " + p, seed, jvm, where);
         }
     }
 
@@ -1114,7 +1177,7 @@ public final class JvmTest {
         String[] y = b.split("\n", -1);
         for (int i = 0; i < Math.min(x.length, y.length); i++) {
             if (!x[i].equals(y[i])) {
-                return "\n    first difference at output line " + (i + 1) + ": VM " + x[i] + ", JVM " + y[i];
+                return "\n    first difference at output line " + (i + 1) + ": expected " + x[i] + ", got " + y[i];
             }
         }
         return "";
@@ -1391,8 +1454,8 @@ public final class JvmTest {
         }
     }
 
-    /** body runs in main; extra are more members of Main; then pairs of file name and source. */
-    private static void same(String name, String body, String... more) {
+    /** body runs in main, which prints expected; extra are more members of Main; then pairs of file name and source. */
+    private static void same(String name, String expected, String body, String... more) {
         Map<String, String> files = new LinkedHashMap<>();
         String extra = more.length > 0 ? more[0] : "";
         String main = "struct Main\n{\n" + HELPERS + extra + "    static int main()\n    {\n" + body
@@ -1401,10 +1464,9 @@ public final class JvmTest {
         for (int i = 1; i + 1 < more.length; i += 2) {
             files.put(more[i] + ".seal", more[i + 1]);
         }
-        Run vm = onVm(files, "Main");
         Run jvm = onJvm(files, "Main");
-        check(vm.error() == null && jvm.error() == null && vm.output().equals(jvm.output()) && vm.code() == jvm.code(),
-                name + "\n    VM  " + vm + "\n    JVM " + jvm + firstDifference(vm.output(), jvm.output()));
+        check(jvm.error() == null && jvm.fault() == null && jvm.output().equals(expected) && jvm.code() == 0,
+                name + "\n    expected " + show(expected) + "\n    JVM " + jvm + firstDifference(expected, jvm.output()));
     }
 
     private static void program(String name, Map<String, String> files, String output, int code) {
@@ -1412,32 +1474,9 @@ public final class JvmTest {
     }
 
     private static void program(String name, Map<String, String> files, String output, int code, String main) {
-        Run vm = onVm(files, main);
         Run jvm = onJvm(files, main);
-        check(vm.output().equals(output) && vm.code() == code && jvm.output().equals(output) && jvm.code() == code
-                        && jvm.error() == null,
-                name + "\n    expected " + show(output) + ", exit " + code + "\n    VM  " + vm + "\n    JVM " + jvm);
-    }
-
-    private static Run onVm(Map<String, String> files, String main) {
-        Checker checker = Checker.analyze(files, LIBRARY);
-        if (!checker.diagnostics().isEmpty()) {
-            return new Run("", -1, "errors: " + checker.diagnostics(), null);
-        }
-        CodeGen.Result gen = CodeGen.generate(checker, main);
-        if (!gen.errors().isEmpty()) {
-            return new Run("", -1, "errors: " + gen.errors(), null);
-        }
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        VM vm = new VM(gen.program(), new PrintStream(bytes, true, StandardCharsets.UTF_8));
-        vm.setError(new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8));
-        vm.setMaxSteps(50_000_000);
-        try {
-            long code = vm.run();
-            return new Run(bytes.toString(StandardCharsets.UTF_8), (int) code, null, null);
-        } catch (Trap t) {
-            return new Run(bytes.toString(StandardCharsets.UTF_8), 70, null, t);
-        }
+        check(jvm.output().equals(output) && jvm.code() == code && jvm.error() == null,
+                name + "\n    expected " + show(output) + ", exit " + code + "\n    JVM " + jvm);
     }
 
     private static Run onJvm(Map<String, String> files) {

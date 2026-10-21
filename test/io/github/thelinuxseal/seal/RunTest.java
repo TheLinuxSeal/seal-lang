@@ -1,8 +1,5 @@
 package io.github.thelinuxseal.seal;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -11,12 +8,8 @@ import java.util.Map;
 import io.github.thelinuxseal.seal.check.Checker;
 import io.github.thelinuxseal.seal.check.CheckerTest;
 import io.github.thelinuxseal.seal.check.Diagnostic;
-import io.github.thelinuxseal.seal.codegen.CodeGen;
-import io.github.thelinuxseal.seal.vm.Trap;
-import io.github.thelinuxseal.seal.vm.VM;
 
-/** End-to-end tests: compile programs, run them on the VM, and check output. `java -cp out io.github.thelinuxseal.seal.RunTest`. */
-@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
+/** End-to-end tests: compile programs, run them, and check output. `java -cp out io.github.thelinuxseal.seal.RunTest`. */
 public final class RunTest {
 
     private static int passed = 0;
@@ -38,8 +31,7 @@ public final class RunTest {
         entryPoints();
         traps();
 
-        String jvm = ON_JVM.finish(failures);
-        System.out.println(passed + " passed, " + failures.size() + " failed" + jvm);
+        System.out.println(passed + " passed, " + failures.size() + " failed");
         failures.forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);
@@ -798,36 +790,17 @@ public final class RunTest {
     private record Run(String output, long exit, String error) {
     }
 
-    /** Every program that runs here runs on the JVM too (docs/JVM.md §12). */
-    private static final OnJvm ON_JVM = new OnJvm();
-    private static String current = "";
-
     private static Run execute(Map<String, String> files) {
         Checker checker = Checker.analyze(files);
         List<Diagnostic> errors = checker.diagnostics();
         if (!errors.isEmpty()) {
             return new Run("", -1, "error: " + errors);
         }
-        CodeGen.Result result = CodeGen.generate(checker, "Main");
-        if (!result.errors().isEmpty()) {
-            return new Run("", -1, "error: " + result.errors());
+        JvmRun.Outcome o = JvmRun.run(checker, "Main");
+        if (o.error() != null) {
+            return new Run("", -1, "error: " + o.error());
         }
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
-        VM vm = new VM(result.program(), out);
-        vm.setMaxSteps(5_000_000);
-        try {
-            long code = vm.run();
-            String text = bytes.toString(StandardCharsets.UTF_8);
-            ON_JVM.compare(current, checker, "Main", java.io.InputStream.nullInputStream(), true, text, code, null);
-            return new Run(text, code, null);
-        } catch (Trap t) {
-            String text = bytes.toString(StandardCharsets.UTF_8);
-            ON_JVM.compare(current, checker, "Main", java.io.InputStream.nullInputStream(), true, text, -1, t);
-            return new Run(text, -1, t.getMessage());
-        } catch (RuntimeException e) {
-            return new Run(bytes.toString(StandardCharsets.UTF_8), -1, "crash: " + e);
-        }
+        return o.fault() == null ? new Run(o.output(), o.code(), null) : new Run(o.output(), -1, o.report());
     }
 
     private static void output(String name, Map<String, String> files, String expected) {
@@ -835,7 +808,6 @@ public final class RunTest {
     }
 
     private static void output(String name, Map<String, String> files, String expected, long exit) {
-        current = name;
         Run r = execute(files);
         boolean ok = exit == -1 ? r.error() != null && r.error().contains(expected.replace("error: ", ""))
                 : r.error() == null && r.output().equals(expected) && r.exit() == exit;
@@ -845,7 +817,6 @@ public final class RunTest {
     }
 
     private static void trap(String name, Map<String, String> files, String expectedTrap) {
-        current = name;
         Run r = execute(files);
         check(r.error() != null && r.error().contains(expectedTrap),
                 name + "\n    expected trap containing " + show(expectedTrap) + "\n    got      "

@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 /**
  * The text `seal dump` prints: each generated class, its fields, and its methods' bytecode, as
  * javap -c would show it, with the Seal line each run of instructions comes from as a
- * `; File.seal:line` comment, as the VM's listing had.
+ * `; File.seal:line` comment.
  */
 public final class ClassText {
 

@@ -4,19 +4,20 @@
 backend's M1 to M5 are done (§13): `seal run` and `seal build` compile the whole language, numbers of every width and fixed point, classes and interfaces,
 generics and shapes, packages, exceptions, lambdas, strings, `array<T>`, the collections and
 files, structs, uniques and their destructors, records, enums, fixed arrays and operators in
-storage blocks (§4.6), and `addr<T>` (§4.4). Every program in every suite runs on the JVM as on the
-VM, and the JVM is the default; the VM is behind `--vm` until a later step removes it. Choices made on review are marked **Decided**; the rest were
+storage blocks (§4.6), and `addr<T>` (§4.4). Every program in every suite ran on the JVM as on the
+VM, and the VM is removed (§13): the JVM is Seal's only backend. Choices made on review are marked **Decided**; the rest were
 **Proposed** and accepted with the design, and stand unless revisited.
 
-Seal today compiles to bytecode for its own register VM (`vm/`), written in Java. This document
-describes a backend that compiles Seal to JVM class files instead, so that Seal programs run on any
-JVM, fast, and can later become Minecraft mods.
+Seal compiled to bytecode for its own register VM (`vm/`), written in Java, when this document was
+written. It describes the backend that compiles Seal to JVM class files instead, so that Seal
+programs run on any JVM, fast, and become Minecraft mods; the VM is removed now, and what this
+document says of it is how the JVM backend was made to match it.
 
 ## 1. Goals
 
 - **Decided: Seal becomes JVM-only.** One backend, so every language feature is implemented once.
-  The VM stays only while the JVM backend is built, as the reference it is tested against
-  (§12); it is deprecated now, and will be removed (§13).
+  The VM stayed while the JVM backend was built, as the reference it was tested against
+  (§12), and is removed (§13).
 - Compile every Seal program the test suites and examples hold to class files that run on a
   standard JVM, with the same output.
 - Real JVM classes for Seal's classes and interfaces, so that later Java code, and Minecraft, can
@@ -30,8 +31,7 @@ from Seal, and Mixins (in Java, beside the Seal code), are in docs/JAVA.md, and 
 ## 2. Pipeline
 
 ```text
-.seal files ─ Lexer ─ Parser ─ Checker ─┬─ JvmGen  ─ .class files ─ JVM   (the default)
-                                        └─ CodeGen ─ VM bytecode ─ VM      (--vm, deprecated)
+.seal files ─ Lexer ─ Parser ─ Checker ─ JvmGen ─ .class files ─ JVM
 ```
 
 The front end stays as it is. The checker already resolves everything a backend needs and hands it
@@ -51,8 +51,7 @@ desugared (`rewritten`, `desugared` for-each loops, `switches`, `switchExprs`, `
 - Output: a folder of class files, and later a jar. `seal run` compiles straight into a class
   loader of its own and runs the program in the compiler's JVM; `seal build -d DIR` writes the
   class files, and the runtime's (§9) beside them, so that `java -cp DIR Main` runs it; `seal dump`
-  prints them, as javap -c would, with the Seal lines as `; File.seal:line` comments (since M5;
-  `--vm` gives the VM's listing).
+  prints them, as javap -c would, with the Seal lines as `; File.seal:line` comments.
 - `JvmGen` (`src/.../seal/jvm/`) works as CodeGen does: from `main`, it reaches the methods the
   program calls, one per instantiation, generating each once to find what it calls (and whether it
   can); then it builds each class with all of its methods. Code it can't generate yet is reported
@@ -353,7 +352,7 @@ Changes this made to the language, done in M0 (§13) and tested on the VM:
 6. **Static fields** need no release at the end of the program; uniques in static fields still
    have their destructors run when `main` returns.
 
-On the VM, objects are still freed by reference counting, which no program can observe any more.
+On the VM, objects were freed by reference counting, which no program could observe any more.
 `System.refCount` went with copy-on-write strings.
 
 ## 7. Exceptions and run-time errors
@@ -543,6 +542,19 @@ frames correctly for every control-flow shape (the class-file API does this, giv
   read or write before the start of their allocation, which the JVM stops (§4.4), counted as such.
   `JvmTest` has cases for addresses of every kind of place, arithmetic, comparisons, `new` and
   `delete`, and the traps.
+- Done with the VM's removal: the suites run on the JVM alone, against their expected outputs,
+  which the VM gave and the JVM gave the same (`JvmRun` runs a program for them). `JvmTest`'s
+  programs that compared the two (`same(...)`) have the output they both gave written in; its
+  random programs, generated from a fixed seed, are checked against the output recorded in
+  `test/random-programs.txt` (`-Dseal.random.record=true` records it anew, after a change to what
+  they are). `FuzzTest` runs every mutant that compiles, generated to count the rounds of its loops
+  (`JvmGen.generateCountingSteps`, the runtime's `Natives.stepLimit`) so that one that never ends
+  stops, as the VM's step limit stopped it; its rules are no internal crash, classes that pass the
+  verifier, no fault saying the generated classes are wrong, and no address fault without `addr`.
+  `VMTest` and `RefCountTest` went with the VM, and the tests that counted live objects through it
+  (`Probe.live()`). Checks only the VM's code generator made moved to `JvmGen`: an override keeps
+  the return type, and a type argument's value without an initializer needs a no-argument
+  constructor.
 
 ## 13. Order of work
 
@@ -555,7 +567,8 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 | **M4**, **done** | generics and shapes with naming, all integer widths, fixed point, packages | `FixedPointTest`, all examples but pointers |
 | **M5**, **done** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires: the JVM is the default, the VM behind `--vm` |
 | **the VM deprecated**, **done** | `--vm` warns that the VM is deprecated, `vm/` and `codegen/` are `@Deprecated`, and the VM gets no new features: what comes next (Java's classes, docs/JAVA.md) is the JVM's alone; the suites still compare the two on what both run | `--vm` warns, every suite passes |
-| later, a step of its own | removing the VM, `codegen/` and their tests; then the library's VM-only code (the string and array internals on `addr` buffers, `StringChars`, the Seal bodies behind `@jvm`) | |
+| **the VM removed**, **done** | the VM, `codegen/`, `VMTest` and `RefCountTest`; `--vm` says the VM is removed; the suites check the JVM alone (§12) | every suite passes on the JVM alone |
+| next | the library's VM-only code: the string and array internals on `addr` buffers, `StringChars`, the Seal bodies behind `@jvm` | |
 | **M6**, **done** | jars, calling Java classes from Seal and Seal from Java (docs/JAVA.md, T1 to T5: a Fabric mod in Seal loads in Minecraft 26.3 and registers a block; Minecraft runs on Java 25, so the class-file version needed no change), then Mixins, as a program's own `.java` files (docs/JAVA.md §11) | a first Minecraft mod in Seal, with a mixin |
 
 ## 14. Later: Java and Minecraft
@@ -585,9 +598,9 @@ Not designed here, but the design keeps the door open:
 - Each method call that has struct locals gets a frame block of its own (§4.2).
 
 M0 to M5 are done (§13): every suite passes on the JVM, which is the default. On review, the VM was
-kept behind `--vm` for now, and the suites still run every program on both and compare (§12); RunTest's
-one program for the VM's step limit, which the JVM has no counterpart to, went. Removing the VM,
-and then the library's VM-only code, are later steps of their own.
+kept behind `--vm` for a while, and the suites ran every program on both and compared (§12); RunTest's
+one program for the VM's step limit, which the JVM has no counterpart to, went. The VM is removed
+since (§12, §13); the library's VM-only code is a step of its own.
 
 M1 went further than its row: every integer width already works (§3.1, planned for M4), and so do
 switch statements and labeled loops. M2 removed M1's stopgap for printing: `Writer` compiles as the

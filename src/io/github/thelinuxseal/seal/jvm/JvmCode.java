@@ -58,8 +58,8 @@ import io.github.thelinuxseal.seal.jvm.JvmGen.MethodRef;
 import io.github.thelinuxseal.seal.jvm.JvmGen.Unsupported;
 
 /**
- * The code of one generated method (docs/JVM.md). It follows CodeGen's rules, on the JVM's
- * operand stack: values are converted where they meet another type as on the VM, integers of a
+ * The code of one generated method (docs/JVM.md), on the JVM's operand stack: values are
+ * converted where they meet another type, as the removed VM's code generator did, integers of a
  * width below their JVM type's are normalized after arithmetic, code the checker rewrote is
  * generated in its place.
  */
@@ -222,10 +222,13 @@ final class JvmCode {
         }
     }
 
+    /** A body typed for its instance; what fails there (an operator T's type lacks) is reported in the instance's name. */
     private TypedBody typed(ClassInfo cls, ClassT owner, MemberInfo m, Map<String, CVal> binders) {
         TypedBody t = ck.typeBody(cls, owner, m, binders);
         if (!t.errors.isEmpty()) {
-            found.addAll(t.errors);
+            for (Diagnostic d : t.errors) {
+                found.add(new Diagnostic(d.file(), d.line(), d.column(), "in " + g.instanceName(k) + ": " + d.message()));
+            }
             throw new Unsupported(m.member.pos(), null);
         }
         return t;
@@ -392,6 +395,7 @@ final class JvmCode {
                     into(fm, f.init(), ft);
                     tb = saved;
                 } else {
+                    requireDefaultConstructible(ft, "field " + f.name());
                     initZeroed(fm, ft);
                 }
             } else if (f.init() != null) {
@@ -474,6 +478,7 @@ final class JvmCode {
                 }
                 tb = saved;
             } else if (g.isAggregate(ft)) {
+                requireDefaultConstructible(ft, "field " + f.name());
                 initZeroed(fm, ft);
             }
         }
@@ -621,6 +626,7 @@ final class JvmCode {
                         at(f.init().pos());
                         into(sm, f.init(), t);
                     } else {
+                        requireDefaultConstructible(t, "static field " + f.name());
                         initZeroed(sm, t);
                     }
                     continue;
@@ -975,7 +981,14 @@ final class JvmCode {
         c.labelBinding(fine);
     }
 
-    /** An element of a fixed array (§21.1), its index checked as the VM does. */
+    /** A round of a loop, counted in a program generated for the tests to count them (JvmGen.generateCountingSteps). */
+    private void countStep() {
+        if (g.countSteps) {
+            c.invokestatic(JvmGen.NATIVES, "step", MethodTypeDesc.of(CD_void));
+        }
+    }
+
+    /** An element of a fixed array (§21.1), its index checked so that one out of range stops the program. */
     private Mem elementMem(Mem array, ArrayT at, Expr index) {
         long stride = g.layouts.stride(at.element());
         long n = at.size().intValue().longValueExact();
@@ -1094,6 +1107,25 @@ final class JvmCode {
             case DoubleT d -> 64;
             default -> 64;
         };
+    }
+
+    /**
+     * A value made without an initializer is default-constructed, through its no-argument
+     * constructor: the checker's rule, here for what a type argument makes known (Fd in Slot<Fd>).
+     */
+    private void requireDefaultConstructible(Type t, String what) {
+        Type element = t;
+        while (element instanceof ArrayT a) {
+            element = a.element();
+        }
+        if (element instanceof ClassT ct && !ct.cls().dynamic && !ct.cls().constructors.isEmpty()
+                && ct.cls().constructors.stream().noneMatch(m -> m.existsIn(ct.header())
+                        && ((Constructor) m.member).params().isEmpty())) {
+            throw new Unsupported(pos, t instanceof ArrayT
+                    ? "each element of " + what + " (" + t + ") is default-constructed, but " + ct.cls().name
+                            + " has no no-argument constructor"
+                    : what + " of type " + ct + " needs an initializer: " + ct.cls().name + " has no no-argument constructor");
+        }
     }
 
     /** Makes a value in a place where nothing was: a struct's no-argument constructor, and each element of an array of them. */
@@ -1368,6 +1400,8 @@ final class JvmCode {
                     if (v.init() != null) {
                         into(st.mem(), v.init(), t);
                     } else {
+                        pos = v.pos();
+                        requireDefaultConstructible(t, "variable " + v.name());
                         zeroMem(st.mem(), t);
                         initZeroed(st.mem(), t);
                     }
@@ -1433,6 +1467,7 @@ final class JvmCode {
                 Label top = c.newLabel();
                 Label end = c.newLabel();
                 c.labelBinding(top);
+                countStep();
                 condition(w.cond(), end);
                 loops.push(new Loop(end, top, name, fins.size()));
                 scoped(w.body());
@@ -1450,6 +1485,7 @@ final class JvmCode {
                 Label next = c.newLabel();
                 Label end = c.newLabel();
                 c.labelBinding(top);
+                countStep();
                 if (f.cond() != null) {
                     condition(f.cond(), end);
                 }
@@ -1844,7 +1880,7 @@ final class JvmCode {
 
     /**
      * Pushes e's value converted to {@code want} (in e's own type if null), and returns the type of
-     * what it pushed. As in CodeGen: a value narrowed where it is stored or passed is converted as a
+     * what it pushed. A value narrowed where it is stored or passed is converted as a
      * cast would (§41.6), and code the checker rewrote is generated in its place.
      */
     private Type value(Expr e, Type want) {
@@ -3082,7 +3118,7 @@ final class JvmCode {
         c.invokestatic(isLong ? CD_Long : CD_Integer, name, MethodTypeDesc.of(v, v, v));
     }
 
-    /** The type both operands of a comparison are converted to, as in CodeGen. */
+    /** The type both operands of a comparison are converted to. */
     private Type operandType(Type l, Type r) {
         Type common = ck.operandType(l, r);
         if (common != null && isNumber(common)) {

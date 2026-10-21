@@ -17,14 +17,11 @@ import io.github.thelinuxseal.seal.check.Checker;
 import io.github.thelinuxseal.seal.check.Diagnostic;
 import io.github.thelinuxseal.seal.check.JavaClasses;
 import io.github.thelinuxseal.seal.check.Warning;
-import io.github.thelinuxseal.seal.codegen.CodeGen;
 import io.github.thelinuxseal.seal.jvm.ClassText;
 import io.github.thelinuxseal.seal.jvm.JavaSources;
 import io.github.thelinuxseal.seal.jvm.JvmGen;
 import io.github.thelinuxseal.seal.jvm.JvmRunner;
 import io.github.thelinuxseal.seal.parser.Parser;
-import io.github.thelinuxseal.seal.vm.Trap;
-import io.github.thelinuxseal.seal.vm.VM;
 
 /**
  * Command-line driver.
@@ -36,7 +33,6 @@ import io.github.thelinuxseal.seal.vm.VM;
  *   seal build [options] PATH...   write the class files, and the runtime's, so that `java -cp DIR Main` runs
  *                                  the program (docs/JVM.md)
  *
- *   --vm              run (or dump) on Seal's own VM instead; deprecated, to be removed (docs/JVM.md §13)
  *   -d DIR            where build writes the class files (default: classes)
  *   --jar FILE        build writes a jar instead, with the runtime's classes; a program's runs with java -jar FILE
  *   --resources DIR   build puts the files of DIR beside the classes: a Fabric mod's fabric.mod.json, its assets
@@ -71,7 +67,7 @@ public final class Main {
     /** Runs the command line with the program's standard input, output and error. */
     public static int run(String[] args, java.io.InputStream in, PrintStream out, PrintStream err) throws IOException {
         if (args.length < 2) {
-            err.println("usage: seal run|check|dump|build [--main Class] [--classpath PATH] [--vm] [-d DIR] [--jar FILE]"
+            err.println("usage: seal run|check|dump|build [--main Class] [--classpath PATH] [-d DIR] [--jar FILE]"
                     + " [--resources DIR] [--library] [-WautoCast] [-WautoCastLossy] [-Wassert] [-Wall] PATH...");
             return 2;
         }
@@ -80,7 +76,6 @@ public final class Main {
         Path stdlib = defaultStdlib();
         List<Path> paths = new ArrayList<>();
         Set<Warning> warn = EnumSet.noneOf(Warning.class);
-        boolean vm = false;
         Path classDir = Path.of("classes");
         Path jar = null;
         Path resources = null;
@@ -96,9 +91,10 @@ public final class Main {
                     }
                 }
             } else if (args[i].equals("--vm")) {
-                vm = true;
+                err.println(VM_REMOVED);
+                return 2;
             } else if (args[i].equals("--jvm")) {
-                vm = false; // the default now; kept so that older command lines still work
+                // the only backend; kept so that older command lines still work
             } else if (args[i].equals("-d") && i + 1 < args.length) {
                 classDir = Path.of(args[++i]);
             } else if (args[i].equals("--jar") && i + 1 < args.length) {
@@ -147,12 +143,8 @@ public final class Main {
             }
         }
         if (javaFiles.isEmpty()) {
-            return compile(command, sources, library, warn, null, mainClass, vm, classDir, jar, resources, asLibrary,
+            return compile(command, sources, library, warn, null, mainClass, classDir, jar, resources, asLibrary,
                     classPath, in, out, err);
-        }
-        if (vm && (command.equals("run") || command.equals("dump"))) {
-            err.println("a program's .java files compile only to the JVM's classes, so --vm can't run them");
-            return 2;
         }
         if (!JavaSources.available()) {
             err.println("compiling .java files needs javac, which this Java hasn't got: run seal with a JDK's java");
@@ -172,14 +164,14 @@ public final class Main {
             if (!java.compileBefore(classPath, err)) {
                 return 1;
             }
-            return compile(command, sources, library, warn, java, mainClass, vm, classDir, jar, resources, asLibrary,
+            return compile(command, sources, library, warn, java, mainClass, classDir, jar, resources, asLibrary,
                     classPath, in, out, err);
         }
     }
 
     /** Checks the program, then runs, prints or writes it, with its .java files' classes if it has any. */
     private static int compile(String command, Map<String, String> sources, Map<String, String> library, Set<Warning> warn,
-                               JavaSources java, String mainClass, boolean vm, Path classDir, Path jar, Path resources,
+                               JavaSources java, String mainClass, Path classDir, Path jar, Path resources,
                                boolean asLibrary, List<Path> classPath, java.io.InputStream in, PrintStream out,
                                PrintStream err) throws IOException {
         List<Path> javaPath = new ArrayList<>(classPath);
@@ -204,16 +196,8 @@ public final class Main {
             err.println("a library has no main to run; build it, or dump its classes");
             return 2;
         }
-        if (!vm || command.equals("check")) {
-            return runOnJvm(command, checker, asLibrary || command.equals("check") ? null : mainClass, classDir, jar,
-                    resources, java, classPath, in, out, err);
-        }
-        if (command.equals("build")) {
-            err.println("build writes JVM class files; it has no --vm form");
-            return 2;
-        }
-        err.println(VM_DEPRECATED);
-        return runOnVm(command, checker, mainClass, in, out, err);
+        return runOnJvm(command, checker, asLibrary || command.equals("check") ? null : mainClass, classDir, jar,
+                resources, java, classPath, in, out, err);
     }
 
     /** The binary names of the program's top-level Seal classes (com.example.Main), and their files. */
@@ -229,36 +213,9 @@ public final class Main {
         return classes;
     }
 
-    /** What `--vm` prints first, on standard error. */
-    public static final String VM_DEPRECATED =
-            "warning: --vm is deprecated: the VM will be removed, and new features run only on the JVM";
-
-    /** `seal run --vm` and `dump --vm`: the program on the deprecated VM (docs/JVM.md §13). */
-    @SuppressWarnings("deprecation")
-    private static int runOnVm(String command, Checker checker, String mainClass, java.io.InputStream in,
-                               PrintStream out, PrintStream err) {
-        CodeGen.Result result = CodeGen.generate(checker, mainClass);
-        if (!result.errors().isEmpty()) {
-            result.errors().forEach(err::println);
-            return 1;
-        }
-        if (command.equals("dump")) {
-            out.print(result.program().disassemble());
-            return 0;
-        }
-        try {
-            VM machine = new VM(result.program(), out);
-            machine.setInput(in);
-            machine.setError(err);
-            long code = machine.run();
-            out.flush();
-            return (int) code;
-        } catch (Trap t) {
-            out.flush();
-            err.println(t);
-            return 70;
-        }
-    }
+    /** What `--vm` says, on standard error, now that Seal's VM is removed (docs/JVM.md §13). */
+    public static final String VM_REMOVED =
+            "--vm: Seal's VM is removed, and programs run on the JVM alone; run without --vm";
 
     /** `seal run`, `dump` and `build`: the program as JVM class files, run, printed or written (docs/JVM.md). */
     private static int runOnJvm(String command, Checker checker, String mainClass, Path classDir, Path jar, Path resources,

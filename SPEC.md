@@ -14,7 +14,7 @@ Seal combines:
 * **Value types with exact layouts** (`struct` and `unique`)
 * **Compile-time instanced generics**
 * **Optional low-level memory access** (`addr<T>`) into a bit-addressed pool; ordinary code never needs it
-* **A lightweight register-based bytecode VM**
+* **Compilation to JVM class files**, beside Java's own classes, which programs use too
 
 The central design principle is that compile-time values can participate directly in type identity.
 
@@ -1096,7 +1096,7 @@ To reach element `i` of an array of `T`:
 
 Objects do not move in the fixed pool.
 
-An address reaches only the allocation it points into (what `new` made, a variable, a static field): on the JVM, loading or storing outside it traps (docs/JVM.md §4.4), where the VM checks only against its whole pool.
+An address reaches only the allocation it points into (what `new` made, a variable, a static field): loading or storing outside it traps (docs/JVM.md §4.4).
 
 Deletion is explicit:
 
@@ -1219,7 +1219,7 @@ xs.length()
 * Methods: `length`, `isEmpty`, `fill`, `copy`, `copyOf(n)` (the first `n` elements, padded with defaults, as Java's `Arrays.copyOf`), `slice(from, to)`, `toList`, `indexOf`, `contains`, `swap`, `reverse`, `sort()` (by `<`) and `sort(Comparator<T>)` (stable). `List.toArray()` and `string.toCharArray()` give arrays, and `new string(chars)` a string.
 * An `array<T><<N>>` converts to an `array<T>` by copying, wherever one is wanted (an initializer, an argument).
 
-`array<T>` is the language's own type. On the VM it is written in the language (`stdlib/array.seal`): an `addr<T>` buffer and a length, with indexing through the `[]` and `[]=` operators (§46); on the JVM it is a Java array, or a block of storage for an array of structs (docs/JVM.md). The library's collections (`List`, `Queue`, `IntMap`, `HashMap`, `StringBuilder`) keep their elements in `array<T>`s, so they use no pointers and free nothing themselves.
+`array<T>` is the language's own type, declared in `stdlib/array.seal`: on the JVM it is a Java array, or a block of storage for an array of structs (docs/JVM.md). The library's collections (`List`, `Queue`, `IntMap`, `HashMap`, `StringBuilder`) keep their elements in `array<T>`s, so they use no pointers and free nothing themselves.
 
 ---
 
@@ -1328,7 +1328,7 @@ Class objects are freed automatically, as in Java, once nothing refers to them. 
 
 Static fields keep what they hold until the program ends. A `unique` in a static field has its destructor run after `main` returns (and after the object an instance `main()` ran on is let go, §56.1), the program's own classes first, then the library's. A program that ends through `System.exit`, an uncaught exception or a trap skips this, as Java skips `finally` blocks on exit.
 
-On the VM, each object counts the handles that refer to it and is freed when the count reaches zero: storing a handle adds a reference, overwriting or dropping one removes it, `new` and function results come with one, and a temporary is released at the end of its statement. Objects that refer to each other in a cycle are never freed there. The JVM's garbage collector (docs/JVM.md) frees them too.
+The JVM's garbage collector frees an object once nothing refers to it, objects that refer to each other in a cycle too (docs/JVM.md §6).
 
 ---
 
@@ -1336,7 +1336,7 @@ On the VM, each object counts the handles that refer to it and is freed when the
 
 Fields and methods of class objects are used through handles, as in Java: `f.count`, `f.run()`.
 
-The VM implements this with handle operations (load, store, bulk copy into and out of fixed memory, create, retain, release).
+A class object is a JVM object, and a handle a reference to it (docs/JVM.md §5).
 
 ---
 
@@ -1941,21 +1941,7 @@ Any other value joins as its type's cast to string (§46), on either side and wi
 | `string<<N>>` | inline, fixed capacity of `N` characters; never allocates  |
 | `string`      | bare shape; any number of characters, in a buffer on the heap |
 
-On the VM its fields are:
-
-```text
-struct string<<>>
-struct string<<int N>>
-{
-    int size;
-    array<char><<N>> chars<<int N>>;
-    addr<char> chars<<>>;       // a literal's characters, or the start of owner's
-    StringChars owner<<>>;      // the buffer holding them; null for a literal's
-    ...
-}
-```
-
-The compiler fills these fields when a string literal is assigned to a `string` (§56.1). On the JVM a bare `string` is a `java.lang.String` (docs/JVM.md).
+A bare `string` is a `java.lang.String`, and a `string<<N>>` keeps its length and characters inline (docs/JVM.md §8.2).
 
 ### Strings are immutable
 
@@ -1972,7 +1958,7 @@ string loud = a.toUpper();  // a new string: "HELLO"
 * `s += x` stores `s + x` in `s`. Building text a piece at a time is a `StringBuilder`'s job, as in Java (§42).
 * A string can be made from characters: `new string(chars)` from an `array<char>`, and `new string(chars, offset, count)` from part of one.
 
-On the VM, copies of a bare string share its characters, which live in a `StringChars` buffer, and are freed automatically. `s += x` adds to the buffer in place when `s` ends where the buffer's used part does, since no other string sees past its own end, so a string growing in a loop doesn't copy itself each time; otherwise it copies into a new buffer. A string made from a literal uses the literal's characters, which live in static data.
+Copies of a bare string share its characters, as Java's strings do.
 
 Characters are 16-bit (UCS-2 style). The character width must be fixed.
 
@@ -2232,9 +2218,9 @@ static int divide(int a, int b)
 * With `-Wassert`, a false condition throws an `AssertionError` with the message (any value that joins a string, §39), or else the condition as written: `uncaught AssertionError: x >= 0`, with the line of the assert.
 * The condition is a `bit`. `AssertionError` extends `RuntimeException`, so it can be caught.
 
-Faults the VM itself detects (division by zero on plain integers, a null handle, an array index out of bounds, a failed cast, `System.fail`, running out of memory or stack) are not exceptions: they stop the program at once, like Java's `Error`s, with `trap:` and the stack.
+Faults the runtime detects (division by zero on plain integers, a null handle, an array index out of bounds, a failed cast, `System.fail`, running out of memory or stack) are not exceptions: they stop the program at once, like Java's `Error`s, with `trap:` and the stack.
 
-How it works: every function has a table of code ranges, each naming code that releases what is live in that range (locals, the statement's temporaries) and then jumps to the innermost `try`'s catch tests, or passes the exception to the caller. The VM's `THROW` finds the range for the current instruction in each frame in turn.
+How it works: Seal's exceptions are Java's, so `throw`, `try` and `catch` are the JVM's own exception tables; around what makes uniques, a handler destroys those made so far (locals, the statement's temporaries), then lets the exception go on to the innermost `try`'s catch tests, or to the caller (docs/JVM.md §7).
 
 ## 41.5 Increment and decrement
 
@@ -2338,7 +2324,7 @@ The standard library is a directory of ordinary source files (`stdlib/`), compil
 
 A file imports the types it uses outside `seal.lang`: `import seal.util.List;`, or `import seal.io.*;`. `string` and `array` are built in: they are in no package, and every file sees them. A program's type in no package can't take the name of a `seal.lang` type or a built-in one, and a program can't declare a type in package `seal` or one in it (§2.4).
 
-Library classes may declare `@native("name")` methods, which are implemented by the VM. Programs cannot.
+Library classes may declare `@native("name")` methods, which the runtime's `Natives` class implements (docs/JVM.md §8.3). Programs cannot.
 
 | Type | Package | Contents |
 | ---- | ------- | -------- |
@@ -2425,12 +2411,12 @@ Files.deleteRecursively(dir);
 
 * A failure throws an `IOException`, or a `FileNotFoundException` (a subclass) for a missing file, whose message says what went wrong and with which path: `no such file or directory: ...`, `already exists: ...`, `folder is not empty: ...`, `not a folder: ...`, `permission denied: ...`.
 * Listings are sorted by name, so a program sees the same order on every system.
-* The VM can turn file access off (`VM.setFileAccess(false)`); every file operation then throws `IOException: file access is disabled`. The fuzz tests run that way.
+* Whoever runs a program can turn file access off (the runtime's `Natives.fileAccess`); every file operation then throws `IOException: file access is disabled`. The fuzz tests run that way.
 * `delete` is a keyword, but may also name a method, as Java's does: `Files.delete(path)`, `file.delete()`. With no return type, `delete() { }` is a destructor.
 
 Strings gained the methods file and path work needs: `endsWith`, `lastIndexOf(char)`, `indexOf(string)`, `contains(string)`, `split(char)`, `lines()` and `trim()`.
 
-How it works: natives take a `string` as the address of a bare string, which the VM reads using the string layout the compiler records. Text going the other way (file contents, a line, a listing, an error message) is left in the VM, and the library copies it straight into a new string's buffer.
+How it works: each `@native` method is a static method of the runtime's `Natives` class, on `java.nio.file` and Java's streams (docs/JVM.md §8.3). The text a file operation produces (file contents, a line, a listing, an error message) is kept there, and the library takes it as a new string.
 
 ## 42.2 Standard input, output and error
 
@@ -2451,7 +2437,7 @@ if (total < 0) {
 * `System.stdout` and `System.stderr` are `Writer`s: `print` and `println` for strings, chars, integers of every width, `float`, `double`, fixed point and `bit`, and any value whose type casts to string (§46), such as an enum; `printf` (§42.6); `write`, `writeLine`, `flush`. Output is written as it is printed, and reading input first shows what was printed (a prompt).
 * `Reader` and `Writer` are also the bases of `FileReader` and `FileWriter` (§42.1), so a method taking a `Writer` can write to a file or to the terminal.
 * `System.exit(code)` ends the program at once with that exit code.
-* The VM's standard input is empty unless the host gives it one (the command line passes the process's), so a program run by a test never waits for a keyboard. Unlike files, the standard streams work when file access is turned off.
+* A program's standard input is empty unless whoever runs it gives it one (the command line passes the process's), so a program run by a test never waits for a keyboard. Unlike files, the standard streams work when file access is turned off.
 
 ## 42.3 Raw assembly
 
@@ -2461,7 +2447,7 @@ if (total < 0) {
 System.rawAssembly("mov rax, 60\n" + "xor rdi, rdi\n" + "syscall");
 ```
 
-* The VM runs bytecode, not machine code, so it ignores the call: it compiles to no instructions at all.
+* The JVM runs bytecode, not machine code, so the call compiles to no instructions at all.
 * The code must be a string literal, or literals joined with `+`. A native compiler would assemble it when compiling the program, so it can't be computed while the program runs; a variable or other expression is an error.
 * Which assembly language (instruction set, syntax) it is written in, and how it may use the program's variables and registers, are left to the native compiler that adds it.
 
@@ -2584,7 +2570,6 @@ System.stdout.println(d.getDayOfWeek() + " " + names + " " + n);   // TUESDAY [A
 * **Exceptions.** Java's are classes: `catch (IOException e)` catches one by its class, and `throw` throws one; Seal's `catch (Exception e)` catches Seal's alone. `finally` runs for both. A `catch` of Java's `Throwable` doesn't catch a trap or `System.exit`. One nothing catches ends the program as a Seal exception does: `uncaught java.nio.file.NoSuchFileException: notes.txt`.
 * **Seal into Java.** A lambda goes where Java wants an interface with one abstract method, taking Java's types: `names.sort((a, b) -> a.compareTo(b))`, `new Thread(() -> ...)`. A Seal class implements a Java interface as a Seal one: `class Version implements(Comparable<Version>) { public JavaInt compareTo(Version o) { ... } }`, and Java's code calls it. A Seal class's `==`, `hash()` and cast to string are Java's `equals`, `hashCode` and `toString`, so Java's `HashMap` finds Seal keys and Java prints Seal objects as Seal does.
 * **Extending Java's classes.** A Seal class extends a public Java class that isn't final: `class Worker extends(Thread) { public void run() { ... } }`. Its constructors call one of Java's with `super(...)` (or else the one that takes nothing); its methods override Java's, which Java's code then calls (not a final one, and returning what Java's returns); `super.m()` calls the parent's own; and it reaches the parent's protected members, which other code doesn't. Its objects are Java objects, and without a cast to string of its own, its text is Java's `toString()`.
-* Java's classes run only on the JVM: with `--vm`, code using them is an error.
 
 ---
 
@@ -2910,7 +2895,7 @@ and, in the standard library only, implicit conversions. Programs make objects w
 * A conversion is not an exact match in overload resolution, so an overload taking the value's own type wins.
 * Only structs and uniques can have one: a class object would be created without `new`.
 
-Two more decorators are for the standard library's own code: `@native("name")` marks a method the runtime implements (the VM's natives, or the JVM runtime's `Natives`), and `@jvm("Strings.at")` names what stands for a method on the JVM, where its Seal body uses the VM's memory (docs/JVM.md §8). A program can use neither.
+Two more decorators are for the standard library's own code: `@native("name")` marks a method the runtime's `Natives` implements, and `@jvm("Strings.at")` names the runtime's method, or the backend's own code, that stands for a method on the JVM (docs/JVM.md §8). A program can use neither.
 
 Possible future decorators include:
 
@@ -3021,36 +3006,13 @@ Only combinations that occur in the program are generated; the compiler never ge
 
 ---
 
-# 56. Register VM
+# 56. Implementation
 
-The register VM is Seal's first backend. It is deprecated: programs compile to JVM class files by default (docs/JVM.md), and `--vm` runs one on the VM instead, after a warning. It gets no new features, and will be removed.
-
-The VM uses 64-bit arithmetic.
-
-It supports:
-
-* bit-width loads
-* bit-width stores
-* fixed memory operations
-* handle operations
-* immediate constants
-
-Handle operations include:
-
-```text
-hnew
-hget
-hset
-hresize
-hretain
-hrelease
-```
-
-The VM therefore does not need to understand generic classes.
+Seal compiles to JVM class files (docs/JVM.md). Its first backend, a register VM written in Java, ran every program the test suites hold the same as the JVM does before it was removed.
 
 ## 56.1 Implementation
 
-The compiler (`src/io/github/thelinuxseal/seal/codegen`) and VM (`.../seal/vm`), in the Java package `io.github.thelinuxseal.seal`, work as follows.
+The compiler, in the Java package `io.github.thelinuxseal.seal` (`src/io/github/thelinuxseal/seal`), checks a program (`check/`), generates its classes (`jvm/`), and runs them with the runtime's classes (`runtime/`). It works as follows.
 
 ### Running programs
 
@@ -3072,7 +3034,7 @@ The compiler (`src/io/github/thelinuxseal/seal/codegen`) and VM (`.../seal/vm`),
 
 * `main` may be inherited, as in Java: `class Main extends(App)` runs the `main()` that `App` declares (which can call methods `Main` overrides).
 * `seal run DIR` compiles every `.seal` file under `DIR` to JVM class files and runs them in the compiler's JVM (the `seal` script builds the compiler and runs `io.github.thelinuxseal.seal.Main`); `check` only reports errors; `dump` prints the class files, with the Seal line each run of instructions comes from; `seal build -d OUT DIR` writes them, with the runtime classes they use, so that `java -cp OUT Main` runs the program (docs/JVM.md). `--jar FILE` writes a jar instead, which `java -jar FILE` runs; `--resources DIR` puts DIR's files beside the classes. `--library` builds every class of the program and no `main`, for Java's code to use (a Fabric mod is one): the static fields are set up, in Seal's order, the first time Java's code touches one of its classes. The `.java` files given, or under the folders, are compiled with the program by the JDK's `javac` (docs/JAVA.md §11): those that use none of its Seal classes first, so that Seal's code uses theirs; those that use Seal's (a library's alone, such as a Fabric mod's mixins) after, against them.
-* `--vm` runs (or dumps) the program on the register VM this section describes instead, after a warning on standard error that the VM is deprecated: the JVM backend runs every program the test suites hold, the same.
+* `--vm` is refused, saying the VM is removed; `--jvm`, from when it chose the backend, is still accepted.
 * The standard library (§42) is loaded from `stdlib/` next to the compiler; `--stdlib DIR` chooses another directory and `--no-stdlib` turns it off. Without it, a minimal built-in `System.stdout` and `System.stderr` (printing numbers, characters and bits) are available.
 * Warnings are off unless asked for: each kind has a `-W` flag that turns it on, and `-Wall` turns on every kind. They go to standard error, before any errors, tagged with their flag (`File.seal:6:9: warning: [-WautoCast] ...`), and don't stop a program from running or make `check` fail. Code in the standard library gives none. The kinds:
 
@@ -3092,26 +3054,24 @@ The compiler (`src/io/github/thelinuxseal/seal/codegen`) and VM (`.../seal/vm`),
 
 ### Memory
 
-* The fixed pool holds, in order: the null byte, static fields, the heap, and the call stack. Allocations are rounded up to 64 bits and zeroed.
-* Scalar locals live in registers unless their address is taken. Aggregate locals (class values and arrays) and address-taken scalars live in the frame, in fixed memory. Frames are zeroed on entry, and locals without an initializer start at zero.
-* Loads and stores trap on the null byte, outside the pool, or at a misaligned address.
-* Array indexing is bounds-checked when the array size is known.
+* A class is a JVM class, and a class object a JVM object, which the garbage collector frees once nothing refers to it (§26.1).
+* Structs, uniques and fixed arrays live in blocks of 64-bit words, laid out as `sizeof` and addresses describe them: a local's in its frame's block, an object's struct fields in its own (docs/JVM.md §4). Scalar locals are JVM locals unless their address is taken. Locals without an initializer start at zero.
+* An address is a block and a bit offset in it. Loads and stores through one trap at the null address, outside the allocation it points into, or at a misaligned bit address.
+* Array indexing is bounds-checked.
 * `delete` of a null address does nothing. Deleting an address that was not returned by `new` traps.
-* Each class object has its own resizable storage, and counts its references (§26.1). A handle is a 32-bit table index and a 32-bit generation, so a handle to an object already freed, which only a fault in the VM could leave, traps.
 
 ### Calls and objects
 
-* Arguments are passed in registers. Aggregates are passed by address of a fresh copy, so callees cannot modify the caller's value. Aggregate return values are written to a caller-provided address.
-* Methods of classes are virtual and dispatched through per-class vtables. `super.m()` calls the parent's method directly. Methods with value binders are not virtual.
-* Calling a method on a struct stored inside a class object copies the object out, calls the method on the copy, and copies it back.
-* Construction: zero the object, construct the parent (classes, via `super(...)` or the parent's no-argument constructor), run field initializers and default-construct inline object fields in declaration order, then run the constructor body.
-* Destruction (§16): a unique's destructor body, then fields in reverse order. Inline objects are destroyed at scope exit, including on `return`, `break` and `continue`. `delete p` on an `addr<T>` destroys one `T`. A class object whose count reaches zero releases its fields, then its parent's, and is freed.
+* Arguments are passed as the JVM passes them. An aggregate argument is a fresh copy, so the callee cannot change the caller's value.
+* Methods of classes are virtual, as Java's are. `super.m()` calls the parent's method directly. Methods with value binders are not virtual: each instance is a method of its own.
+* Construction: construct the parent (classes, via `super(...)` or the parent's no-argument constructor), run field initializers and default-construct inline fields in declaration order, then run the constructor body.
+* Destruction (§16): a unique's destructor body, then fields in reverse order. Inline values are destroyed at scope exit, including on `return`, `break`, `continue` and exceptions. `delete p` on an `addr<T>` destroys one `T`.
 * `const` fields take no storage and can be read through the class name, like static fields.
 
 ### Runtime errors
 
-* Every function carries a line table: from which instruction on the code comes from which file and line. Code for an expression is attributed to the line where that expression starts, so a call written over several lines reports its first line.
-* A trap prints its message and the call stack, innermost first, each frame with its source position:
+* Class files record the source file and the line of each instruction. Code for an expression is attributed to the line where that expression starts, so a call written over several lines reports its first line.
+* A trap prints its message and the Seal methods it happened in, innermost first, each with its source position:
 
 ```text
 trap: division by zero
@@ -3120,10 +3080,6 @@ trap: division by zero
 ```
 
 * `dump` shows the same positions as `; File.seal:line` comments in the listing.
-
-### Strings
-
-* A string literal is stored into a `string` class using its fields `size` and `chars` (an array of characters, or an `addr` to them). For an array, the characters are copied in. For an `addr`, `chars` points at the literal's characters in static data, which are shared by every use of that literal, and the other fields are left at zero: `owner` is null (§39).
 
 ### Arithmetic
 
@@ -3143,7 +3099,7 @@ A precompiled generic class cannot simply assume that every possible `<<...>>` i
 
 # 58. Future Backends
 
-Seal is becoming JVM-only: programs compile to JVM class files, and the VM, deprecated, will be removed (docs/JVM.md). Other possible targets, later:
+Programs compile to JVM class files alone: Seal's first backend, a register VM, is removed (docs/JVM.md). Other possible targets, later:
 
 * ahead-of-time native code
 * C interoperability
@@ -3320,7 +3276,6 @@ The following areas remain unresolved or proposed.
 ### Strings
 
 * Whether to switch from UCS-2 to UTF-8 or UTF-16 with surrogates
-* On the VM, objects that refer to each other in a cycle are never freed; the JVM's garbage collector frees them
 
 ### Object construction
 
@@ -3332,7 +3287,6 @@ The following areas remain unresolved or proposed.
 
 ### Runtime
 
-* A way to resize class objects with resizable tails (class object storage is resizable in the VM, but there is no instruction or syntax for it yet)
 * More of the standard library (files are §42.1, standard input and output §42.2)
 
 ---
@@ -3474,15 +3428,15 @@ The language can be viewed as four layers:
               layout + overload resolution
                            |
                            v
-                    Register Bytecode
+                   JVM class files
                            |
                            v
-                         VM
+                          JVM
 ```
 
 The key boundary is between generic source code and concrete instantiated types.
 
-The VM never needs to understand generic parameters.
+The JVM never needs to understand generic parameters: each instance is a class of its own.
 
 ---
 

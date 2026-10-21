@@ -2298,21 +2298,19 @@ public final class CheckerTest {
 
     // ================================================================ helpers
 
-    @SuppressWarnings("deprecation") // the VM's code generator, deprecated, while it is kept
     private static void genErrorCount(String name, Map<String, String> files, int count) {
-        List<Diagnostic> d = io.github.thelinuxseal.seal.codegen.CodeGen.generate(Checker.analyze(files), "Main").errors();
+        List<Diagnostic> d = io.github.thelinuxseal.seal.jvm.JvmGen.generate(Checker.analyze(files), "Main").errors();
         check(d.size() == count, name + ": expected " + count + " error(s), got " + d);
     }
 
     /** Expects the program to pass checking but fail during code generation (instantiation). */
-    @SuppressWarnings("deprecation")
     private static void genError(String name, Map<String, String> files, String expected) {
         Checker c = Checker.analyze(files);
         if (!c.diagnostics().isEmpty()) {
             check(false, name + ": expected checking to pass, got " + c.diagnostics());
             return;
         }
-        List<Diagnostic> d = io.github.thelinuxseal.seal.codegen.CodeGen.generate(c, "Main").errors();
+        List<Diagnostic> d = io.github.thelinuxseal.seal.jvm.JvmGen.generate(c, "Main").errors();
         check(d.stream().anyMatch(x -> x.toString().contains(expected)),
                 name + ": expected a code generation error containing \"" + expected + "\", got\n        "
                         + d.stream().map(Diagnostic::toString).reduce((a, b) -> a + "\n        " + b).orElse("(none)"));

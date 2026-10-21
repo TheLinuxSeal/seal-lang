@@ -11,9 +11,6 @@ import java.util.List;
 import java.util.Map;
 
 import io.github.thelinuxseal.seal.check.Checker;
-import io.github.thelinuxseal.seal.codegen.CodeGen;
-import io.github.thelinuxseal.seal.vm.Trap;
-import io.github.thelinuxseal.seal.vm.VM;
 
 /**
  * End-to-end tests for language features beyond the basics in {@link RunTest}:
@@ -21,7 +18,6 @@ import io.github.thelinuxseal.seal.vm.VM;
  * into objects, nested generics, layout, and numeric edge cases.
  * `java -cp out io.github.thelinuxseal.seal.LanguageTest`.
  */
-@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class LanguageTest {
 
     private static int passed = 0;
@@ -42,8 +38,6 @@ public final class LanguageTest {
 
     public static void main(String[] args) throws IOException {
         Main.readSources(Path.of("stdlib"), LIBRARY);
-        // Probe.live(): how many class objects are live, through a native only the VM's tests declare.
-        LIBRARY.put("Probe.seal", "struct Probe { @native(\"live_objects\") public static int live() { } }");
         inheritance();
         resources();
         construction();
@@ -68,8 +62,7 @@ public final class LanguageTest {
         powersAndCompileTimeOperators();
         importsAs();
 
-        String jvm = ON_JVM.finish(failures);
-        System.out.println(passed + " passed, " + failures.size() + " failed" + jvm);
+        System.out.println(passed + " passed, " + failures.size() + " failed");
         failures.forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);
@@ -1152,18 +1145,16 @@ public final class LanguageTest {
                 {
                     static int main()
                     {
-                        int base = Probe.live();
                         Box keep = new Box(1);
                         array<Box><<2>> boxes = [keep, new Box(2)];
                         boxes = [boxes[1], null];
-                        System.stdout.print(Probe.live() - base);
                         keep = null;
-                        System.stdout.print(Probe.live() - base);
                         System.stdout.print(boxes[0].v);
+                        System.stdout.print(boxes[1] == null);
                         return 0;
                     }
                 }
-                """), "212");
+                """), "2true");
         output("joining strings with + and converting fixed strings", files("Main", """
                 struct Main
                 {
@@ -1815,17 +1806,15 @@ public final class LanguageTest {
                     }
                     static int main()
                     {
-                        int base = Probe.live();
                         try {
                             depth(2);
                         } catch (BadInput e) {
                             System.stdout.print("caught " + e.getMessage() + " " + e.code);
                         }
-                        System.stdout.print(", " + (Probe.live() - base) + " left");
                         return 0;
                     }
                 }
-                """), "+2 +1 +0 -0 -1 -2 caught bottom 42, 0 left");
+                """), "+2 +1 +0 -0 -1 -2 caught bottom 42");
         output("finally runs on every way out", files("Main", """
                 struct Main
                 {
@@ -2029,7 +2018,7 @@ public final class LanguageTest {
                 Name none = null;
                 System.stdout.print("" + (a == new Name("x")) + (a != new Name("y")) + (a == null) + (null != a) + (none == null) + (a == none));
                 """)), "truetruefalsetruetruefalse");
-        output("System.rawAssembly does nothing in the VM", files("Main", main("""
+        output("System.rawAssembly does nothing on the JVM", files("Main", main("""
                 System.stdout.print("a");
                 System.rawAssembly("mov rax, 60\\n" + "syscall");
                 System.stdout.print("b");
@@ -3672,42 +3661,19 @@ struct Main
     private record Result(String output, String trap, String errors) {
     }
 
-    /** Every program that runs here runs on the JVM too (docs/JVM.md §12). */
-    private static final OnJvm ON_JVM = new OnJvm();
-    private static String current = "";
-
     private static Result execute(Map<String, String> files) {
         Checker checker = Checker.analyze(files, LIBRARY);
         if (!checker.diagnostics().isEmpty()) {
             return new Result("", null, "errors: " + checker.diagnostics());
         }
-        CodeGen.Result gen = CodeGen.generate(checker, "Main");
-        if (!gen.errors().isEmpty()) {
-            return new Result("", null, "errors: " + gen.errors());
+        JvmRun.Outcome o = JvmRun.run(checker, "Main");
+        if (o.error() != null) {
+            return new Result("", null, o.error().startsWith("errors: ") ? o.error() : "errors: " + o.error());
         }
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        VM vm = new VM(gen.program(), new PrintStream(bytes, true, StandardCharsets.UTF_8));
-        vm.setMaxSteps(10_000_000);
-        try {
-            long code = vm.run();
-            String out = bytes.toString(StandardCharsets.UTF_8);
-            if (!OnJvm.usesVmOnly(files)) {
-                ON_JVM.compare(current, checker, "Main", java.io.InputStream.nullInputStream(), true, out, code, null);
-            }
-            return new Result(out, null, null);
-        } catch (Trap t) {
-            String out = bytes.toString(StandardCharsets.UTF_8);
-            if (!OnJvm.usesVmOnly(files)) {
-                ON_JVM.compare(current, checker, "Main", java.io.InputStream.nullInputStream(), true, out, -1, t);
-            }
-            return new Result(out, t.getMessage(), null);
-        } catch (RuntimeException e) {
-            return new Result(bytes.toString(StandardCharsets.UTF_8), "crash: " + e, null);
-        }
+        return new Result(o.output(), o.report(), null);
     }
 
     private static void output(String name, Map<String, String> files, String expected) {
-        current = name;
         Result r = execute(files);
         check(r.errors() == null && r.trap() == null && r.output().equals(expected),
                 name + "\n    expected " + show(expected) + "\n    got      " + show(r.output())
@@ -3722,7 +3688,6 @@ struct Main
     }
 
     private static void trap(String name, Map<String, String> files, String expected) {
-        current = name;
         Result r = execute(files);
         check(r.trap() != null && r.trap().contains(expected),
                 name + "\n    expected trap containing " + show(expected) + "\n    got trap " + r.trap()

@@ -10,8 +10,8 @@ import io.github.thelinuxseal.seal.check.Type.ArrayT;
 import io.github.thelinuxseal.seal.check.Type.ClassT;
 
 /**
- * Where each field of a concrete type is, in bits (§21, §22): the layout both backends use, so
- * that sizeof, alignof and addresses mean the same on the VM and the JVM (docs/JVM.md §4.1). A
+ * Where each field of a concrete type is, in bits (§21, §22): the layout the JVM's storage blocks
+ * use, so that sizeof, alignof and addresses mean what the spec says (docs/JVM.md §4.1). A
  * class starts with its parent's fields; fields are aligned to their own alignment, and a type's
  * size is rounded up to its alignment.
  */

@@ -20,7 +20,6 @@ import javax.tools.ToolProvider;
 import io.github.thelinuxseal.seal.check.Checker;
 import io.github.thelinuxseal.seal.check.Diagnostic;
 import io.github.thelinuxseal.seal.check.JavaClasses;
-import io.github.thelinuxseal.seal.codegen.CodeGen;
 import io.github.thelinuxseal.seal.jvm.JvmGen;
 import io.github.thelinuxseal.seal.jvm.JvmRunner;
 
@@ -30,7 +29,6 @@ import io.github.thelinuxseal.seal.jvm.JvmRunner;
  * classes, and those of a class folder compiled here, which also holds the Java program the first
  * test compares with. Run from the project root: `java -cp out io.github.thelinuxseal.seal.JavaInteropTest`.
  */
-@SuppressWarnings("deprecation") // the VM's code generator, deprecated, refuses Java's classes
 public final class JavaInteropTest {
 
     private static int passed = 0;
@@ -174,7 +172,6 @@ public final class JavaInteropTest {
             javaArrays();
             imports();
             compileErrors();
-            notOnTheVm();
         } finally {
             deleteRecursively(demo);
         }
@@ -815,13 +812,6 @@ public final class JavaInteropTest {
                 "Java's java.time.LocalDate has no public constructor; its static methods make them: LocalDate.now(...)");
         compileError("a switch on a JavaInt needs a cast", "", "switch (JavaInt.of(1)) { default -> { } }",
                 "not JavaInt; JavaInt is Java's int, which a cast makes Seal's: switch ((int)x)");
-    }
-
-    private static void notOnTheVm() {
-        Map<String, String> files = program("java.time.LocalDate.now();", "import seal.java.*;");
-        List<Diagnostic> errors = CodeGen.generate(Checker.analyze(files, LIBRARY), "Main").errors();
-        check(errors.stream().anyMatch(d -> d.message().contains("code using Java's classes runs only on the JVM: the VM is"
-                + " deprecated, and gets no new features; run without --vm")), "the VM refuses Java's classes: " + errors);
     }
 
     // ================================================================ helpers

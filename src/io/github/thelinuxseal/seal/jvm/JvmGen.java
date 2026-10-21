@@ -57,7 +57,7 @@ import io.github.thelinuxseal.seal.check.Type.*;
  * library's are in {@link #LIBRARY_PACKAGE}. The root, Seal's Object, is an interface every class
  * implements, so that exceptions can extend Java's RuntimeException (§7). A string is a
  * java.lang.String and an array<T> a Java array; their methods are static methods taking them
- * first. As CodeGen does for the VM, it generates what the program reaches from main.
+ * first. It generates what the program reaches from main.
  *
  * <p>It works in two passes: first every method the program reaches is generated once, which
  * finds what it calls and the classes it uses and whether it can be generated; then each class is
@@ -120,6 +120,16 @@ public final class JvmGen {
     }
 
     /**
+     * As above, for the tests, whose generated programs may never end: each round of a loop counts,
+     * and past {@link io.github.thelinuxseal.seal.runtime.Natives#stepLimit} rounds the program stops.
+     */
+    public static Result generateCountingSteps(Checker checker, String mainClass) {
+        JvmGen gen = new JvmGen(checker);
+        gen.countSteps = true;
+        return gen.run(mainClass);
+    }
+
+    /**
      * Generates a library: every class of the program, for Java's code to use, with no main
      * (docs/JAVA.md §5, T5), as a Fabric mod is, whose class Fabric creates. The static fields are
      * set up, in Seal's order, the first time Java's code touches one of the program's classes;
@@ -158,7 +168,7 @@ public final class JvmGen {
     /** The most bits a block holds, as it is addressed by int offsets (§4.1). */
     static final long MAX_BLOCK_BITS = Integer.MAX_VALUE;
 
-    /** A block's size or an offset in it, which must fit an int, as the VM checks its own. */
+    /** A block's size or an offset in it, which must fit an int. */
     static long blockBits(long bits, Pos at) {
         if (bits > MAX_BLOCK_BITS) {
             throw new Unsupported(at, "offset or size " + bits + " is too large: a block of values on the JVM holds at most "
@@ -248,6 +258,8 @@ public final class JvmGen {
     final Map<FnKey, Checker.LambdaInfo> lambdaInfos = new HashMap<>();
     /** False while methods are first generated, to find what they use; true while classes are written. */
     boolean writing;
+    /** Whether each round of a loop calls the runtime's Natives.step (generateCountingSteps). */
+    boolean countSteps;
     JClass mainClass;
 
     private JvmGen(Checker ck) {
@@ -598,7 +610,7 @@ public final class JvmGen {
         return k.cls().file;
     }
 
-    /** What stops a program from creating its main class for an instance main(), as CodeGen says it. */
+    /** What stops a program from creating its main class for an instance main(). */
     private static String cannotCreate(ClassInfo c, Checker.EntryPoint ep) {
         if (c.kind == Kind.ENUM) {
             return c.name + " is an enum, whose only values are its constants";
@@ -643,7 +655,7 @@ public final class JvmGen {
             if (ret instanceof VoidT) {
                 c.iconst_0();
             } else if (kind(ret) == TypeKind.LONG) {
-                c.l2i(); // as the VM's runner takes the low 32 bits of main's result
+                c.l2i(); // the low 32 bits of main's result are the exit code
             }
             if (fini != null) {
                 invoke(c, fini); // uniques in static fields, destroyed as main returns (§26.1)
@@ -804,6 +816,24 @@ public final class JvmGen {
             return;
         }
         cb.withMethodBody(r.name(), r.type(), flags, c -> new JvmCode(this, c, k, r, found).generate());
+    }
+
+    /**
+     * A method as an error in one of its instances names it, with its package and what the
+     * instance binds: seal.io.Writer.println[T=handle<Box>], Pair<handle<Doc>>.less, Math.ceil[M=8, N=0].
+     */
+    String instanceName(FnKey k) {
+        String owner = k.owner() != null
+                ? k.owner().cls().pkg.isEmpty() || k.owner().cls().pkg.equals(Checker.LANG) ? k.owner().toString()
+                        : k.owner().cls().pkg + "." + k.owner()
+                : k.cls().pkg.equals(Checker.LANG) ? k.cls().name : k.cls().qualifiedName();
+        String binders = k.binders().isEmpty() ? "" : k.binders().entrySet().stream()
+                .map(e -> e.getKey() + "=" + e.getValue()).sorted().collect(Collectors.joining(", ", "[", "]"));
+        return switch (k.kind()) {
+            case "method" -> owner + "." + ((Method) k.member().member).name() + binders;
+            case "ctor" -> owner + ".new" + binders;
+            default -> describe(k);
+        };
     }
 
     String describe(FnKey k) {
@@ -992,6 +1022,32 @@ public final class JvmGen {
         }
         String field = name.substring(space + 1);
         return name.substring(0, space) + Character.toUpperCase(field.charAt(0)) + field.substring(1);
+    }
+
+    /**
+     * An override must return what the method it replaces returns, as each instance's types show
+     * (a parent's T is known only there): a virtual call expects the parent's type.
+     */
+    private void checkOverrides(ClassT t) {
+        for (MemberInfo m : t.cls().all) {
+            if (!(m.member instanceof Method md) || md.modifiers().isStatic() || !m.existsIn(t.header())
+                    || Checker.isNative(md) || hasBinders(md) || md.body() == null) {
+                continue;
+            }
+            List<Type> params = ck.paramTypes(t, m, Map.of());
+            Type mine = ck.returnTypeOf(t, m, Map.of());
+            for (ClassT p = ck.parentType(t); p != null && !Checker.isJavaType(p.cls()); p = ck.parentType(p)) {
+                for (MemberInfo pm : p.cls().all) {
+                    if (pm.member instanceof Method pmd && pmd.name().equals(md.name()) && !pmd.modifiers().isStatic()
+                            && pm.existsIn(p.header()) && !hasBinders(pmd) && ck.paramTypes(p, pm, Map.of()).equals(params)
+                            && !ck.returnTypeOf(p, pm, Map.of()).equals(mine)) {
+                        errors.add(new Diagnostic(t.cls().file, md.pos().line(), md.pos().column(), t + "." + md.name()
+                                + " returns " + mine + ", but it overrides " + p + "." + md.name() + ", which returns "
+                                + ck.returnTypeOf(p, pm, Map.of()) + "; an override must return the same type"));
+                    }
+                }
+            }
+        }
     }
 
     /** Methods with value binders or type parameters get a copy per use, so they aren't virtual. */
@@ -1283,6 +1339,7 @@ public final class JvmGen {
                 // Its signature uses what isn't on the JVM yet, so no code here can call it.
             }
         }
+        checkOverrides(t);
         if (!jc.isInterface && !c.isRoot()) {
             bridges(jc, t);
         }

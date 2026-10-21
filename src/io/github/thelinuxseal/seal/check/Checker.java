@@ -560,7 +560,7 @@ public final class Checker {
         return nativeName(md) != null;
     }
 
-    /** The VM function implementing a `@native("name")` method, or null. */
+    /** The runtime's function (Natives) implementing a `@native("name")` method, or null. */
     public static String nativeName(Method md) {
         for (Decorator d : md.modifiers().decorators()) {
             if (d.name().equals("native") && d.args().size() == 1 && d.args().get(0) instanceof StringLit s) {
@@ -584,10 +584,7 @@ public final class Checker {
         return null;
     }
 
-    /**
-     * A library method the JVM's runtime does and that has no Seal body, which runs only on the JVM:
-     * the VM, deprecated, gets no new features (docs/JAVA.md §0).
-     */
+    /** A library method the JVM's runtime does, and that has no Seal body. */
     public static boolean isJvmOnly(Method md) {
         return md.body() == null && jvmName(md) != null;
     }
@@ -4319,7 +4316,7 @@ public final class Checker {
                         }
                     }
                     case Method md when isNative(md) -> {
-                        // Implemented by the VM.
+                        // Implemented by the runtime's Natives.
                     }
                     case Method md -> {
                         Env menv = env.copy();
@@ -4590,7 +4587,7 @@ public final class Checker {
         };
     }
 
-    /** Whether a call is to System.rawAssembly (§42.3), which generates no code in the VM. */
+    /** Whether a call is to System.rawAssembly (§42.3), which generates no code. */
     public boolean isRawAssembly(CallInfo ci) {
         if (ci == null || ci.member() == null || !(ci.member().member instanceof Method md)
                 || !md.name().equals("rawAssembly") || !md.modifiers().isStatic()) {

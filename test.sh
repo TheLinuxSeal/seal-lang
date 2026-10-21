@@ -13,10 +13,8 @@ suites=(
     io.github.thelinuxseal.seal.lexer.LexerTest
     io.github.thelinuxseal.seal.parser.ParserTest
     io.github.thelinuxseal.seal.check.CheckerTest
-    io.github.thelinuxseal.seal.vm.VMTest
     io.github.thelinuxseal.seal.RunTest
     io.github.thelinuxseal.seal.LanguageTest
-    io.github.thelinuxseal.seal.RefCountTest
     io.github.thelinuxseal.seal.FixedPointTest
     io.github.thelinuxseal.seal.StdlibTest
     io.github.thelinuxseal.seal.CliTest

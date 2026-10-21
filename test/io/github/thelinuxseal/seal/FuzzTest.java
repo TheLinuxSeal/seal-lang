@@ -1,8 +1,6 @@
 package io.github.thelinuxseal.seal;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -15,44 +13,36 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import io.github.thelinuxseal.seal.check.Checker;
-import io.github.thelinuxseal.seal.codegen.CodeGen;
-import io.github.thelinuxseal.seal.vm.Trap;
-import io.github.thelinuxseal.seal.vm.VM;
 
 /**
  * Mutation fuzzing of the whole pipeline. Programs from examples/ and
  * test/fuzz/ are mutated (statements duplicated, deleted, wrapped in loops
  * and blocks; numbers and operators changed) and every mutant that compiles
- * is run. Invariants:
+ * is run, its loops counted, so that one that never ends stops. Invariants:
  *
  * <ol>
- *   <li>no internal crash in the checker, code generator or VM;</li>
- *   <li>a program that finishes leaves no live objects (programs whose
- *       unmutated version leaves some, through cycles or statics, are skipped);</li>
- *   <li>no "stale handle" in a program that never deletes (an object was
- *       freed while still referenced);</li>
- *   <li>no low-level memory errors in a program that doesn't use addr.</li>
+ *   <li>no internal crash in the checker or the JVM backend, and classes the
+ *       bytecode verifier accepts;</li>
+ *   <li>no fault saying the generated classes are wrong (a method or field
+ *       the JVM can't find, as the verifier doesn't see);</li>
+ *   <li>no fault of an address in a program that doesn't use addr;</li>
+ *   <li>an end, by the step limit at the latest.</li>
  * </ol>
  *
  * `java -cp out io.github.thelinuxseal.seal.FuzzTest [rounds] [seed]`. The default (2 rounds, about 80 mutants per
  * program) keeps ./test.sh quick; use more rounds and other seeds for longer runs.
  */
-@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class FuzzTest {
 
     private record Program(String name, Map<String, String> files, List<String> mutable) {
     }
 
-    private record Outcome(String error, String trap, int live, boolean compiled, Checker checker, String output,
-                           long exit, Trap fault) {
-        Outcome(String error, String trap, int live, boolean compiled) {
-            this(error, trap, live, compiled, null, "", 0, null);
-        }
+    /** How a program went: an internal problem; else, if it compiled, the fault that stopped it, if any. */
+    private record Outcome(String error, boolean compiled, String fault) {
     }
 
-    /** A share of the mutants runs on the JVM too, and must end as on the VM (docs/JVM.md §12). */
-    private static final OnJvm ON_JVM = new OnJvm();
-    private static final int JVM_EVERY = Integer.getInteger("seal.jvm.every", 4);
+    /** Rounds of loops a mutant may run: enough for the heaviest example, and mutants that loop forever still stop. */
+    private static final long STEPS = 20_000_000;
 
     private static final String[] NUMBERS = {"0", "1", "2", "3", "7", "8", "-1", "64", "100"};
     private static final String[][] SWAPS = {{"+", "-"}, {"<", "<="}, {">", ">="}, {"==", "!="}, {"&&", "||"}, {"+=", "-="}};
@@ -83,7 +73,7 @@ public final class FuzzTest {
         List<String> failures = new ArrayList<>();
         for (Program p : programs) {
             Outcome base = run(p.files(), library);
-            if (!base.compiled() || base.error() != null || base.trap() != null || base.live() != 0) {
+            if (!base.compiled() || base.error() != null || base.fault() != null) {
                 skippedBaselines++;
                 continue;
             }
@@ -99,10 +89,6 @@ public final class FuzzTest {
                 Outcome o = run(files, library);
                 if (o.compiled()) {
                     compiled++;
-                    if (compiled % JVM_EVERY == 0 && o.checker() != null) {
-                        ON_JVM.compare(p.name() + ", a mutant of " + target + ":\n" + mutated, o.checker(), "Main",
-                                java.io.InputStream.nullInputStream(), false, o.output(), o.exit(), o.fault());
-                    }
                 }
                 String problem = judge(o, mutated);
                 if (problem != null && failures.size() < 20) {
@@ -112,11 +98,8 @@ public final class FuzzTest {
                 }
             }
         }
-        List<String> jvmFailures = new ArrayList<>();
-        String jvm = ON_JVM.finish(jvmFailures);
-        failures.addAll(jvmFailures);
         System.out.println((runs - failures.size()) + " passed, " + failures.size() + " failed"
-                + "  (" + runs + " mutants, " + compiled + " compiled and ran, " + skippedBaselines + " programs skipped)" + jvm);
+                + "  (" + runs + " mutants, " + compiled + " compiled and ran, " + skippedBaselines + " programs skipped)");
         failures.stream().limit(5).forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);
@@ -126,66 +109,40 @@ public final class FuzzTest {
     /** Null if the outcome is acceptable, otherwise a description of the broken invariant. */
     private static String judge(Outcome o, String source) {
         if (o.error() != null) {
-            return "internal crash: " + o.error();
+            return "internal problem: " + o.error();
         }
-        if (!o.compiled()) {
+        if (!o.compiled() || o.fault() == null) {
             return null;
         }
-        boolean deletes = source.contains("delete ");
-        boolean lowLevel = source.contains("addr<") || deletes;
-        if (o.trap() != null) {
-            if (o.trap().startsWith("stale handle") && !deletes) {
-                return "an object was freed while still referenced: " + o.trap();
-            }
-            boolean memory = o.trap().startsWith("null address") || o.trap().contains("outside memory")
-                    || o.trap().startsWith("misaligned") || o.trap().contains("not allocated")
-                    || o.trap().contains("outside the object");
-            if (memory && !lowLevel) {
-                return "memory error without addr: " + o.trap();
-            }
-            return null;
+        if (o.fault().startsWith("the generated classes are wrong")) {
+            return o.fault();
         }
-        if (o.live() != 0) {
-            return o.live() + " objects leaked";
+        boolean lowLevel = source.contains("addr<") || source.contains("delete ");
+        boolean memory = o.fault().startsWith("null address") || o.fault().contains("outside memory")
+                || o.fault().contains("outside its allocation") || o.fault().startsWith("misaligned")
+                || o.fault().contains("not allocated") || o.fault().contains("different allocations");
+        if (memory && !lowLevel) {
+            return "an address fault without addr: " + o.fault();
         }
         return null;
     }
 
     private static Outcome run(Map<String, String> files, Map<String, String> library) {
+        Checker c;
         try {
-            Checker c = Checker.analyze(files, library);
-            if (!c.diagnostics().isEmpty()) {
-                return new Outcome(null, null, 0, false);
-            }
-            CodeGen.Result g = CodeGen.generate(c, "Main");
-            if (!g.errors().isEmpty()) {
-                return new Outcome(null, null, 0, false);
-            }
-            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
-            VM vm = new VM(g.program(), new PrintStream(bytes, true, java.nio.charset.StandardCharsets.UTF_8));
-            vm.setMaxSteps(40_000_000);   // enough for the heaviest example; mutants that loop forever still stop
-            vm.setFileAccess(false);      // a mutant must not write or delete real files
-            vm.setError(new PrintStream(OutputStream.nullOutputStream()));
-            try {
-                long code = vm.run();
-                return new Outcome(null, null, vm.liveObjects(), true, c,
-                        bytes.toString(java.nio.charset.StandardCharsets.UTF_8), code, null);
-            } catch (Trap t) {
-                return new Outcome(null, t.getMessage(), vm.liveObjects(), true, c,
-                        bytes.toString(java.nio.charset.StandardCharsets.UTF_8), -1, t);
-            }
+            c = Checker.analyze(files, library);
         } catch (Throwable t) {
-            StringBuilder where = new StringBuilder(t.toString());
-            for (StackTraceElement e : t.getStackTrace()) {
-                if (e.getClassName().startsWith("lang.")) {
-                    where.append("\n    at ").append(e);
-                    if (where.length() > 600) {
-                        break;
-                    }
-                }
-            }
-            return new Outcome(where.toString(), null, 0, false);
+            return new Outcome("the checker crashed: " + JvmRun.stack(t), false, null);
         }
+        if (!c.diagnostics().isEmpty()) {
+            return new Outcome(null, false, null);
+        }
+        // A mutant must not write or delete real files.
+        JvmRun.Outcome o = JvmRun.run(c, "Main", java.io.InputStream.nullInputStream(), false, STEPS);
+        if (o.error() != null && o.error().startsWith("errors: ")) {
+            return new Outcome(null, false, null); // what the backend reports, as instantiating a generic with a type it can't take
+        }
+        return new Outcome(o.error(), true, o.fault());
     }
 
     /** One random mutation of a statement line, a number or an operator; null if none applies. */

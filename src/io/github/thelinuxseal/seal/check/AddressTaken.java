@@ -8,7 +8,7 @@ import io.github.thelinuxseal.seal.ast.Ast.*;
 /**
  * Finds local variables whose address is taken with `*x` (directly, or of a
  * field or element inside them). Those must live in frame memory; other
- * scalar locals can live in registers (on the VM) or JVM locals.
+ * scalar locals can be JVM locals.
  */
 public final class AddressTaken {
 

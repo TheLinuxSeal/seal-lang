@@ -1,11 +1,8 @@
 package io.github.thelinuxseal.seal;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -14,19 +11,13 @@ import java.util.Map;
 import java.util.Random;
 
 import io.github.thelinuxseal.seal.check.Checker;
-import io.github.thelinuxseal.seal.codegen.CodeGen;
-import io.github.thelinuxseal.seal.jvm.JvmGen;
-import io.github.thelinuxseal.seal.jvm.JvmRunner;
-import io.github.thelinuxseal.seal.vm.VM;
 
 /**
  * Differential test for fixed-point types (§37.1): random formats and values
- * are run through the compiler, on the VM and on the JVM (docs/JVM.md §12),
- * and every result is compared with a reference implementation using exact
- * integer arithmetic.
+ * are run through the compiler, and every result is compared with a reference
+ * implementation using exact integer arithmetic.
  * `java -cp out io.github.thelinuxseal.seal.FixedPointTest`.
  */
-@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class FixedPointTest {
 
     private static final int CASES = 600;
@@ -108,15 +99,13 @@ public final class FixedPointTest {
                     Math.min(5, checker.diagnostics().size())));
             System.exit(1);
         }
-        CodeGen.Result gen = CodeGen.generate(checker, "Main");
-        if (!gen.errors().isEmpty()) {
+        JvmRun.Outcome o = JvmRun.run(checker, "Main");
+        if (o.error() != null || o.fault() != null) {
             System.out.println("0 passed, 1 failed");
-            System.out.println("FAIL: code generation: " + gen.errors());
+            System.out.println("FAIL: the generated program: " + o);
             System.exit(1);
         }
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        new VM(gen.program(), new PrintStream(bytes, true, StandardCharsets.UTF_8)).run();
-        String[] lines = bytes.toString(StandardCharsets.UTF_8).split("\n", -1);
+        String[] lines = o.output().split("\n", -1);
 
         int passed = 0;
         List<String> failures = new ArrayList<>();
@@ -128,31 +117,7 @@ public final class FixedPointTest {
                 failures.add(described.get(i) + "\n    expected " + expected.get(i) + "\n    got      " + got);
             }
         }
-
-        // The same program on the JVM, each line against the same reference.
-        int sameOnJvm = 0;
-        JvmGen.Result jvm = JvmGen.generate(checker, "Main");
-        List<String> problems = jvm.errors().isEmpty() ? JvmRunner.verify(jvm) : List.of();
-        if (!jvm.errors().isEmpty() || !problems.isEmpty()) {
-            failures.add("on the JVM: " + (jvm.errors().isEmpty() ? "verification fails: " + problems : jvm.errors()));
-        } else {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            JvmRunner.Outcome o = JvmRunner.run(jvm, new PrintStream(out, true, StandardCharsets.UTF_8),
-                    new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8));
-            String[] jvmLines = out.toString(StandardCharsets.UTF_8).split("\n", -1);
-            if (o.fault() != null) {
-                failures.add("on the JVM: " + JvmRunner.describe(o.fault()));
-            }
-            for (int i = 0; i < CASES; i++) {
-                String got = i < jvmLines.length ? jvmLines[i] : "(missing)";
-                if (got.equals(expected.get(i))) {
-                    sameOnJvm++;
-                } else {
-                    failures.add("on the JVM: " + described.get(i) + "\n    expected " + expected.get(i) + "\n    got      " + got);
-                }
-            }
-        }
-        System.out.println(passed + " passed, " + failures.size() + " failed  (on the JVM: " + sameOnJvm + " the same)");
+        System.out.println(passed + " passed, " + failures.size() + " failed");
         failures.stream().limit(10).forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);

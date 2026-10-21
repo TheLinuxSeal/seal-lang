@@ -12,12 +12,8 @@ import java.util.Map;
 
 import io.github.thelinuxseal.seal.check.Checker;
 import io.github.thelinuxseal.seal.check.Diagnostic;
-import io.github.thelinuxseal.seal.codegen.CodeGen;
-import io.github.thelinuxseal.seal.vm.Trap;
-import io.github.thelinuxseal.seal.vm.VM;
 
 /** Tests for the standard library, run from the project root: `java -cp out io.github.thelinuxseal.seal.StdlibTest`. */
-@SuppressWarnings("deprecation") // runs programs on the deprecated VM too, while it is kept
 public final class StdlibTest {
 
     private static int passed = 0;
@@ -27,8 +23,6 @@ public final class StdlibTest {
     public static void main(String[] args) throws IOException {
         library = new LinkedHashMap<>();
         Main.readSources(Path.of("stdlib"), library);
-        // Probe.live(): how many class objects are live, through a native only the VM's tests declare.
-        library.put("Probe.seal", "struct Probe { @native(\"live_objects\") public static int live() { } }");
 
         strings();
         integers();
@@ -52,8 +46,7 @@ public final class StdlibTest {
         files();
         filesOutsideTheProgram();
 
-        String jvm = ON_JVM.finish(failures);
-        System.out.println(passed + " passed, " + failures.size() + " failed" + jvm);
+        System.out.println(passed + " passed, " + failures.size() + " failed");
         failures.forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);
@@ -259,20 +252,16 @@ public final class StdlibTest {
             files.put("Main.seal", "import seal.io.FileWriter; struct Main { static int main() { Keep.w = new FileWriter(\"" + f
                     + "\"); Keep.w.write(\"still written\"); return 0; } }");
             Checker checker = Checker.analyze(files, library);
-            VM vm = new VM(CodeGen.generate(checker, "Main").program(), new PrintStream(new ByteArrayOutputStream()));
-            vm.run();
-            check(java.nio.file.Files.readString(f).equals("still written"),
-                    "a writer left open when the program ends is written out");
+            JvmRun.Outcome o = JvmRun.run(checker, "Main");
+            check(o.error() == null && java.nio.file.Files.readString(f).equals("still written"),
+                    "a writer left open when the program ends is written out " + o);
 
             files.put("Main.seal", "import seal.io.*; struct Main { static int main() { try { Files.writeString(\"" + dir.resolve("no.txt")
                     + "\", \"x\"); } catch (IOException e) { System.stdout.print(e.getMessage()); } return 0; } }");
             checker = Checker.analyze(files, library);
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            vm = new VM(CodeGen.generate(checker, "Main").program(), new PrintStream(out, true, StandardCharsets.UTF_8));
-            vm.setFileAccess(false);
-            vm.run();
-            check(out.toString(StandardCharsets.UTF_8).equals("file access is disabled")
-                    && !java.nio.file.Files.exists(dir.resolve("no.txt")), "file access can be turned off: " + out);
+            o = JvmRun.run(checker, "Main", java.io.InputStream.nullInputStream(), false, Long.MAX_VALUE);
+            check(o.output().equals("file access is disabled") && !java.nio.file.Files.exists(dir.resolve("no.txt")),
+                    "file access can be turned off: " + o);
         } finally {
             try (java.util.stream.Stream<Path> s = java.nio.file.Files.walk(dir)) {
                 for (Path p : s.sorted(java.util.Comparator.reverseOrder()).toList()) {
@@ -761,31 +750,7 @@ public final class StdlibTest {
                 fill(a);
                 System.stdout.println(b.size());
                 """, "2\n5\n");
-        run("lists of class objects release them when removed or cleared", """
-                List<Res> xs = new List();
-                xs.add(new Res(1));
-                xs.add(new Res(2));
-                xs.add(new Res(3));
-                int start = Probe.live();
-                xs.removeAt(0);
-                System.stdout.print(start - Probe.live());
-                xs.removeLast();
-                System.stdout.print(start - Probe.live());
-                xs.clear();
-                System.stdout.println(start - Probe.live());
-                """, "123\n");
-        run("queues and maps release what they remove", """
-                Queue<Res> q = new Queue();
-                IntMap<Res> m = new IntMap();
-                for (int i = 0; i < 20; i++) { q.push(new Res(i)); m.put(i, new Res(i)); }
-                int start = Probe.live();
-                for (int i = 0; i < 5; i++) { q.pop(); m.remove(i); }
-                System.stdout.print(start - Probe.live());
-                q.clear();
-                m.clear();
-                System.stdout.println(" " + (start - Probe.live()));
-                """, "10 40\n");
-        run("collections and strings leave nothing behind", """
+        run("collections of strings and lists of lists", """
                 List<string> words = new List();
                 for (int i = 0; i < 50; i += 1) { words.add(Integer.toString(i)); }
                 Queue<string> q = new Queue();
@@ -830,12 +795,8 @@ public final class StdlibTest {
                 name + "\n    expected a compile error containing " + show(expected) + "\n    got " + r);
     }
 
-    private record Result(String output, String trap, String errors, int live) {
+    private record Result(String output, String trap, String errors) {
     }
-
-    /** Every program that runs here runs on the JVM too (docs/JVM.md §12). */
-    private static final OnJvm ON_JVM = new OnJvm();
-    private static String current = "";
 
     private static Result execute(String body) {
         Map<String, String> files = new LinkedHashMap<>();
@@ -852,46 +813,25 @@ public final class StdlibTest {
         files.put("Main.seal", Imports.of(main) + main);
         Checker checker = Checker.analyze(files, library);
         if (!checker.diagnostics().isEmpty()) {
-            return new Result("", null, "error: " + checker.diagnostics(), 0);
+            return new Result("", null, "error: " + checker.diagnostics());
         }
-        CodeGen.Result gen = CodeGen.generate(checker, "Main");
-        if (!gen.errors().isEmpty()) {
-            return new Result("", null, "error: " + gen.errors(), 0);
+        JvmRun.Outcome o = JvmRun.run(checker, "Main");
+        if (o.error() != null) {
+            return new Result("", null, "error: " + o.error());
         }
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        VM vm = new VM(gen.program(), new PrintStream(bytes, true, StandardCharsets.UTF_8));
-        vm.setMaxSteps(50_000_000);
-        try {
-            long code = vm.run();
-            String text = bytes.toString(StandardCharsets.UTF_8);
-            if (!OnJvm.usesVmOnly(files)) {
-                ON_JVM.compare(current, checker, "Main", java.io.InputStream.nullInputStream(), true, text, code, null);
-            }
-            return new Result(text, null, null, vm.liveObjects());
-        } catch (Trap t) {
-            String text = bytes.toString(StandardCharsets.UTF_8);
-            if (!OnJvm.usesVmOnly(files)) {
-                ON_JVM.compare(current, checker, "Main", java.io.InputStream.nullInputStream(), true, text, -1, t);
-            }
-            return new Result(text, t.getMessage(), null, vm.liveObjects());
-        } catch (RuntimeException e) {
-            return new Result(bytes.toString(StandardCharsets.UTF_8), "crash: " + e, null, vm.liveObjects());
-        }
+        return new Result(o.output(), o.fault(), null);
     }
 
     private static void run(String name, String body, String expected) {
-        current = name;
         Result r = execute(body);
-        check(r.errors() == null && r.trap() == null && r.output().equals(expected) && r.live() == 0,
+        check(r.errors() == null && r.trap() == null && r.output().equals(expected),
                 name + "\n    expected " + show(expected) + "\n    got      " + show(r.output())
-                        + (r.live() == 0 ? "" : "\n    " + r.live() + " objects still alive at the end (a leak)")
                         + (r.trap() == null ? "" : "\n    trap     " + r.trap())
                         + (r.errors() == null ? "" : "\n    " + r.errors()));
     }
 
     /** Expects an uncaught exception with this report, or ("error:") a compile error. */
     private static void trap(String name, String body, String expected) {
-        current = name;
         Result r = execute(body);
         boolean ok = expected.startsWith("error:") ? r.errors() != null : expected.equals(r.trap());
         check(ok, name + "\n    expected " + show(expected) + "\n    got      output " + show(r.output())

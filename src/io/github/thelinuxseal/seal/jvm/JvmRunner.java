@@ -91,13 +91,13 @@ public final class JvmRunner {
     }
 
     /**
-     * A fault as the VM reports a trap: what happened, then the Seal methods it happened in, from
+     * A fault as Seal reports one: what happened, then the Seal methods it happened in, from
      * the line numbers the class files carry.
      */
     public static String describe(Throwable t) {
         String seal = sealException(t.getClass());
         if (seal != null) {
-            // A Seal exception nothing caught (§41.4): its class and message, as the VM reports it.
+            // A Seal exception nothing caught (§41.4): its class and message.
             String message = t.getMessage();
             return frames(t, new StringBuilder("uncaught " + seal + (message == null || message.isEmpty() ? "" : ": " + message)));
         }
@@ -113,7 +113,7 @@ public final class JvmRunner {
             case StackOverflowError s -> "call stack overflow";
             case LinkageError l -> "the generated classes are wrong (a fault in the JVM backend): " + l;
             case NullPointerException n -> "null handle";
-            case ClassCastException cc -> "cannot cast: " + cc.getMessage();
+            case ClassCastException cc -> castMessage(cc.getMessage());
             default -> t.toString();
         };
         return frames(t, new StringBuilder("trap: " + what));
@@ -146,6 +146,14 @@ public final class JvmRunner {
             return !(seal && i == 0 && raised);
         }
         return true;
+    }
+
+    /** A failed cast, in Seal's names: "cannot cast Box to Other", from the JVM's "class Box cannot be cast to class Other (...)". */
+    private static String castMessage(String jvm) {
+        java.util.regex.Matcher m = jvm == null ? null
+                : java.util.regex.Pattern.compile("class (\\S+) cannot be cast to class (\\S+)").matcher(jvm);
+        return m != null && m.find() ? "cannot cast " + JvmGen.sealName(m.group(1)) + " to " + JvmGen.sealName(m.group(2))
+                : "cannot cast: " + jvm;
     }
 
     /** The Seal name of a Seal exception's class, or null for a Java one: io.github...lang.IllegalStateException is IllegalStateException. */
