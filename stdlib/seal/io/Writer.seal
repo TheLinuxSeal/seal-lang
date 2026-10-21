@@ -10,8 +10,7 @@ package seal.io;
 // Writing to a closed Writer throws an IOException. Close it with close(), or
 // with try-with-resources; anything still open when the program ends is
 // written out then.
-class Writer implements(AutoCloseable)
-{
+class Writer implements(AutoCloseable) {
     int<<64>> file;   // the VM's stream, 0 once closed
 
     private<FileWriter, System> new(int<<64>> file) { this.file = file; }
@@ -70,14 +69,12 @@ class Writer implements(AutoCloseable)
     public <A, B, C, D, E, F, G, H> void printf(string fmt, A a, B b, C c, D d, E e, F f, G g, H h) { write(string.format(fmt, a, b, c, d, e, f, g, h)); }
 
     /** Makes sure what was written has reached the file or terminal. */
-    public void flush()
-    {
+    public void flush() {
         if (file != 0) { Files.check(Files.nFlush(file)); }
     }
 
     /** Writes out what is buffered and closes the stream; closing it again does nothing. */
-    public void close()
-    {
+    public void close() {
         if (file != 0) {
             Files.nClose(file);
             file = 0;

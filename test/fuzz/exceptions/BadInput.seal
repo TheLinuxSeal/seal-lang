@@ -1,5 +1,4 @@
-class BadInput extends(IllegalArgumentException)
-{
+class BadInput extends(IllegalArgumentException) {
     public int code;
     public new(string m, int c) { super(m); code = c; }
 }

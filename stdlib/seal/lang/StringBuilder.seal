@@ -10,8 +10,7 @@ package seal.lang;
 //
 // append takes everything print does (strings, characters, numbers, bits, and
 // any value that casts to string) and returns the builder, so calls chain.
-class StringBuilder
-{
+class StringBuilder {
     array<char> chars;   // the first count are the text; the rest is room to grow
     int count;
 
@@ -30,21 +29,18 @@ class StringBuilder
 
     public bit isEmpty() { return count == 0; }
 
-    public char charAt(int i)
-    {
+    public char charAt(int i) {
         check(i);
         return chars[i];
     }
 
-    public void setCharAt(int i, char c)
-    {
+    public void setCharAt(int i, char c) {
         check(i);
         chars[i] = c;
     }
 
     /** Cuts the text to n characters, or pads it with '\0' up to n. */
-    public void setLength(int n)
-    {
+    public void setLength(int n) {
         if (n < 0) { throw new IndexOutOfBoundsException("length " + n + " is negative"); }
         reserve(n);
         for (int i = count; i < n; i++) { chars[i] = '\0'; }
@@ -53,16 +49,14 @@ class StringBuilder
 
     // ------------------------------------------------------------ appending
 
-    public StringBuilder append(char c)
-    {
+    public StringBuilder append(char c) {
         reserve(count + 1);
         chars[count] = c;
         count++;
         return this;
     }
 
-    public StringBuilder append(string text)
-    {
+    public StringBuilder append(string text) {
         int n = text.length();
         reserve(count + n);
         for (int i = 0; i < n; i++) { chars[count + i] = text.charAt(i); }
@@ -70,8 +64,7 @@ class StringBuilder
         return this;
     }
 
-    public StringBuilder append(string<<int K>> text)
-    {
+    public StringBuilder append(string<<int K>> text) {
         int n = text.length();
         reserve(count + n);
         for (int i = 0; i < n; i++) { chars[count + i] = text.charAt(i); }
@@ -94,8 +87,7 @@ class StringBuilder
     // ------------------------------------------------------------ editing
 
     /** Puts text before the character at i (0 to length()). */
-    public StringBuilder insert(int i, string text)
-    {
+    public StringBuilder insert(int i, string text) {
         if (i < 0 || i > count) { throw new IndexOutOfBoundsException("insert index " + i + " out of range for length " + count); }
         int n = text.length();
         reserve(count + n);
@@ -105,16 +97,14 @@ class StringBuilder
         return this;
     }
 
-    public StringBuilder insert(int i, char c)
-    {
+    public StringBuilder insert(int i, char c) {
         string one;
         one += c;
         return insert(i, one);
     }
 
     /** Removes the characters from (inclusive) to to (exclusive; past the end means to the end). */
-    public StringBuilder delete(int from, int to)
-    {
+    public StringBuilder delete(int from, int to) {
         if (to > count) { to = count; }
         if (from < 0 || from > to) { throw new IndexOutOfBoundsException("delete(" + from + ", " + to + ") out of range for length " + count); }
         int n = to - from;
@@ -123,14 +113,12 @@ class StringBuilder
         return this;
     }
 
-    public StringBuilder deleteCharAt(int i)
-    {
+    public StringBuilder deleteCharAt(int i) {
         check(i);
         return this.delete(i, i + 1);
     }
 
-    public StringBuilder reverse()
-    {
+    public StringBuilder reverse() {
         int i = 0;
         int j = count - 1;
         while (i < j) {
@@ -149,8 +137,7 @@ class StringBuilder
     public string toString() { return new string(chars, 0, count); }
 
     /** Makes room for at least n characters. */
-    void reserve(int n)
-    {
+    void reserve(int n) {
         if (n <= chars.length()) { return; }
         int c = chars.length() * 2;
         if (c < 16) { c = 16; }
@@ -158,8 +145,7 @@ class StringBuilder
         chars = chars.copyOf(c);
     }
 
-    void check(int i)
-    {
+    void check(int i) {
         if (i < 0 || i >= count) { throw new IndexOutOfBoundsException("index " + i + " out of range for length " + count); }
     }
 }

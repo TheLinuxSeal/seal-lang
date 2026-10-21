@@ -13,8 +13,7 @@ import seal.util.List;
 // with / between names. Text files are read and written as UTF-8. A failure
 // throws an IOException (FileNotFoundException for a missing file) whose
 // message names the file.
-struct Files
-{
+struct Files {
     // ------------------------------------------------------------ reading and writing
 
     /** The whole file as text. */
@@ -30,16 +29,14 @@ struct Files
     public static List<string> readAllLines(string path) { return readString(path).lines(); }
 
     /** Writes each line followed by a line end, replacing the file's contents. */
-    public static void writeLines(string path, List<string> lines)
-    {
+    public static void writeLines(string path, List<string> lines) {
         StringBuilder all = new StringBuilder();
         for (string line : lines) { all.append(line).append('\n'); }
         writeString(path, all.toString());
     }
 
     /** The file's bytes. */
-    public static List<uint<<8>>> readBytes(string path)
-    {
+    public static List<uint<<8>>> readBytes(string path) {
         int n = (int)check(nReadBytes(path));
         addr<uint<<8>>> buf = new<uint<<8>>>(n + 1);
         nTakeBytes(buf);
@@ -51,8 +48,7 @@ struct Files
     }
 
     /** Replaces the file's contents with these bytes. */
-    public static void writeBytes(string path, List<uint<<8>>> data)
-    {
+    public static void writeBytes(string path, List<uint<<8>>> data) {
         int n = data.size();
         addr<uint<<8>>> buf = new<uint<<8>>>(n + 1);
         for (int i = 0; i < n; i++) { &(buf + (int<<64>>)i * 8) = data.get(i); }
@@ -88,8 +84,7 @@ struct Files
     public static string createTempDirectory(string prefix) { return text(nTempDirectory(prefix)); }
 
     /** The paths of what a folder holds (folder/name), sorted by name; not what is inside subfolders. */
-    public static List<string> list(string folder)
-    {
+    public static List<string> list(string folder) {
         List<string> out = new List();
         for (string name : names(folder)) { out.add(join(folder, name)); }
         return out;
@@ -99,15 +94,13 @@ struct Files
      * The folder and everything below it, depth first: each folder comes before what it
      * holds, sorted by name. For a file, just the file.
      */
-    public static List<string> walk(string path)
-    {
+    public static List<string> walk(string path) {
         List<string> out = new List();
         walkInto(path, out);
         return out;
     }
 
-    static void walkInto(string path, List<string> out)
-    {
+    static void walkInto(string path, List<string> out) {
         out.add(path);
         if (isDirectory(path)) {
             for (string name : names(path)) { walkInto(join(path, name), out); }
@@ -115,8 +108,7 @@ struct Files
     }
 
     /** The names (not paths) of what a folder holds, sorted. */
-    private<File> static List<string> names(string folder)
-    {
+    private<File> static List<string> names(string folder) {
         int count = (int)check(nList(folder));
         List<string> out = new List();
         if (count > 0) {
@@ -126,8 +118,7 @@ struct Files
     }
 
     /** folder/name, with one / between them. */
-    public static string join(string folder, string name)
-    {
+    public static string join(string folder, string name) {
         if (folder.isEmpty()) { return name; }
         if (folder.endsWith("/")) { return folder + name; }
         return folder + "/" + name;
@@ -139,16 +130,14 @@ struct Files
     public static void delete(string path) { check(nDelete(path)); }
 
     /** Deletes it if it exists; true if it did. */
-    public static bit deleteIfExists(string path)
-    {
+    public static bit deleteIfExists(string path) {
         if (!exists(path)) { return false; }
         Files.delete(path);
         return true;
     }
 
     /** Deletes a folder and everything in it (or just a file). */
-    public static void deleteRecursively(string path)
-    {
+    public static void deleteRecursively(string path) {
         List<string> all = walk(path);
         all.reverse(); // what a folder holds goes before the folder
         for (string p : all) { Files.delete(p); }
@@ -163,8 +152,7 @@ struct Files
     // ------------------------------------------------------------ the VM's side
 
     /** A status from a native: the result, or an exception with the message it left. */
-    private<File, Reader, Writer, FileReader, FileWriter> static int<<64>> check(int<<64>> status)
-    {
+    private<File, Reader, Writer, FileReader, FileWriter> static int<<64>> check(int<<64>> status) {
         if (status == -2) { throw new FileNotFoundException(string.takeText((int)nTextLength())); }
         if (status < 0) { throw new IOException(string.takeText((int)nTextLength())); }
         return status;

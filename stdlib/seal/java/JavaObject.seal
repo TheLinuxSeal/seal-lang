@@ -5,8 +5,7 @@ package seal.java;
 // where Java wants an Object by JavaObject.of(o), and comes back by a cast, (Tag)o, which checks
 // that it is one. Seal's == compares Java objects by identity, and hash() matches it, so that a
 // Java object can be a key of Seal's HashMap.
-class JavaObject
-{
+class JavaObject {
     @jvm("JavaValues.objectOf") public static JavaObject of(Object o);
 
     @jvm("JavaValues.hash") public uint<<64>> hash();

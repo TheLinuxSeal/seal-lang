@@ -3,8 +3,7 @@ package seal.util;
 // A hash map from 64-bit integer keys to V (open addressing, linear probing).
 // IntMap is a class: create one with `new IntMap()`; it is shared and freed
 // automatically.
-class IntMap<V>
-{
+class IntMap<V> {
     array<int<<64>>> keyData;
     array<V> valueData;
     // One bit per slot: whether it holds an entry. An array<bit> takes a bit per element.
@@ -17,8 +16,7 @@ class IntMap<V>
     public bit isEmpty() { return count == 0; }
 
     /** Adds or replaces the value for key. */
-    public void put(int<<64>> key, V value)
-    {
+    public void put(int<<64>> key, V value) {
         if ((count + 1) * 4 > capacity() * 3) { grow(); }
         int i = find(key);
         if (!used[i]) {
@@ -29,22 +27,19 @@ class IntMap<V>
         valueData[i] = value;
     }
 
-    public bit has(int<<64>> key)
-    {
+    public bit has(int<<64>> key) {
         if (capacity() == 0) { return false; }
         return used[find(key)];
     }
 
     /** The value for key; fails if there is none. */
-    public V get(int<<64>> key)
-    {
+    public V get(int<<64>> key) {
         if (!has(key)) { throw new NoSuchElementException("IntMap.get: no key " + key); }
         return valueData[find(key)];
     }
 
     /** Removes key; returns whether it was present. */
-    public bit remove(int<<64>> key)
-    {
+    public bit remove(int<<64>> key) {
         if (!has(key)) { return false; }
         int hole = find(key);
         used[hole] = false;
@@ -70,8 +65,7 @@ class IntMap<V>
     }
 
     /** All keys, in no particular order. */
-    public List<int<<64>>> keys()
-    {
+    public List<int<<64>>> keys() {
         List<int<<64>>> out = new List();
         out.reserve(count);
         for (int i = 0; i < capacity(); i++) {
@@ -80,8 +74,7 @@ class IntMap<V>
         return out;
     }
 
-    public void clear()
-    {
+    public void clear() {
         used.fill(false);
         valueData.fill(blank);
         count = 0;
@@ -90,22 +83,19 @@ class IntMap<V>
     int capacity() { return used.length(); }
 
     /** The slot holding key, or the empty slot where it would go. */
-    int find(int<<64>> key)
-    {
+    int find(int<<64>> key) {
         int i = slotOf(key);
         while (used[i] && keyData[i] != key) { i = (i + 1) & (capacity() - 1); }
         return i;
     }
 
-    int slotOf(int<<64>> key)
-    {
+    int slotOf(int<<64>> key) {
         uint<<64>> h = (uint<<64>>)key * 11400714819323198485;
         h = h ^ (h <<< -29);
         return (int)(h & (uint<<64>>)(capacity() - 1));
     }
 
-    void grow()
-    {
+    void grow() {
         int c = capacity() * 2;
         if (c < 16) { c = 16; }
         // The entries, copied out, go back into a table twice as big.

@@ -4,8 +4,7 @@
 // as no other string sees past its own end. The buffer is freed once no
 // string uses it. Only string uses it; on the JVM a bare string is a
 // java.lang.String, and this class goes.
-class StringChars
-{
+class StringChars {
     public array<char> data;
     public int used;   // how many of data's characters strings use
 

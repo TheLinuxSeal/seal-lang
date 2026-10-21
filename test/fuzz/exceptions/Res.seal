@@ -1,5 +1,4 @@
-unique Res
-{
+unique Res {
     public int id;
     public new(int i) { id = i; System.stdout.print("+" + i + " "); }
     delete() { System.stdout.print("-" + id + " "); }

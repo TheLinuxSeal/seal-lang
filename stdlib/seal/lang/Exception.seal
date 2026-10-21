@@ -8,8 +8,7 @@ import seal.util.List;
 //   try { ... } catch (IllegalArgumentException e) { System.stdout.println(e.getMessage()); }
 //
 // Exceptions are unchecked: methods don't list what they throw.
-class Exception
-{
+class Exception {
     string message;
     List<Exception> suppressed;   // null until one is added
 
@@ -24,16 +23,14 @@ class Exception
      * otherwise be lost: try-with-resources adds what a close() throws to the
      * exception that left its block (§41.4).
      */
-    public void addSuppressed(Exception e)
-    {
+    public void addSuppressed(Exception e) {
         if (e == this) { throw new IllegalArgumentException("an exception can't suppress itself"); }
         if (suppressed == null) { suppressed = new List(); }
         suppressed.add(e);
     }
 
     /** The exceptions added with addSuppressed, in order. */
-    public array<Exception> getSuppressed()
-    {
+    public array<Exception> getSuppressed() {
         if (suppressed == null) { return new array<Exception>(0); }
         return suppressed.toArray();
     }

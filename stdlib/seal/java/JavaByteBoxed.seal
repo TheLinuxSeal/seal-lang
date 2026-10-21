@@ -3,7 +3,6 @@ package seal.java;
 // Java's java.lang.Byte (docs/JAVA.md §3.1), with its own methods: an object holding a number,
 // for what Java wants an object for, a List's elements or an Object parameter. JavaByteBoxed.of(x) boxes
 // a Seal int<<8>>, and a cast, (int<<8>>)b, unboxes one; a null box stops the program there.
-class JavaByteBoxed
-{
+class JavaByteBoxed {
     @jvm("JavaValues.byteBoxed") public static JavaByteBoxed of(int<<8>> x);
 }

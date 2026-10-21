@@ -3,8 +3,7 @@ package seal.lang;
 // Hash codes for HashMap keys (§42.4). Numbers, chars, bits and strings hash
 // by value; anything else by its own hash() method, which every class has
 // (Object's hashes by identity) and a struct can define.
-struct Hash
-{
+struct Hash {
     public static uint<<64>> of(int x) { return mix((uint<<64>>)(int<<64>>)x); }
     public static uint<<64>> of(int<<size W>> x) { return mix((uint<<64>>)(int<<64>>)x); }
     public static uint<<64>> of(uint<<size W>> x) { return mix((uint<<64>>)x); }
@@ -18,8 +17,7 @@ struct Hash
     public static <K> uint<<64>> of(K key) { return key.hash(); }
 
     /** Spreads the bits of x over the whole word (the splitmix64 finalizer). */
-    public static uint<<64>> mix(uint<<64>> x)
-    {
+    public static uint<<64>> mix(uint<<64>> x) {
         uint<<64>> z = x + 11400714819323198485;
         z = (z ^ (z <<< -30)) * 13787848793156543929;
         z = (z ^ (z <<< -27)) * 10723151780598845931;

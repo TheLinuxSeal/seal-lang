@@ -1,10 +1,8 @@
 // Fuzz input: enums holding strings, switch in both styles, and loops around them.
 import seal.util.List;
 
-struct Main
-{
-    static int score(Suit s)
-    {
+struct Main {
+    static int score(Suit s) {
         switch (s) {
             case CLUBS -> { return 1; }
             case HEARTS -> { return 2; }
@@ -12,8 +10,7 @@ struct Main
         }
     }
 
-    static int main()
-    {
+    static int main() {
         List<Suit> hand = new List();
         for (Suit s : Suit.values()) { hand.add(s); hand.add(s); }
         int total = 0;

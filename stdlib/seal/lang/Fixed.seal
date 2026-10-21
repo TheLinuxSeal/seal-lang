@@ -1,12 +1,10 @@
 package seal.lang;
 
 // Utilities for fixed-point numbers (§37.1).
-struct Fixed
-{
+struct Fixed {
     /** The exact value as decimal text, the same as print shows: 2.75, -0.125. */
     @jvm("FixedPoint.text")
-    public static string toString(fixed<<size N, size M>> x)
-    {
+    public static string toString(fixed<<size N, size M>> x) {
         addr<char> buf = new<char>(96);
         int n = text(x, buf);
         string s = string.fromChars(buf, n);
@@ -15,8 +13,7 @@ struct Fixed
     }
 
     @jvm("FixedPoint.textUnsigned")
-    public static string toString(ufixed<<size N, size M>> x)
-    {
+    public static string toString(ufixed<<size N, size M>> x) {
         addr<char> buf = new<char>(96);
         int n = text(x, buf);
         string s = string.fromChars(buf, n);
@@ -33,16 +30,14 @@ struct Fixed
      * fixed<<N, M>> × fixed<<P, Q>> → fixed<<N + P, M + Q>>.
      * Formats whose result would exceed 64 bits are rejected when used.
      */
-    public static fixed<<N + P, M + Q>> mulExact(fixed<<size N, size M>> a, fixed<<size P, size Q>> b)
-    {
+    public static fixed<<N + P, M + Q>> mulExact(fixed<<size N, size M>> a, fixed<<size P, size Q>> b) {
         // Widening casts are exact, and the product of an M-bit and a Q-bit
         // fraction fits exactly in M + Q fraction bits, so nothing rounds.
         return (fixed<<N + P, M + Q>>)a * (fixed<<N + P, M + Q>>)b;
     }
 
     /** The exact product of two unsigned fixed-point values: ufixed<<N + P, M + Q>>. */
-    public static ufixed<<N + P, M + Q>> mulExact(ufixed<<size N, size M>> a, ufixed<<size P, size Q>> b)
-    {
+    public static ufixed<<N + P, M + Q>> mulExact(ufixed<<size N, size M>> a, ufixed<<size P, size Q>> b) {
         return (ufixed<<N + P, M + Q>>)a * (ufixed<<N + P, M + Q>>)b;
     }
 
@@ -60,8 +55,7 @@ struct Fixed
     public static fixed<<N, M>> floor(fixed<<size N, size M>> x) { return Math.floor(x); }
 
     /** The fractional part, x - floor(x), in [0, 1). */
-    public static fixed<<N, M>> fraction(fixed<<size N, size M>> x)
-    {
+    public static fixed<<N, M>> fraction(fixed<<size N, size M>> x) {
         return x - floor(x);
     }
 }

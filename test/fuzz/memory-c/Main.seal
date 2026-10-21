@@ -2,12 +2,10 @@ import seal.util.IntMap;
 import seal.util.List;
 import seal.util.Queue;
 
-struct Main
-{
+struct Main {
     static string shout(string s) { s = s.toUpper(); s += "!"; return s; }
 
-    static int main()
-    {
+    static int main() {
         string a = "hello";
         string b = a;
         b += " world";

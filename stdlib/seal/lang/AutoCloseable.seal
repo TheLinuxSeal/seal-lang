@@ -7,8 +7,7 @@ package seal.lang;
 //   try (FileWriter out = new FileWriter("report.txt")) {
 //       out.println("total: " + total);
 //   }
-interface AutoCloseable
-{
+interface AutoCloseable {
     /** Releases the resource. Closing something already closed does nothing. */
     void close();
 }

@@ -9,8 +9,7 @@ package seal.lang;
 //   @overload(Operator.CAST)   public double toDouble() { ... }          // (double)a
 //
 // !=, >, <= and >= come from == and < when a type doesn't define them (§48).
-enum Operator
-{
+enum Operator {
     ADD("+"),
     SUBTRACT("-"),
     NEGATE("-"),

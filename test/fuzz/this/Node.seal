@@ -1,7 +1,6 @@
 import seal.util.function.Supplier;
 
-class Node
-{
+class Node {
     public int value;
     public Node next;
     public new(int value, Node next) { this.value = value; this.next = next; }

@@ -3,7 +3,6 @@ package seal.java;
 // Java's java.lang.Character (docs/JAVA.md §3.1), with its own methods: an object holding a number,
 // for what Java wants an object for, a List's elements or an Object parameter. JavaCharBoxed.of(x) boxes
 // a Seal char, and a cast, (char)b, unboxes one; a null box stops the program there.
-class JavaCharBoxed
-{
+class JavaCharBoxed {
     @jvm("JavaValues.charBoxed") public static JavaCharBoxed of(char x);
 }

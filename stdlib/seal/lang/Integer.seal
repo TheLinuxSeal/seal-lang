@@ -1,8 +1,7 @@
 package seal.lang;
 
 // Integer utilities (§42).
-struct Integer
-{
+struct Integer {
     public const int MIN_INT = -2147483648;
     public const int MAX_INT = 2147483647;
     public const int<<64>> MIN_INT64 = -9223372036854775808;
@@ -12,8 +11,7 @@ struct Integer
     // ------------------------------------------------------------ text
 
     /** Decimal text of x, as a new bare string (§43). */
-    public static string toString(int<<64>> x)
-    {
+    public static string toString(int<<64>> x) {
         if (x < 0) {
             return digits(0 - (uint<<64>>)x, 10, true); // negated as unsigned, so that MIN_INT64 works
         }
@@ -27,15 +25,13 @@ struct Integer
     public static string toString(uint x) { return toString((uint<<64>>)x); }
 
     /** Text of x in the given base (2 to 36), as a new bare string. */
-    public static string toString(uint<<64>> x, int base)
-    {
+    public static string toString(uint<<64>> x, int base) {
         if (base < 2 || base > 36) { throw new IllegalArgumentException("base must be between 2 and 36, not " + base); }
         return digits(x, base, false);
     }
 
     /** The digits of x in a base, after a minus sign if negative. */
-    static string digits(uint<<64>> x, int base, bit negative)
-    {
+    static string digits(uint<<64>> x, int base, bit negative) {
         array<char> text = new array<char>(65);
         int at = 65;   // the digits fill the array from its end
         uint<<64>> b = (uint<<64>>)base;
@@ -69,39 +65,33 @@ struct Integer
     // never overflow: int × int → int<<64>>. Mixed widths need no casts. Results
     // wider than 64 bits are rejected when used; use BigUInt for those.
 
-    public static int<<N + P>> mulExact(int<<size N>> a, int<<size P>> b)
-    {
+    public static int<<N + P>> mulExact(int<<size N>> a, int<<size P>> b) {
         return (int<<N + P>>)a * (int<<N + P>>)b;
     }
 
-    public static uint<<N + P>> mulExact(uint<<size N>> a, uint<<size P>> b)
-    {
+    public static uint<<N + P>> mulExact(uint<<size N>> a, uint<<size P>> b) {
         return (uint<<N + P>>)a * (uint<<N + P>>)b;
     }
 
     /** Signed times unsigned: the unsigned value fits in N + P signed bits, and so does the product. */
-    public static int<<N + P>> mulExact(int<<size N>> a, uint<<size P>> b)
-    {
+    public static int<<N + P>> mulExact(int<<size N>> a, uint<<size P>> b) {
         return (int<<N + P>>)a * (int<<N + P>>)b;
     }
 
-    public static int<<N + P>> mulExact(uint<<size N>> a, int<<size P>> b)
-    {
+    public static int<<N + P>> mulExact(uint<<size N>> a, int<<size P>> b) {
         return (int<<N + P>>)a * (int<<N + P>>)b;
     }
 
     public static int abs(int x) { if (x < 0) { return -x; } return x; }
     public static int<<64>> abs(int<<64>> x) { if (x < 0) { return -x; } return x; }
 
-    public static int sign(int<<64>> x)
-    {
+    public static int sign(int<<64>> x) {
         if (x < 0) { return -1; }
         if (x > 0) { return 1; }
         return 0;
     }
 
-    public static int<<64>> gcd(int<<64>> a, int<<64>> b)
-    {
+    public static int<<64>> gcd(int<<64>> a, int<<64>> b) {
         a = abs(a);
         b = abs(b);
         while (b != 0) {
@@ -113,8 +103,7 @@ struct Integer
     }
 
     /** base raised to a non-negative power, wrapping on overflow. */
-    public static int<<64>> pow(int<<64>> base, int exponent)
-    {
+    public static int<<64>> pow(int<<64>> base, int exponent) {
         if (exponent < 0) { throw new IllegalArgumentException("negative exponent " + exponent); }
         int<<64>> result = 1;
         while (exponent > 0) {
@@ -128,16 +117,14 @@ struct Integer
     // ------------------------------------------------------------ bits (§50)
 
     /** Rotates left by n bits (n may be negative or larger than 32). */
-    public static uint rol(uint x, int n)
-    {
+    public static uint rol(uint x, int n) {
         n = (n % 32 + 32) % 32;
         return (x <<< n) | (x <<< (n - 32));
     }
 
     public static uint ror(uint x, int n) { return rol(x, -n); }
 
-    public static uint<<64>> rol(uint<<64>> x, int n)
-    {
+    public static uint<<64>> rol(uint<<64>> x, int n) {
         n = (n % 64 + 64) % 64;
         return (x <<< n) | (x <<< (n - 64));
     }
@@ -145,8 +132,7 @@ struct Integer
     public static uint<<64>> ror(uint<<64>> x, int n) { return rol(x, -n); }
 
     /** Number of 1 bits. */
-    public static int bitCount(uint<<64>> x)
-    {
+    public static int bitCount(uint<<64>> x) {
         int n = 0;
         while (x != 0) {
             x = x & (x - 1);
@@ -156,8 +142,7 @@ struct Integer
     }
 
     /** Number of 0 bits above the highest 1 bit; 64 for zero. */
-    public static int leadingZeros(uint<<64>> x)
-    {
+    public static int leadingZeros(uint<<64>> x) {
         if (x == 0) { return 64; }
         int n = 0;
         while (!x[63]) {
@@ -168,8 +153,7 @@ struct Integer
     }
 
     /** Number of 0 bits below the lowest 1 bit; 64 for zero. */
-    public static int trailingZeros(uint<<64>> x)
-    {
+    public static int trailingZeros(uint<<64>> x) {
         if (x == 0) { return 64; }
         int n = 0;
         while (!x[0]) {

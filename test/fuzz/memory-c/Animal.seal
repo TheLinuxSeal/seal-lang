@@ -1,5 +1,4 @@
-class Animal
-{
+class Animal {
     public int legs;
     public string name;
     public new(string n) { name = n; legs = 4; }

@@ -2,7 +2,6 @@ package seal.util;
 
 // Orders two values: negative if a comes first, 0 if equal, positive if b does.
 // list.sort((a, b) -> a - b);
-interface Comparator<T>
-{
+interface Comparator<T> {
     int compare(T a, T b);
 }

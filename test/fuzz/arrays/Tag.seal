@@ -1,5 +1,4 @@
-class Tag
-{
+class Tag {
     public int n;
     public new(int i) { n = i; }
 }

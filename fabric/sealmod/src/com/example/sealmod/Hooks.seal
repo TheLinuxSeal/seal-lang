@@ -7,10 +7,8 @@ import seal.java.*;
 // What the mod's mixin (mixin/SettingsMixin.java) calls, from inside Minecraft's own code: the
 // mixin is Java, and what it does is Seal. It can't be in the mixin's package, which Mixin
 // keeps for mixins alone.
-class Hooks
-{
-    public static void savingSettings(DedicatedServerSettings settings)
-    {
+class Hooks {
+    public static void savingSettings(DedicatedServerSettings settings) {
         DedicatedServerProperties p = settings.getProperties();
         System.stdout.println("Seal mixin: Minecraft is saving server.properties, for the world \""
                 + (string) p.levelName + "\" on port " + (int) p.serverPort);

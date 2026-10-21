@@ -11,8 +11,7 @@ package seal.io;
 //   for (string line : new FileReader("data.txt")) { ... }
 //
 // See Reader for its methods.
-class FileReader extends(Reader)
-{
+class FileReader extends(Reader) {
     /** Opens the file; throws a FileNotFoundException if it isn't there. */
     public new(string path) { super(Files.check(Files.nOpen(path, 0))); }
 }

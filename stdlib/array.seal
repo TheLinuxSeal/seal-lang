@@ -27,24 +27,21 @@ import seal.util.List;
 // are. This is its implementation on the VM, and the one place in the library
 // that still uses pointers. The collections (List, Queue, IntMap, HashMap,
 // StringBuilder) are built on it.
-unique array<T>
-{
+unique array<T> {
     addr<T> items;   // len elements on the heap
     int len;
 
     public new() { }
 
     /** An array of n default elements (0, false, null, "", ...). */
-    public new(int n)
-    {
+    public new(int n) {
         if (n < 0) { throw new IllegalArgumentException("an array can't have length " + n); }
         allocate(n);
     }
 
     /** Room for n elements, each a default T. */
     @jvm("array.allocate")
-    void allocate(int n)
-    {
+    void allocate(int n) {
         items = new<T>(n > 0 ? n : 1);
         len = n;
         T blank; // a default T for each element
@@ -60,22 +57,19 @@ unique array<T>
 
     @overload(Operator.INDEX)
     @jvm("array.get")
-    public T get(int i)
-    {
+    public T get(int i) {
         check(i);
         return &(items + (int<<64>>)i * sizeof(T));
     }
 
     @overload(Operator.INDEX_SET)
     @jvm("array.set")
-    public void set(int i, T value)
-    {
+    public void set(int i, T value) {
         check(i);
         &(items + (int<<64>>)i * sizeof(T)) = value;
     }
 
-    void check(int i)
-    {
+    void check(int i) {
         if (i < 0 || i >= length()) {
             throw new IndexOutOfBoundsException("index " + i + " out of range for an array of length " + length());
         }
@@ -84,14 +78,12 @@ unique array<T>
     // ------------------------------------------------------------ whole arrays
 
     /** Sets every element to value. */
-    public void fill(T value)
-    {
+    public void fill(T value) {
         for (int i = 0; i < length(); i++) { set(i, value); }
     }
 
     /** A new array with the same elements. */
-    public array<T> copy()
-    {
+    public array<T> copy() {
         array<T> out = new array<T>(length());
         for (int i = 0; i < length(); i++) { out.set(i, get(i)); }
         return out;
@@ -102,8 +94,7 @@ unique array<T>
      * them if it is shorter, as Java's Arrays.copyOf. A list grows with
      * `items = items.copyOf(2 * items.length());`.
      */
-    public array<T> copyOf(int n)
-    {
+    public array<T> copyOf(int n) {
         array<T> out = new array<T>(n);
         int k = n < length() ? n : length();
         for (int i = 0; i < k; i++) { out.set(i, get(i)); }
@@ -111,8 +102,7 @@ unique array<T>
     }
 
     /** The elements from (inclusive) to to (exclusive), as a new array. */
-    public array<T> slice(int from, int to)
-    {
+    public array<T> slice(int from, int to) {
         if (from < 0 || to > length() || from > to) {
             throw new IndexOutOfBoundsException("slice(" + from + ", " + to + ") out of range for an array of length " + length());
         }
@@ -121,8 +111,7 @@ unique array<T>
         return out;
     }
 
-    public List<T> toList()
-    {
+    public List<T> toList() {
         List<T> out = new List();
         out.reserve(length());
         for (int i = 0; i < length(); i++) { out.add(get(i)); }
@@ -130,8 +119,7 @@ unique array<T>
     }
 
     /** Index of the first element == value, or -1. */
-    public int indexOf(T value)
-    {
+    public int indexOf(T value) {
         for (int i = 0; i < length(); i++) {
             if (get(i) == value) { return i; }
         }
@@ -140,15 +128,13 @@ unique array<T>
 
     public bit contains(T value) { return indexOf(value) >= 0; }
 
-    public void swap(int i, int j)
-    {
+    public void swap(int i, int j) {
         T t = get(i);
         set(i, get(j));
         set(j, t);
     }
 
-    public void reverse()
-    {
+    public void reverse() {
         int i = 0;
         int j = length() - 1;
         while (i < j) {
@@ -159,8 +145,7 @@ unique array<T>
     }
 
     /** Sorts ascending with <, in place (heapsort: O(n log n), not stable). */
-    public void sort()
-    {
+    public void sort() {
         int n = length();
         for (int start = n / 2 - 1; start >= 0; start--) { siftDown(start, n); }
         for (int end = n - 1; end > 0; end--) {
@@ -169,8 +154,7 @@ unique array<T>
         }
     }
 
-    void siftDown(int start, int end)
-    {
+    void siftDown(int start, int end) {
         int root = start;
         while (root * 2 + 1 < end) {
             int child = root * 2 + 1;
@@ -182,16 +166,14 @@ unique array<T>
     }
 
     /** Sorts in the order cmp gives, keeping equal elements in order (merge sort: O(n log n), stable). */
-    public void sort(Comparator<T> cmp)
-    {
+    public void sort(Comparator<T> cmp) {
         List<T> sorted = toList();
         sorted.sort(cmp);
         for (int i = 0; i < length(); i++) { set(i, sorted.get(i)); }
     }
 
     // Frees the elements' memory on the VM; the JVM's garbage collector does this itself.
-    delete()
-    {
+    delete() {
         T blank;
         for (int i = 0; i < len; i++) { &(items + (int<<64>>)i * sizeof(T)) = blank; } // lets go of what they refer to
         delete items;

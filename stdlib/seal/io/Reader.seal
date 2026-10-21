@@ -11,8 +11,7 @@ import seal.util.NoSuchElementException;
 //
 // It closes itself once it has read the last line; close(), or
 // try-with-resources, closes it before that.
-class Reader implements(Iterable<string>, AutoCloseable)
-{
+class Reader implements(Iterable<string>, AutoCloseable) {
     int<<64>> file;        // the VM's stream, 0 once closed
     string pending;        // a line hasNextLine read ahead
     bit hasPending;
@@ -20,8 +19,7 @@ class Reader implements(Iterable<string>, AutoCloseable)
     private<FileReader, System> new(int<<64>> file) { this.file = file; }
 
     /** Whether there is another line to read. */
-    public bit hasNextLine()
-    {
+    public bit hasNextLine() {
         if (hasPending) { return true; }
         if (file == 0) { return false; }
         int<<64>> n = Files.nReadLine(file);
@@ -35,23 +33,20 @@ class Reader implements(Iterable<string>, AutoCloseable)
     }
 
     /** The next line, without its line end; throws a NoSuchElementException at the end. */
-    public string readLine()
-    {
+    public string readLine() {
         if (!hasNextLine()) { throw new NoSuchElementException("no more lines to read"); }
         hasPending = false;
         return pending;
     }
 
     /** The lines left. */
-    public List<string> readAllLines()
-    {
+    public List<string> readAllLines() {
         List<string> lines = new List();
         while (hasNextLine()) { lines.add(readLine()); }
         return lines;
     }
 
-    public void close()
-    {
+    public void close() {
         if (file != 0) {
             Files.nClose(file);
             file = 0;
@@ -61,8 +56,7 @@ class Reader implements(Iterable<string>, AutoCloseable)
     public Iterator<string> iterator() { return new Lines(this); }
 
     /** The lines of a Reader, for a for-each loop. */
-    class Lines implements(Iterator<string>)
-    {
+    class Lines implements(Iterator<string>) {
         Reader reader;
 
         public new(Reader reader) { this.reader = reader; }

@@ -16,8 +16,7 @@ package seal.lang;
 // A value the conversion can't show, a bad specifier, or too few values throws an
 // IllegalArgumentException; extra values are ignored, as in Java. The methods are
 // public so that string.format and Writer.printf can call them; programs use those.
-struct Format
-{
+struct Format {
     string fmt;
     int pos;
     StringBuilder out;
@@ -34,15 +33,13 @@ struct Format
     int precision;
     char conv;
 
-    public new(string fmt)
-    {
+    public new(string fmt) {
         this.fmt = fmt;
         out = new StringBuilder();
     }
 
     /** The text, once every value is in. Throws if the format has a specifier left over. */
-    public string finish()
-    {
+    public string finish() {
         if (next()) {
             throw bad("no value for " + spec);
         }
@@ -51,8 +48,7 @@ struct Format
 
     // ------------------------------------------------------------ values
 
-    public void arg(int<<size W>> x)
-    {
+    public void arg(int<<size W>> x) {
         if (next()) {
             // The magnitude for %d; the bits at x's own width for %x and %o, as Java's -1 is ffffffff.
             uint<<64>> magnitude = (uint<<64>>)x;
@@ -61,14 +57,12 @@ struct Format
         }
     }
 
-    public void arg(uint<<size W>> x)
-    {
+    public void arg(uint<<size W>> x) {
         if (next()) { integer(false, (uint<<64>>)x, (uint<<64>>)x); }
     }
 
     /** A char is a character for %c and %s, and its code for %d and %x. */
-    public void arg(char c)
-    {
+    public void arg(char c) {
         if (next()) {
             if (conv == 'c' || conv == 'C' || conv == 's' || conv == 'S') {
                 text("" + c);
@@ -78,22 +72,19 @@ struct Format
         }
     }
 
-    public void arg(double x)
-    {
+    public void arg(double x) {
         if (next()) {
             if (conv == 's' || conv == 'S') { text(Double.toString(x)); } else { real(x); }
         }
     }
 
-    public void arg(float x)
-    {
+    public void arg(float x) {
         if (next()) {
             if (conv == 's' || conv == 'S') { text(Float.toString(x)); } else { real((double)x); }
         }
     }
 
-    public void arg(fixed<<size N, size M>> x)
-    {
+    public void arg(fixed<<size N, size M>> x) {
         if (next()) {
             if (conv == 's' || conv == 'S') {
                 text(Fixed.toString(x));
@@ -107,8 +98,7 @@ struct Format
 
     /** x rounded to that many places, exactly, ties up ("2.50"). */
     @jvm("FixedPoint.places")
-    static string placesText(fixed<<size N, size M>> x, int n)
-    {
+    static string placesText(fixed<<size N, size M>> x, int n) {
         addr<char> buf = new<char>(n + 100);
         int length = places(x, buf, n);
         string s = string.fromChars(buf, length);
@@ -116,8 +106,7 @@ struct Format
         return s;
     }
 
-    public void arg(ufixed<<size N, size M>> x)
-    {
+    public void arg(ufixed<<size N, size M>> x) {
         if (next()) {
             if (conv == 's' || conv == 'S') {
                 text(Fixed.toString(x));
@@ -131,8 +120,7 @@ struct Format
 
     /** x rounded to that many places, exactly, ties up ("2.50"). */
     @jvm("FixedPoint.placesUnsigned")
-    static string placesText(ufixed<<size N, size M>> x, int n)
-    {
+    static string placesText(ufixed<<size N, size M>> x, int n) {
         addr<char> buf = new<char>(n + 100);
         int length = places(x, buf, n);
         string s = string.fromChars(buf, length);
@@ -140,31 +128,27 @@ struct Format
         return s;
     }
 
-    public void arg(bit b)
-    {
+    public void arg(bit b) {
         if (next()) {
             if (conv != 'b' && conv != 'B' && conv != 's' && conv != 'S') { throw mismatch("a bit"); }
             if (b) { text("true"); } else { text("false"); }
         }
     }
 
-    public void arg(string s)
-    {
+    public void arg(string s) {
         if (next()) {
             if (conv != 's' && conv != 'S') { throw mismatch("a string"); }
             text(s);
         }
     }
 
-    public void arg(string<<int K>> s)
-    {
+    public void arg(string<<int K>> s) {
         string bare = s;
         arg(bare);
     }
 
     /** Any other value, for %s: its type's cast to string (§46), as Java's %s calls toString(). */
-    public <T> void arg(T x)
-    {
+    public <T> void arg(T x) {
         if (next()) {
             if (conv != 's' && conv != 'S') { throw mismatch("an object"); }
             text((string)x);
@@ -173,8 +157,7 @@ struct Format
 
     // ------------------------------------------------------------ conversions
 
-    void integer(bit negative, uint<<64>> magnitude, uint<<64>> bits)
-    {
+    void integer(bit negative, uint<<64>> magnitude, uint<<64>> bits) {
         if (conv == 's' || conv == 'S') {
             string s = Integer.toString(magnitude);
             if (negative) { s = "-" + s; }
@@ -214,8 +197,7 @@ struct Format
     }
 
     /** %f, %e and %E of a double, as Java prints them; %f rounds half up. */
-    void real(double x)
-    {
+    void real(double x) {
         if (conv != 'f' && conv != 'e' && conv != 'E') { throw mismatch("a floating-point number"); }
         if (group && conv != 'f') { throw bad(spec + ": , applies to %d and %f"); }
         decimal(placesText(x, conv, places()));
@@ -223,8 +205,7 @@ struct Format
 
     /** x rounded to that many places, as %f or %e shows it ("1234.50", "1.234500e+03"). */
     @jvm("Strings.places")
-    static string placesText(double x, char conv, int n)
-    {
+    static string placesText(double x, char conv, int n) {
         addr<char> buf = new<char>(n + 340);
         int length = places(x, conv, n, buf);
         string s = string.fromChars(buf, length);
@@ -233,15 +214,13 @@ struct Format
     }
 
     /** The places %f and %e show: the precision, or 6. */
-    int places()
-    {
+    int places() {
         if (precision < 0) { return 6; }
         return precision;
     }
 
     /** Signs, groups and pads number text ("-1234.50", "1.5e+03", "NaN", "-Infinity"). */
-    void decimal(string text)
-    {
+    void decimal(string text) {
         bit negative = text.length() > 0 && text.charAt(0) == '-';
         string digits = text;
         if (negative) { digits = text.substring(1, text.length()); }
@@ -256,8 +235,7 @@ struct Format
     }
 
     /** Text for %s, %c and %b: cut to the precision, in capitals for %S, %C and %B, then padded. */
-    void text(string s)
-    {
+    void text(string s) {
         if (zero || plus || space || group || alt) { throw bad(spec + ": only the - flag applies to text"); }
         if (conv != 's' && conv != 'S' && conv != 'c' && conv != 'C' && conv != 'b' && conv != 'B') {
             throw mismatch("text");
@@ -270,8 +248,7 @@ struct Format
     }
 
     /** Number digits with the sign the flags ask for: "-", "+", " " or none. */
-    string signed(bit negative, string digits)
-    {
+    string signed(bit negative, string digits) {
         if (negative) { return "-" + digits; }
         if (plus) { return "+" + digits; }
         if (space) { return " " + digits; }
@@ -279,8 +256,7 @@ struct Format
     }
 
     /** A comma between each group of three digits of the whole part: 1234567.5 is 1,234,567.5. */
-    static string grouped(string digits)
-    {
+    static string grouped(string digits) {
         int end = digits.indexOf('.');
         if (end < 0) { end = digits.length(); }
         StringBuilder s = new StringBuilder();
@@ -292,8 +268,7 @@ struct Format
     }
 
     /** Puts text out at the width: spaces before it, after it with -, or zeros after a number's sign with 0. */
-    void pad(string s, bit number)
-    {
+    void pad(string s, bit number) {
         int n = width - s.length();
         if (n <= 0) {
             out.append(s);
@@ -316,8 +291,7 @@ struct Format
     // ------------------------------------------------------------ reading the format
 
     /** Copies text up to the next specifier and reads it; false at the end of the format. */
-    bit next()
-    {
+    bit next() {
         while (pos < fmt.length()) {
             char c = fmt.charAt(pos);
             if (c != '%') {
@@ -378,8 +352,7 @@ struct Format
     }
 
     /** A number written at pos, or -1 if there is none. */
-    int digits()
-    {
+    int digits() {
         int n = -1;
         while (pos < fmt.length() && Char.isDigit(fmt.charAt(pos))) {
             if (n < 0) { n = 0; }
@@ -389,13 +362,11 @@ struct Format
         return n;
     }
 
-    IllegalArgumentException bad(string why)
-    {
+    IllegalArgumentException bad(string why) {
         return new IllegalArgumentException(why + ", in the format \"" + fmt + "\"");
     }
 
-    IllegalArgumentException mismatch(string what)
-    {
+    IllegalArgumentException mismatch(string what) {
         return bad(spec + " can't show " + what);
     }
 

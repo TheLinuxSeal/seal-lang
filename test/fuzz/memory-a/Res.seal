@@ -1,5 +1,4 @@
-class Res
-{
+class Res {
     public int id;
     public Res next;
     public new(int i) { id = i; }

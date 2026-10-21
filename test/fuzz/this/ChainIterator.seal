@@ -1,7 +1,6 @@
 import seal.util.Iterator;
 
-class ChainIterator implements(Iterator<int>)
-{
+class ChainIterator implements(Iterator<int>) {
     Node at;
     public new(Chain c) { at = c.head; }
     public bit hasNext() { return at != null; }

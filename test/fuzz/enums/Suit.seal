@@ -1,5 +1,4 @@
-enum Suit
-{
+enum Suit {
     CLUBS("c"),
     HEARTS("h"),
     SPADES("s");

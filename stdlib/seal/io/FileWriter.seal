@@ -9,8 +9,7 @@ package seal.io;
 // What is written is buffered: flush() or close() makes sure it is in the
 // file, and anything still open when the program ends is written out then.
 // See Writer for its methods.
-class FileWriter extends(Writer)
-{
+class FileWriter extends(Writer) {
     /** Creates the file, or empties it if it exists. */
     public new(string path) { super(Files.check(Files.nOpen(path, 1))); }
 

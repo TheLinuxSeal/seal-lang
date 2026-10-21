@@ -1,5 +1,4 @@
-class Box
-{
+class Box {
     public int v;
     public new(int n) { v = n; }
 }

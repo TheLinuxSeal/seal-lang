@@ -1,13 +1,11 @@
 import seal.util.List;
 
-struct Main
-{
+struct Main {
     static Res make(int i) { Res r = new Res(i); return r; }
     static Pair pairOf(Res a, Res b) { Pair p; p.left = a; p.right = b; return p; }
     static int total(List<Res> xs) { int t = 0; for (int i = 0; i < xs.size(); i += 1) { t += xs.get(i).id; } return t; }
 
-    static int main()
-    {
+    static int main() {
         Res a = make(1);
         Res b = new Res(2);
         Res c = a + b;

@@ -3,7 +3,6 @@ package seal.java;
 // Java's short (docs/JAVA.md §3.1). JavaShort.of(x) makes one of a Seal int<<16>>, for a Java method that
 // takes a short, and a cast, (int<<16>>)x, makes one that Java gives back a Seal int<<16>>. It has no
 // operators in Seal: cast it first. A value of one is held as an int<<16>> is, so neither step costs anything.
-struct JavaShort
-{
+struct JavaShort {
     @jvm("JavaValues.shortOf") public static JavaShort of(int<<16>> x);
 }

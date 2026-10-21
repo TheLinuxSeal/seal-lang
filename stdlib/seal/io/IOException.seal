@@ -2,8 +2,7 @@ package seal.io;
 
 // A file operation that failed: a missing file, no permission, a folder that
 // isn't empty. The message says which file and why (§42.1).
-class IOException extends(Exception)
-{
+class IOException extends(Exception) {
     public new() { }
     public new(string m) { super(m); }
 }

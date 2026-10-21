@@ -2,8 +2,7 @@ package seal.lang;
 
 // A failed assert (§41.4), when asserts are turned on with -Wassert. Its message is the
 // assert's, or the condition as written: "x > 0".
-class AssertionError extends(RuntimeException)
-{
+class AssertionError extends(RuntimeException) {
     public new() { }
     public new(string m) { super(m); }
 }

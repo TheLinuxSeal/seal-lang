@@ -10,8 +10,7 @@ import seal.util.function.Predicate;
 // Elements are copied in and out by value (a class element is a handle, so
 // the list shares the object). indexOf, contains and sort need T to support
 // == and < respectively; that is checked when they are used.
-class List<T>
-{
+class List<T> {
     array<T> items;   // the first count of them are the elements; the rest is room to grow
     int count;
     // Never assigned: an "empty" T (null, zero) used to clear slots, so a
@@ -22,39 +21,33 @@ class List<T>
 
     public bit isEmpty() { return count == 0; }
 
-    public T get(int i)
-    {
+    public T get(int i) {
         check(i);
         return items[i];
     }
 
-    public void set(int i, T value)
-    {
+    public void set(int i, T value) {
         check(i);
         items[i] = value;
     }
 
-    public void add(T value)
-    {
+    public void add(T value) {
         reserve(count + 1);
         items[count] = value;
         count++;
     }
 
-    public T first()
-    {
+    public T first() {
         check(0);
         return items[0];
     }
 
-    public T last()
-    {
+    public T last() {
         check(count - 1);
         return items[count - 1];
     }
 
-    public T removeLast()
-    {
+    public T removeLast() {
         if (count == 0) { throw new NoSuchElementException("removeLast on an empty List"); }
         count--;
         T value = items[count];
@@ -63,8 +56,7 @@ class List<T>
     }
 
     /** Inserts at index i (0 to size()), shifting later elements up. */
-    public void insert(int i, T value)
-    {
+    public void insert(int i, T value) {
         if (i < 0 || i > count) { throw new IndexOutOfBoundsException("List insert index " + i + " out of range for size " + count); }
         reserve(count + 1);
         for (int j = count; j > i; j--) { items[j] = items[j - 1]; }
@@ -73,8 +65,7 @@ class List<T>
     }
 
     /** Removes and returns the element at i, shifting later elements down. */
-    public T removeAt(int i)
-    {
+    public T removeAt(int i) {
         check(i);
         T value = items[i];
         for (int j = i; j < count - 1; j++) { items[j] = items[j + 1]; }
@@ -84,21 +75,18 @@ class List<T>
     }
 
     /** Removes every element. */
-    public void clear()
-    {
+    public void clear() {
         for (int i = 0; i < count; i++) { items[i] = blank; }
         count = 0;
     }
 
-    public void swap(int i, int j)
-    {
+    public void swap(int i, int j) {
         check(i);
         check(j);
         items.swap(i, j);
     }
 
-    public void reverse()
-    {
+    public void reverse() {
         int i = 0;
         int j = count - 1;
         while (i < j) {
@@ -109,8 +97,7 @@ class List<T>
     }
 
     /** Index of the first element equal to value, or -1. */
-    public int indexOf(T value)
-    {
+    public int indexOf(T value) {
         for (int i = 0; i < count; i++) {
             if (items[i] == value) { return i; }
         }
@@ -120,8 +107,7 @@ class List<T>
     public bit contains(T value) { return indexOf(value) >= 0; }
 
     /** Sorts ascending with <, in place (heapsort: O(n log n), not stable). */
-    public void sort()
-    {
+    public void sort() {
         for (int start = count / 2 - 1; start >= 0; start--) { siftDown(start, count); }
         for (int end = count - 1; end > 0; end--) {
             items.swap(0, end);
@@ -133,8 +119,7 @@ class List<T>
      * Sorts in place in the order `cmp` gives, keeping equal elements in their
      * order (merge sort: O(n log n), stable): list.sort((a, b) -> a.age - b.age).
      */
-    public void sort(Comparator<T> cmp)
-    {
+    public void sort(Comparator<T> cmp) {
         array<T> buffer = new array<T>(count);
         for (int width = 1; width < count; width *= 2) {
             for (int lo = 0; lo < count; lo += 2 * width) {
@@ -160,14 +145,12 @@ class List<T>
     }
 
     /** Calls `action` with each element in order: list.forEach(x -> System.stdout.println(x)). */
-    public void forEach(Consumer<T> action)
-    {
+    public void forEach(Consumer<T> action) {
         for (int i = 0; i < count; i++) { action.accept(items[i]); }
     }
 
     /** Removes the elements `test` accepts, keeping the order of the rest; true if any went. */
-    public bit removeIf(Predicate<T> test)
-    {
+    public bit removeIf(Predicate<T> test) {
         int kept = 0;
         for (int i = 0; i < count; i++) {
             T x = items[i];
@@ -185,8 +168,7 @@ class List<T>
     public array<T> toArray() { return items.copyOf(count); }
 
     /** Makes room for at least n elements. */
-    public void reserve(int n)
-    {
+    public void reserve(int n) {
         if (n <= items.length()) { return; }
         int c = items.length() * 2;
         if (c < 8) { c = 8; }
@@ -194,8 +176,7 @@ class List<T>
         items = items.copyOf(c);
     }
 
-    void siftDown(int root, int end)
-    {
+    void siftDown(int root, int end) {
         int r = root;
         while (true) {
             int child = 2 * r + 1;
@@ -210,8 +191,7 @@ class List<T>
         }
     }
 
-    void check(int i)
-    {
+    void check(int i) {
         if (i < 0 || i >= count) { throw new IndexOutOfBoundsException("List index " + i + " out of range for size " + count); }
     }
 }

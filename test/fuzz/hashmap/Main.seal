@@ -3,10 +3,8 @@ import seal.util.HashMap;
 import seal.util.List;
 import seal.util.function.Predicate;
 
-struct Main
-{
-    static <K, V> int countWhere(HashMap<K, V> m, Predicate<V> test)
-    {
+struct Main {
+    static <K, V> int countWhere(HashMap<K, V> m, Predicate<V> test) {
         int n = 0;
         for (V v : m.values()) { if (test.test(v)) { n += 1; } }
         return n;
@@ -14,8 +12,7 @@ struct Main
 
     static <T> T firstOr(List<T> xs, T fallback) { return xs.isEmpty() ? fallback : xs.get(0); }
 
-    static int main()
-    {
+    static int main() {
         HashMap<string, int> counts = new HashMap();
         for (string w : "a b a c b a d".split(' ')) { counts.put(w, counts.getOrDefault(w, 0) + 1); }
         System.stdout.println(counts.get("a") + " " + countWhere(counts, n -> n > 1));

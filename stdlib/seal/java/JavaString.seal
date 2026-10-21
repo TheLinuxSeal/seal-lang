@@ -5,7 +5,6 @@ package seal.java;
 // and a cast, (string)s, takes one out. A Seal string is a java.lang.String on the JVM already, so
 // neither copies it; but a Java String may be null, where a Seal string never is, and (string)s of
 // a null one is "null", as Java's String.valueOf gives.
-class JavaString
-{
+class JavaString {
     @jvm("JavaValues.stringOf") public static JavaString of(string s);
 }

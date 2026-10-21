@@ -3,7 +3,6 @@ package seal.java;
 // Java's java.lang.Boolean (docs/JAVA.md §3.1), with its own methods: an object holding a number,
 // for what Java wants an object for, a List's elements or an Object parameter. JavaBooleanBoxed.of(x) boxes
 // a Seal bit, and a cast, (bit)b, unboxes one; a null box stops the program there.
-class JavaBooleanBoxed
-{
+class JavaBooleanBoxed {
     @jvm("JavaValues.booleanBoxed") public static JavaBooleanBoxed of(bit x);
 }

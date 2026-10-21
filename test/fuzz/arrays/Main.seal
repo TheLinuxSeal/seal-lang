@@ -1,9 +1,7 @@
-struct Main
-{
+struct Main {
     static int sum(array<Cell><<8>> cs) { int t = 0; for (int i = 0; i < 8; i += 1) { t += cs[i].v; } return t; }
 
-    static int main()
-    {
+    static int main() {
         array<Cell><<8>> a;
         a[2].tag = new Tag(5);
         a[3].tag = a[2].tag;

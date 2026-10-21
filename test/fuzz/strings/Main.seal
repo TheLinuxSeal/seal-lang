@@ -1,10 +1,8 @@
 // Fuzz input: string literals, character literals, immutable strings sharing buffers, and StringBuilder.
 import seal.util.List;
 
-struct Main
-{
-    static int vowels(string s)
-    {
+struct Main {
+    static int vowels(string s) {
         int n = 0;
         for (int i = 0; i < s.length(); i += 1) {
             char c = Char.toLower(s.charAt(i));
@@ -13,8 +11,7 @@ struct Main
         return n;
     }
 
-    static int main()
-    {
+    static int main() {
         string greeting = "Hello" + ", " + "World";
         string copy = greeting;
         copy += '!';

@@ -1,5 +1,4 @@
-unique Ticket
-{
+unique Ticket {
     public int id;
     public Res owner;
     public new() { id = -1; }

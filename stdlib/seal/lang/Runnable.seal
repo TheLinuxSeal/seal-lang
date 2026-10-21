@@ -1,7 +1,6 @@
 package seal.lang;
 
 // A task with no inputs or result: Runnable r = () -> System.stdout.println("hi"); r.run();
-interface Runnable
-{
+interface Runnable {
     void run();
 }

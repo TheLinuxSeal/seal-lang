@@ -6,8 +6,7 @@ package seal.java;
 // of Java's defaults (0, false, null), for Java to fill: JavaArray<JavaByte> buffer = new JavaArray(4096);
 // and a cast copies one out into a new Seal array: (array<uint<<8>>>)buffer. Both directions copy,
 // as an array<T> is a unique, which Java can't keep.
-class JavaArray<T> extends(JavaObject)
-{
+class JavaArray<T> extends(JavaObject) {
     public JavaInt length;
 
     @jvm("JavaValues.bytesIn") public static JavaArray<JavaByte> of(array<int<<8>>> xs);

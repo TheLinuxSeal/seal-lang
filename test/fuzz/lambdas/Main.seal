@@ -4,12 +4,10 @@ import seal.util.function.BiFunction;
 import seal.util.function.Function;
 import seal.util.function.Supplier;
 
-struct Main
-{
+struct Main {
     static int applyTwice(Function<int, int> f, int x) { return f.apply(f.apply(x)); }
 
-    static int main()
-    {
+    static int main() {
         int base = 100;
         Function<int, int> addBase = x -> x + base;
         System.stdout.println(applyTwice(addBase, 1));

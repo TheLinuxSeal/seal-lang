@@ -4,8 +4,7 @@ import seal.io.Reader;
 import seal.io.Writer;
 
 // The process: its standard streams, exiting, timing.
-struct System
-{
+struct System {
     /** The program's standard input, output and error (§42.2). */
     public static Reader stdin = new Reader(1);
     public static Writer stdout = new Writer(2);
@@ -27,8 +26,7 @@ struct System
     @native("time_ns") public static int<<64>> nanoTime() { }
 
     /** Prints a message to stderr and stops the program with a trap, at once. */
-    public static void fail(string message)
-    {
+    public static void fail(string message) {
         stderr.println(message);
         abort();
     }

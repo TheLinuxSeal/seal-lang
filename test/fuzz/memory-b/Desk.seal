@@ -1,5 +1,4 @@
-class Desk
-{
+class Desk {
     public Badge current = new Badge(0);
     public array<Badge><<2>> spare;
     public void swapIn(int i) { current = new Badge(i); }

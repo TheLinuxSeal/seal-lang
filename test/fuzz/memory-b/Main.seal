@@ -1,13 +1,11 @@
-struct Main
-{
+struct Main {
     static void punch(Ticket t) { t.id += 100; }
     static Ticket issue(int i) { Ticket t = new Ticket(i); return t; }
     static int idOf(Ticket t) { return t.id; }
     static void punchBadge(Badge b) { b.id += 100; }
     static Badge badge(int i) { Badge b = new Badge(i); return b; }
 
-    static int main()
-    {
+    static int main() {
         Ticket t = new Ticket(1);
         punch(t);
         t = new Ticket(2);

@@ -10,12 +10,10 @@ import seal.util.List;
 //
 // Methods that change things (delete, mkdir, renameTo) return whether they
 // worked, as in Java; Files has versions that throw an IOException instead.
-class File
-{
+class File {
     string path;
 
-    public new(string path)
-    {
+    public new(string path) {
         // "photos/" and "photos" are the same folder.
         this.path = path.length() > 1 && path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
     }
@@ -31,23 +29,20 @@ class File
     @overload(Operator.CAST) public string text() { return path; }
 
     /** The last name in the path: "report.txt" for "docs/report.txt". */
-    public string getName()
-    {
+    public string getName() {
         int slash = path.lastIndexOf('/');
         return slash < 0 ? path : path.substring(slash + 1, path.length());
     }
 
     /** The part of the name after its last dot, "txt" for "report.txt"; "" if there is none. */
-    public string getExtension()
-    {
+    public string getExtension() {
         string name = getName();
         int dot = name.lastIndexOf('.');
         return dot <= 0 ? "" : name.substring(dot + 1, name.length());
     }
 
     /** The path of the folder it is in: "docs" for "docs/report.txt"; "" if the path has no folder. */
-    public string getParent()
-    {
+    public string getParent() {
         int slash = path.lastIndexOf('/');
         if (slash < 0) { return ""; }
         if (slash == 0) { return "/"; }
@@ -55,8 +50,7 @@ class File
     }
 
     /** The folder it is in, or null if the path has none. */
-    public File getParentFile()
-    {
+    public File getParentFile() {
         string parent = getParent();
         return parent.isEmpty() ? null : new File(parent);
     }
@@ -75,8 +69,7 @@ class File
     public int<<64>> lastModified() { return exists() ? Files.lastModified(path) : 0; }
 
     /** Deletes the file, or the folder if it is empty; true if it did. */
-    public bit delete()
-    {
+    public bit delete() {
         try {
             Files.delete(path);
             return true;
@@ -86,8 +79,7 @@ class File
     }
 
     /** Makes this folder (its parent must exist); true if it did. */
-    public bit mkdir()
-    {
+    public bit mkdir() {
         try {
             Files.createDirectory(path);
             return true;
@@ -97,8 +89,7 @@ class File
     }
 
     /** Makes this folder and any missing parents; true if it made it. */
-    public bit mkdirs()
-    {
+    public bit mkdirs() {
         if (exists()) { return false; }
         try {
             Files.createDirectories(path);
@@ -109,8 +100,7 @@ class File
     }
 
     /** Moves or renames it to dest; true if it did. */
-    public bit renameTo(File dest)
-    {
+    public bit renameTo(File dest) {
         try {
             Files.move(path, dest.path);
             return true;
@@ -123,16 +113,14 @@ class File
     public List<string> list() { return Files.names(path); }
 
     /** What this folder holds, sorted by name. */
-    public List<File> listFiles()
-    {
+    public List<File> listFiles() {
         List<File> out = new List();
         for (string name : Files.names(path)) { out.add(new File(this, name)); }
         return out;
     }
 
     /** This and everything below it, each folder before what it holds. */
-    public List<File> walk()
-    {
+    public List<File> walk() {
         List<File> out = new List();
         for (string p : Files.walk(path)) { out.add(new File(p)); }
         return out;

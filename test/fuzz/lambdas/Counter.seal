@@ -1,7 +1,6 @@
 import seal.util.function.Supplier;
 
-class Counter
-{
+class Counter {
     int count;
     public Runnable incrementer() { return () -> count += 1; }
     public int get() { return count; }

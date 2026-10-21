@@ -1,7 +1,6 @@
 import seal.util.Iterator;
 
-class Chain implements(Iterable<int>)
-{
+class Chain implements(Iterable<int>) {
     public Node head;
     public Iterator<int> iterator() { return new ChainIterator(this); }
 }

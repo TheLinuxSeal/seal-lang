@@ -3,7 +3,6 @@ package seal.java;
 // Java's int (docs/JAVA.md §3.1). JavaInt.of(x) makes one of a Seal int, for a Java method that
 // takes a int, and a cast, (int)x, makes one that Java gives back a Seal int. It has no
 // operators in Seal: cast it first. A value of one is held as an int is, so neither step costs anything.
-struct JavaInt
-{
+struct JavaInt {
     @jvm("JavaValues.intOf") public static JavaInt of(int x);
 }

@@ -1,18 +1,15 @@
 // Fuzz input: exceptions through frames holding uniques and handles; finally on every exit.
 import seal.util.List;
 
-struct Main
-{
-    static int depth(int n)
-    {
+struct Main {
+    static int depth(int n) {
         Res r = new Res(n);
         Box b = new Box(n);
         if (n == 0) { throw new BadInput("bottom", 42); }
         return depth(n - 1);
     }
 
-    static int withFinally(int x)
-    {
+    static int withFinally(int x) {
         try {
             if (x > 0) { return x; }
             throw new IllegalStateException("x is " + x);
@@ -21,8 +18,7 @@ struct Main
         }
     }
 
-    static int main()
-    {
+    static int main() {
         try {
             depth(2);
         } catch (BadInput e) {

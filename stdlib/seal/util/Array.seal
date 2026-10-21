@@ -2,8 +2,7 @@ package seal.util;
 
 // A fixed-size array of T, one- or two-dimensional (the example from §13).
 struct Array<T><<int N>>
-struct Array<T><<int N, int K>>
-{
+struct Array<T><<int N, int K>> {
     int occupied;
 
     array<T><<N>> data<<int N>>;
@@ -24,13 +23,11 @@ struct Array<T><<int N, int K>>
     public void set<<int N>>(int x, T value) { data[x] = value; }
     public void set<<int N, int K>>(int x, int y, T value) { data[x][y] = value; }
 
-    public void fill<<int N>>(T value)
-    {
+    public void fill<<int N>>(T value) {
         for (int i = 0; i < N; i++) { data[i] = value; }
     }
 
-    public void fill<<int N, int K>>(T value)
-    {
+    public void fill<<int N, int K>>(T value) {
         for (int i = 0; i < N; i++) {
             for (int j = 0; j < K; j++) { data[i][j] = value; }
         }

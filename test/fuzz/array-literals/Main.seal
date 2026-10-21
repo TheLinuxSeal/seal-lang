@@ -1,17 +1,14 @@
 // Fuzz input: array literals of numbers, strings, structs-with-strings and handles.
 import seal.util.List;
 
-struct Main
-{
-    static int total(array<int><<4>> xs)
-    {
+struct Main {
+    static int total(array<int><<4>> xs) {
         int t = 0;
         for (int i = 0; i < 4; i += 1) { t += xs[i]; }
         return t;
     }
 
-    static int main()
-    {
+    static int main() {
         array<int><<4>> xs = [3, 1, 4, 1];
         xs = [xs[3], xs[2], xs[1], xs[0]];
         System.stdout.println(total(xs) + total([5, 9, 2, 6]));

@@ -21,8 +21,7 @@ import seal.util.List;
 // methods named, as their bodies here use the VM's memory. A method here that
 // changes a string being made (put, room) returns the new String there.
 struct string<<>>
-struct string<<int N>>
-{
+struct string<<int N>> {
     int size;
     array<char><<N>> chars<<int N>>;
     // The characters: a literal's in static data, or the start of owner's.
@@ -39,22 +38,19 @@ struct string<<int N>>
      * `string s = fixed;`, passing it to a `string` parameter, returning it.
      */
     @implicit
-    public new<<>>(string<<int K>> other)
-    {
+    public new<<>>(string<<int K>> other) {
         room(other.length());
         put(other);
     }
 
     /** The characters of an array, as Java's new String(char[]). */
-    public new<<>>(array<char> chars)
-    {
+    public new<<>>(array<char> chars) {
         room(chars.length());
         for (int i = 0; i < chars.length(); i++) { put(chars[i]); }
     }
 
     /** count characters of an array, from offset on, as Java's new String(char[], offset, count). */
-    public new<<>>(array<char> chars, int offset, int count)
-    {
+    public new<<>>(array<char> chars, int offset, int count) {
         if (offset < 0 || count < 0 || offset > chars.length() - count) {
             throw new IndexOutOfBoundsException("offset " + offset + " and count " + count + " out of range for an array of length " + chars.length());
         }
@@ -64,8 +60,7 @@ struct string<<int N>>
 
     /** The n characters the last file operation produced, as a new bare string (§42.1). */
     @jvm("Natives.takeText")
-    private<Files, Reader> static string takeText(int n)
-    {
+    private<Files, Reader> static string takeText(int n) {
         string s;
         s.room(n);
         takeInto(s.chars);
@@ -93,8 +88,7 @@ struct string<<int N>>
     public static <A, B, C, D, E, F, G, H> string format(string fmt, A a, B b, C c, D d, E e, F f, G g, H h) { Format fm = new Format(fmt); fm.arg(a); fm.arg(b); fm.arg(c); fm.arg(d); fm.arg(e); fm.arg(f); fm.arg(g); fm.arg(h); return fm.finish(); }
 
     /** A bare string holding n characters read from memory. */
-    public static string fromChars(addr<char> chars, int n)
-    {
+    public static string fromChars(addr<char> chars, int n) {
         string s;
         s.room(n);
         for (int i = 0; i < n; i++) { s.put(&(chars + (int<<64>>)i * 16)); }
@@ -112,8 +106,7 @@ struct string<<int N>>
 
     // ------------------------------------------------------------ characters
 
-    public char charAt(int i)
-    {
+    public char charAt(int i) {
         if (i < 0 || i >= size) { throw new IndexOutOfBoundsException("string index " + i + " out of range for length " + size); }
         return at(i);
     }
@@ -123,8 +116,7 @@ struct string<<int N>>
     @jvm("Strings.at") char at<<>>(int i) { return &(chars + (int<<64>>)i * 16); }
 
     /** The characters as an array of exactly length() chars. */
-    public array<char> toCharArray<<>>()
-    {
+    public array<char> toCharArray<<>>() {
         array<char> out = new array<char>(size);
         for (int i = 0; i < size; i++) { out[i] = charAt(i); }
         return out;
@@ -135,8 +127,7 @@ struct string<<int N>>
      * length() are 0. For a literal the two are equal: "abc".toCharArray()
      * is an array<char><<3>>.
      */
-    public array<char><<N>> toCharArray<<int N>>()
-    {
+    public array<char><<N>> toCharArray<<int N>>() {
         array<char><<N>> result;
         for (int i = 0; i < length(); i++) { result[i] = at(i); }
         return result;
@@ -150,16 +141,14 @@ struct string<<int N>>
     // string uses of it, so none of them changes.
 
     @jvm("Strings.put")
-    void put<<int N>>(char c)
-    {
+    void put<<int N>>(char c) {
         if (size >= N) { throw new IllegalStateException("string<<" + N + ">> is full"); }
         chars[size] = c;
         size++;
     }
 
     @jvm("Strings.put")
-    void put<<>>(char c)
-    {
+    void put<<>>(char c) {
         room(size + 1);
         &(chars + (int<<64>>)size * 16) = c;
         size++;
@@ -167,27 +156,23 @@ struct string<<int N>>
     }
 
     @jvm("Strings.put")
-    void put<<int N>>(string other)
-    {
+    void put<<int N>>(string other) {
         for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
     }
 
     @jvm("Strings.put")
-    void put<<>>(string other)
-    {
+    void put<<>>(string other) {
         room(size + other.length());
         for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
     }
 
     @jvm("Strings.put")
-    void put<<int N>>(string<<int K>> other)
-    {
+    void put<<int N>>(string<<int K>> other) {
         for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
     }
 
     @jvm("Strings.put")
-    void put<<>>(string<<int K>> other)
-    {
+    void put<<>>(string<<int K>> other) {
         room(size + other.length());
         for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
     }
@@ -198,8 +183,7 @@ struct string<<int N>>
      * otherwise a new one, with the characters copied, at least twice as big.
      */
     @jvm("Strings.room")
-    void room<<>>(int n)
-    {
+    void room<<>>(int n) {
         if (owner != null && owner.used == size && n <= owner.data.length()) { return; }
         int c = owner == null ? 0 : owner.data.length() * 2;
         if (c < 8) { c = 8; }
@@ -213,8 +197,7 @@ struct string<<int N>>
 
     /** Joins two fixed strings into one whose capacity is the sum of theirs. */
     @overload(Operator.ADD)
-    public string<<N + K>> add<<int N>>(string<<int K>> other)
-    {
+    public string<<N + K>> add<<int N>>(string<<int K>> other) {
         string<<N + K>> result;
         for (int i = 0; i < size; i++) { result.put(at(i)); }
         result.put(other);
@@ -264,8 +247,7 @@ struct string<<int N>>
     @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(bit x) { if (x) { put("true"); } else { put("false"); } }
     @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(char c) { put(c); }
 
-    string join(string text)
-    {
+    string join(string text) {
         string r = this;
         r.put(text);
         return r;
@@ -275,8 +257,7 @@ struct string<<int N>>
 
     @overload(Operator.EQUALS)
     @jvm("Strings.equals")
-    public bit equals(string other)
-    {
+    public bit equals(string other) {
         if (size != other.length()) { return false; }
         for (int i = 0; i < size; i++) {
             if (charAt(i) != other.charAt(i)) { return false; }
@@ -286,8 +267,7 @@ struct string<<int N>>
 
     @overload(Operator.EQUALS)
     @jvm("Strings.equals")
-    public bit equals(string<<int K>> other)
-    {
+    public bit equals(string<<int K>> other) {
         if (size != other.length()) { return false; }
         for (int i = 0; i < size; i++) {
             if (charAt(i) != other.charAt(i)) { return false; }
@@ -297,8 +277,7 @@ struct string<<int N>>
 
     /** Negative, zero or positive as this string sorts before, equal to, or after the other. */
     @jvm("Strings.compare")
-    public int compare(string other)
-    {
+    public int compare(string other) {
         int n = size;
         if (other.length() < n) { n = other.length(); }
         for (int i = 0; i < n; i++) {
@@ -310,8 +289,7 @@ struct string<<int N>>
     }
 
     @jvm("Strings.compare")
-    public int compare(string<<int K>> other)
-    {
+    public int compare(string<<int K>> other) {
         int n = size;
         if (other.length() < n) { n = other.length(); }
         for (int i = 0; i < n; i++) {
@@ -328,8 +306,7 @@ struct string<<int N>>
     @overload(Operator.LESS)
     public bit less(string<<int K>> other) { return compare(other) < 0; }
 
-    public bit startsWith(string prefix)
-    {
+    public bit startsWith(string prefix) {
         if (prefix.length() > size) { return false; }
         for (int i = 0; i < prefix.length(); i++) {
             if (charAt(i) != prefix.charAt(i)) { return false; }
@@ -337,8 +314,7 @@ struct string<<int N>>
         return true;
     }
 
-    public bit endsWith(string suffix)
-    {
+    public bit endsWith(string suffix) {
         int n = suffix.length();
         if (n > size) { return false; }
         for (int i = 0; i < n; i++) {
@@ -350,8 +326,7 @@ struct string<<int N>>
     // ------------------------------------------------------------ searching
 
     /** Index of the first c, or -1. */
-    public int indexOf(char c)
-    {
+    public int indexOf(char c) {
         for (int i = 0; i < size; i++) {
             if (charAt(i) == c) { return i; }
         }
@@ -361,8 +336,7 @@ struct string<<int N>>
     public bit contains(char c) { return indexOf(c) >= 0; }
 
     /** Index of the last c, or -1. */
-    public int lastIndexOf(char c)
-    {
+    public int lastIndexOf(char c) {
         for (int i = size - 1; i >= 0; i--) {
             if (charAt(i) == c) { return i; }
         }
@@ -370,8 +344,7 @@ struct string<<int N>>
     }
 
     /** Index of the first place `part` starts, or -1 ("" is found at 0). */
-    public int indexOf(string part)
-    {
+    public int indexOf(string part) {
         int n = part.length();
         for (int i = 0; i + n <= size; i++) {
             int k = 0;
@@ -386,8 +359,7 @@ struct string<<int N>>
     // ------------------------------------------------------------ splitting
 
     /** The pieces between separators, empty ones included: "a,,b" gives "a", "", "b". */
-    public List<string> split(char separator)
-    {
+    public List<string> split(char separator) {
         List<string> parts = new List();
         int start = 0;
         for (int i = 0; i < size; i++) {
@@ -404,8 +376,7 @@ struct string<<int N>>
      * The lines, without their line ends (\n or \r\n), as in Java's lines(): a final line
      * end doesn't start another, empty line, and "" has no lines.
      */
-    public List<string> lines()
-    {
+    public List<string> lines() {
         List<string> out = new List();
         int start = 0;
         for (int i = 0; i < size; i++) {
@@ -422,8 +393,7 @@ struct string<<int N>>
     }
 
     /** Without the spaces and control characters at either end. */
-    public string trim()
-    {
+    public string trim() {
         int from = 0;
         int to = size;
         while (from < to && charAt(from) <= ' ') { from++; }
@@ -434,16 +404,14 @@ struct string<<int N>>
     // ------------------------------------------------------------ conversion
 
     /** Characters from (inclusive) to to (exclusive), as a new bare string. */
-    public string substring(int from, int to)
-    {
+    public string substring(int from, int to) {
         if (from < 0 || to > size || from > to) { throw new IndexOutOfBoundsException("substring(" + from + ", " + to + ") out of range for length " + size); }
         return slice(from, to);
     }
 
     /** substring's characters, which are in range. */
     @jvm("Strings.substring")
-    string slice(int from, int to)
-    {
+    string slice(int from, int to) {
         string result;
         result.room(to - from);
         for (int i = from; i < to; i++) { result.put(at(i)); }
@@ -455,16 +423,14 @@ struct string<<int N>>
 
     /** The string with every letter in upper case: s = s.toUpper(); as Java's toUpperCase. */
     @jvm("Strings.toUpper")
-    public string<<N>> toUpper<<int N>>()
-    {
+    public string<<N>> toUpper<<int N>>() {
         string<<N>> r;
         for (int i = 0; i < size; i++) { r.put(Char.toUpper(chars[i])); }
         return r;
     }
 
     @jvm("Strings.toUpper")
-    public string toUpper<<>>()
-    {
+    public string toUpper<<>>() {
         string r;
         r.room(size);
         for (int i = 0; i < size; i++) { r.put(Char.toUpper(charAt(i))); }
@@ -473,16 +439,14 @@ struct string<<int N>>
 
     /** The string with every letter in lower case, as Java's toLowerCase. */
     @jvm("Strings.toLower")
-    public string<<N>> toLower<<int N>>()
-    {
+    public string<<N>> toLower<<int N>>() {
         string<<N>> r;
         for (int i = 0; i < size; i++) { r.put(Char.toLower(chars[i])); }
         return r;
     }
 
     @jvm("Strings.toLower")
-    public string toLower<<>>()
-    {
+    public string toLower<<>>() {
         string r;
         r.room(size);
         for (int i = 0; i < size; i++) { r.put(Char.toLower(charAt(i))); }
@@ -491,8 +455,7 @@ struct string<<int N>>
 
     /** The string with every old character replaced by new, as Java's replace(char, char). */
     @jvm("Strings.replace")
-    public string replace(char old, char replacement)
-    {
+    public string replace(char old, char replacement) {
         string r;
         r.room(size);
         for (int i = 0; i < size; i++) {
@@ -503,15 +466,13 @@ struct string<<int N>>
     }
 
     /** The string n times over, as Java's repeat. */
-    public string repeat(int n)
-    {
+    public string repeat(int n) {
         if (n < 0) { throw new IllegalArgumentException("repeat count is negative: " + n); }
         return times(n);
     }
 
     @jvm("Strings.repeat")
-    string times(int n)
-    {
+    string times(int n) {
         string r;
         r.room(size * n);
         for (int k = 0; k < n; k++) {
@@ -521,8 +482,7 @@ struct string<<int N>>
     }
 
     /** Parses an optionally negative decimal integer; fails on anything else. */
-    public int<<64>> toInt()
-    {
+    public int<<64>> toInt() {
         if (size == 0) { throw new NumberFormatException("cannot parse an empty string as an integer"); }
         int i = 0;
         bit negative = false;
@@ -542,8 +502,7 @@ struct string<<int N>>
     }
 
     /** FNV-1a hash of the characters. */
-    public uint<<64>> hash()
-    {
+    public uint<<64>> hash() {
         uint<<64>> h = 14695981039346656037;
         for (int i = 0; i < size; i++) {
             h = (h ^ (uint<<64>>)charAt(i)) * 1099511628211;

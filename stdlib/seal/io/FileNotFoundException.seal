@@ -1,8 +1,7 @@
 package seal.io;
 
 // A file or folder that doesn't exist.
-class FileNotFoundException extends(IOException)
-{
+class FileNotFoundException extends(IOException) {
     public new() { }
     public new(string m) { super(m); }
 }

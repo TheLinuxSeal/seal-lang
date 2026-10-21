@@ -19,8 +19,7 @@ import seal.util.function.BiConsumer;
 //
 // Entries live in lists in the order they were added; a table of indexes,
 // searched by linear probing from each key's hash, finds them.
-class HashMap<K, V>
-{
+class HashMap<K, V> {
     List<K> keyList;
     List<V> valueList;
     List<uint<<64>>> hashes;
@@ -30,8 +29,7 @@ class HashMap<K, V>
     K blankKey;              // never assigned: what a removed entry's key and value become,
     V blankValue;            // so the map lets go of what they referred to
 
-    public new()
-    {
+    public new() {
         keyList = new List();
         valueList = new List();
         hashes = new List();
@@ -45,8 +43,7 @@ class HashMap<K, V>
     public bit isEmpty() { return count == 0; }
 
     /** Adds the key with this value, or replaces the value it has. */
-    public void put(K key, V value)
-    {
+    public void put(K key, V value) {
         uint<<64>> h = Hash.of(key);
         int i = find(key, h);
         if (i >= 0) {
@@ -65,16 +62,14 @@ class HashMap<K, V>
     }
 
     /** The key's value; throws a NoSuchElementException if the key isn't in the map. */
-    public V get(K key)
-    {
+    public V get(K key) {
         int i = find(key, Hash.of(key));
         if (i < 0) { throw new NoSuchElementException("HashMap.get: the key isn't in the map"); }
         return valueList.get(i);
     }
 
     /** The key's value, or fallback if the key isn't in the map. */
-    public V getOrDefault(K key, V fallback)
-    {
+    public V getOrDefault(K key, V fallback) {
         int i = find(key, Hash.of(key));
         return i < 0 ? fallback : valueList.get(i);
     }
@@ -82,8 +77,7 @@ class HashMap<K, V>
     public bit containsKey(K key) { return find(key, Hash.of(key)) >= 0; }
 
     /** Removes the key and its value; true if it was there. */
-    public bit remove(K key)
-    {
+    public bit remove(K key) {
         int i = find(key, Hash.of(key));
         if (i < 0) { return false; }
         removed.set(i, true);
@@ -93,8 +87,7 @@ class HashMap<K, V>
         return true;
     }
 
-    public void clear()
-    {
+    public void clear() {
         keyList.clear();
         valueList.clear();
         hashes.clear();
@@ -104,8 +97,7 @@ class HashMap<K, V>
     }
 
     /** The keys, in the order they were first put in. */
-    public List<K> keys()
-    {
+    public List<K> keys() {
         List<K> out = new List();
         for (int i = 0; i < keyList.size(); i++) {
             if (!removed.get(i)) { out.add(keyList.get(i)); }
@@ -114,8 +106,7 @@ class HashMap<K, V>
     }
 
     /** The values, in the order of their keys. */
-    public List<V> values()
-    {
+    public List<V> values() {
         List<V> out = new List();
         for (int i = 0; i < valueList.size(); i++) {
             if (!removed.get(i)) { out.add(valueList.get(i)); }
@@ -124,8 +115,7 @@ class HashMap<K, V>
     }
 
     /** Each key with its value, in order. */
-    public List<Entry<K, V>> entries()
-    {
+    public List<Entry<K, V>> entries() {
         List<Entry<K, V>> out = new List();
         for (int i = 0; i < keyList.size(); i++) {
             if (!removed.get(i)) { out.add(new Entry<K, V>(keyList.get(i), valueList.get(i))); }
@@ -134,8 +124,7 @@ class HashMap<K, V>
     }
 
     /** Calls action with each key and its value, in order. */
-    public void forEach(BiConsumer<K, V> action)
-    {
+    public void forEach(BiConsumer<K, V> action) {
         for (int i = 0; i < keyList.size(); i++) {
             if (!removed.get(i)) { action.accept(keyList.get(i), valueList.get(i)); }
         }
@@ -144,8 +133,7 @@ class HashMap<K, V>
     // ------------------------------------------------------------ inside
 
     /** The index of the key's entry, or -1. */
-    int find(K key, uint<<64>> h)
-    {
+    int find(K key, uint<<64>> h) {
         int mask = table.size() - 1;
         int slot = (int)(h & (uint<<64>>)mask);
         while (true) {
@@ -158,8 +146,7 @@ class HashMap<K, V>
     }
 
     /** Puts entry i in the first free slot from its hash. */
-    void place(int i, uint<<64>> h)
-    {
+    void place(int i, uint<<64>> h) {
         int mask = table.size() - 1;
         int slot = (int)(h & (uint<<64>>)mask);
         while (table.get(slot) != 0) { slot = (slot + 1) & mask; }
@@ -167,8 +154,7 @@ class HashMap<K, V>
     }
 
     /** Drops removed entries and makes a table with room for at least n entries. */
-    void rebuild(int n)
-    {
+    void rebuild(int n) {
         int write = 0;
         for (int i = 0; i < keyList.size(); i++) {
             if (!removed.get(i)) {
@@ -194,8 +180,7 @@ class HashMap<K, V>
     }
 
     /** One key and its value, as entries() gives them, like Java's Map.Entry. */
-    public static class Entry<A, B>
-    {
+    public static class Entry<A, B> {
         public A key;
         public B value;
 

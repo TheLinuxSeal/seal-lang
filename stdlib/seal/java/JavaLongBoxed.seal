@@ -3,7 +3,6 @@ package seal.java;
 // Java's java.lang.Long (docs/JAVA.md §3.1), with its own methods: an object holding a number,
 // for what Java wants an object for, a List's elements or an Object parameter. JavaLongBoxed.of(x) boxes
 // a Seal int<<64>>, and a cast, (int<<64>>)b, unboxes one; a null box stops the program there.
-class JavaLongBoxed
-{
+class JavaLongBoxed {
     @jvm("JavaValues.longBoxed") public static JavaLongBoxed of(int<<64>> x);
 }

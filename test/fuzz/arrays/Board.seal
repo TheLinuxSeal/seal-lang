@@ -1,10 +1,8 @@
-class Board
-{
+class Board {
     public array<Cell><<3, 4>> cells;
     public array<Slot><<5>> slots;
     public array<Tag><<6>> tags;
-    public int total()
-    {
+    public int total() {
         int t = 0;
         for (int i = 0; i < 3; i += 1) { for (int j = 0; j < 4; j += 1) { t += cells[i][j].v; } }
         for (int i = 0; i < 5; i += 1) { t += slots[i].id + slots[i].tag.n; }

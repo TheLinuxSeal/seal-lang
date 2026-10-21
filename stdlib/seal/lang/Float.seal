@@ -1,12 +1,10 @@
 package seal.lang;
 
 // Text for float values.
-struct Float
-{
+struct Float {
     /** The shortest decimal text that reads back as the same float, as in Java: 0.1, 1.0E10, NaN. */
     @jvm("Strings.of")
-    public static string toString(float x)
-    {
+    public static string toString(float x) {
         addr<char> buf = new<char>(32);
         int n = text(x, buf);
         string s = string.fromChars(buf, n);

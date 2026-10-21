@@ -3,8 +3,7 @@ package seal.lang;
 // Helpers for values of any type, as Java's java.util.Objects. Records use them (§2.5),
 // so a component type without == (or without a cast to string) is only an error where
 // a record's == (or its text) is used.
-struct Objects
-{
+struct Objects {
     /** a == b, for any type that has ==. */
     public static <T> bit equals(T a, T b) { return a == b; }
 

@@ -1,8 +1,6 @@
 // Fuzz input: this in structs, classes, iterators and lambdas; ?: and chars.
-struct Main
-{
-    static int main()
-    {
+struct Main {
+    static int main() {
         Point p = new Point(1, 2);
         Point q = p.moved(10);
         p.shift(5);

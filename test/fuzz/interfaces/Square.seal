@@ -1,5 +1,4 @@
-class Square extends(Shape)
-{
+class Square extends(Shape) {
     public int side;
     public new(int s) { side = s; }
     public int area() { return side * side; }

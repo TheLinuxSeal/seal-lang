@@ -1,5 +1,4 @@
-class Bird extends(Animal)
-{
+class Bird extends(Animal) {
     public new(string n) { super(n); legs = 2; }
     public string describe() { string s = super.describe(); s += " and wings"; return s; }
 }

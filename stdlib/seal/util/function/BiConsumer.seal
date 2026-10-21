@@ -1,7 +1,6 @@
 package seal.util.function;
 
 // Takes two values and returns nothing: map.forEach((key, value) -> ...);
-interface BiConsumer<A, B>
-{
+interface BiConsumer<A, B> {
     void accept(A a, B b);
 }

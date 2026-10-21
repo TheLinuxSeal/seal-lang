@@ -1,8 +1,7 @@
 package seal.lang;
 
 // Text that isn't a number of the kind expected: Integer.parse("12x").
-class NumberFormatException extends(IllegalArgumentException)
-{
+class NumberFormatException extends(IllegalArgumentException) {
     public new() { }
     public new(string m) { super(m); }
 }

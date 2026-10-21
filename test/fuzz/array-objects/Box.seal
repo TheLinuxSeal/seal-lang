@@ -1,7 +1,6 @@
 import seal.util.function.Function;
 
-class Box<T>
-{
+class Box<T> {
     public T value;
     public new(T v) { value = v; }
     public <R> Box<R> map(Function<T, R> f) { return new Box<R>(f.apply(value)); }

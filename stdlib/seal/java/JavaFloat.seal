@@ -3,7 +3,6 @@ package seal.java;
 // Java's float (docs/JAVA.md §3.1). JavaFloat.of(x) makes one of a Seal float, for a Java method that
 // takes a float, and a cast, (float)x, makes one that Java gives back a Seal float. It has no
 // operators in Seal: cast it first. A value of one is held as a float is, so neither step costs anything.
-struct JavaFloat
-{
+struct JavaFloat {
     @jvm("JavaValues.floatOf") public static JavaFloat of(float x);
 }

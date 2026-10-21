@@ -8,8 +8,7 @@ package seal.lang;
 // for floats, and the same format for fixed point. Two-argument functions take two values
 // of the same type, like min and max; a constant takes the other argument's type.
 // The transcendental functions are implemented by the VM.
-struct Math
-{
+struct Math {
     public const double PI = 3.141592653589793;
     public const double E = 2.718281828459045;
 
@@ -108,8 +107,7 @@ struct Math
     public static fixed<<N, M>> clamp(fixed<<size N, size M>> x, fixed<<N, M>> lo, fixed<<N, M>> hi) { return max(lo, min(hi, x)); }
 
     /** The largest whole number not above x (toward negative infinity), computed exactly. */
-    public static fixed<<N, M>> floor(fixed<<size N, size M>> x)
-    {
+    public static fixed<<N, M>> floor(fixed<<size N, size M>> x) {
         fixed<<N, M>> t = (fixed<<N, M>>)(int<<64>>)x;   // toward zero
         // `+ -1` rather than `- 1`: -1 fits every signed format, even fixed<<1, M>>.
         if (t > x) { return t + -1; }
@@ -117,16 +115,14 @@ struct Math
     }
 
     /** The smallest whole number not below x. Wraps if that is past the format's largest value. */
-    public static fixed<<N, M>> ceil(fixed<<size N, size M>> x)
-    {
+    public static fixed<<N, M>> ceil(fixed<<size N, size M>> x) {
         fixed<<N, M>> f = floor(x);
         if (f < x) { return f - -1; }
         return f;
     }
 
     /** Rounds half up, exactly. */
-    public static fixed<<N, M>> round(fixed<<size N, size M>> x)
-    {
+    public static fixed<<N, M>> round(fixed<<size N, size M>> x) {
         fixed<<N, M>> f = floor(x);
         if (x - f >= 0.5) { return f - -1; }
         return f;
@@ -151,15 +147,13 @@ struct Math
 
     public static ufixed<<N, M>> floor(ufixed<<size N, size M>> x) { return (ufixed<<N, M>>)(uint<<64>>)x; }
 
-    public static ufixed<<N, M>> ceil(ufixed<<size N, size M>> x)
-    {
+    public static ufixed<<N, M>> ceil(ufixed<<size N, size M>> x) {
         ufixed<<N, M>> f = floor(x);
         if (f < x) { return f + 1; }
         return f;
     }
 
-    public static ufixed<<N, M>> round(ufixed<<size N, size M>> x)
-    {
+    public static ufixed<<N, M>> round(ufixed<<size N, size M>> x) {
         ufixed<<N, M>> f = floor(x);
         if (x - f >= 0.5) { return f + 1; }
         return f;
