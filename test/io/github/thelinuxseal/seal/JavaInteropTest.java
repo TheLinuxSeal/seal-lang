@@ -766,6 +766,17 @@ public final class JavaInteropTest {
                 System.stdout.println(parts.length() + " " + parts[2] + " " + Arrays.toString(filled) + " " + nines[0] + nines[1]
                         + " " + Arrays.toString(JavaArray.of([3.5, 1.5])) + " " + Arrays.toString(JavaArray.of([true, false])));
                 """, "3 195 -61 hé\n3 c [9, 9, 9, 9] 19 [3.5, 1.5] [true, false]\n");
+        output("JavaArray.of(xs) of a fixed array", "import java.util.Arrays;", """
+                array<int><<4>> x = [1, 2, 3, 4];
+                array<uint<<8>>><<2>> b = [200, 255];
+                array<char><<2>> c = ['h', 'i'];
+                array<int><<2, 3>> grid;
+                grid[1] = [7, 8, 9];
+                System.stdout.println(Arrays.toString(JavaArray.of(x)));
+                System.stdout.println(Arrays.toString(JavaArray.of(b)));
+                System.stdout.println(Arrays.toString(JavaArray.of(c)));
+                System.stdout.println(Arrays.toString(JavaArray.of(grid[1])));
+                """, "[1, 2, 3, 4]\n[-56, -1]\n[h, i]\n[7, 8, 9]\n");
         output("JavaArray.of(xs, convert): what convert makes of each element, of a fixed array too", "import java.util.Arrays;", """
                 array<int><<4>> squares = [0, 1, 4, 9];
                 array<string> names = ["ada", "bo"];

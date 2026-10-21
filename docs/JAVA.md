@@ -174,7 +174,7 @@ class Main {
   Seal handle may; `x == null` asks. `==` of two Java references is identity, as for Seal's
   handles; `a.equals(b)` is Java's. A method of a `null` one stops the program, as for a null Seal
   handle.
-- **Java's arrays** (as built in B2): `JavaArray.of(xs)` copies a Seal array into a new Java one (an
+- **Java's arrays** (as built in B2): `JavaArray.of(xs)` copies a Seal array, a fixed one too, into a new Java one (an
   `array<int<<8>>>` or `array<uint<<8>>>`, by its bits, is a `JavaArray<JavaByte>`, `array<int>` a
   `JavaArray<JavaInt>`, `array<string>` a `JavaArray<JavaString>`), `new JavaArray(n)` is one of
   Java's defaults for Java to fill (`JavaArray<JavaByte> buffer = new JavaArray(4096);`), and a

@@ -4,7 +4,8 @@ import seal.util.function.Function;
 
 // Java's arrays (docs/JAVA.md §3.1): JavaArray<JavaByte> is a byte[], JavaArray<JavaString> a
 // String[]. a[i] is an element, read and assigned in place, and a.length its length, a JavaInt, as
-// Java writes them. JavaArray.of(xs) copies a Seal array into a new Java one; new JavaArray(n) is one of n
+// Java writes them. JavaArray.of(xs) copies a Seal array, a fixed one too, into a new Java one (a fixed
+// array converts to the array<T> these take, §21.3); new JavaArray(n) is one of n
 // of Java's defaults (0, false, null), for Java to fill: JavaArray<JavaByte> buffer = new JavaArray(4096);
 // and a cast copies one out into a new Seal array: (array<uint<<8>>>)buffer. Both directions copy,
 // as an array<T> is a unique, which Java can't keep.
