@@ -1,8 +1,8 @@
 // Java's own classes (docs/JAVA.md), imported and used as Seal's are: checked while
 // compiling, and called as the JVM calls them, generics and all; and Seal's lambdas and
-// classes handed to Java as its interfaces, or extending its classes. Seal's values go into Java by seal.java's classes,
-// JavaInt.of(5) and JavaString.of("Ada"), and come out by casts, (int)x and (string)s. It runs
-// on the JVM, Seal's backend; the deprecated VM (--vm) has no Java.
+// classes handed to Java as its interfaces, or extending its classes. Seal's values go into
+// Java by seal.java's classes, JavaInt.of(5) and JavaString.of("Ada"), and come out by casts,
+// (int)x and (string)s.
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
