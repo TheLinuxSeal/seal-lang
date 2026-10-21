@@ -282,9 +282,9 @@ public final class JvmTest {
                 static int f(int<<16>> x) { return 16; }
                 static int f(int x) { return 32; }
                 static int f(uint<<8>> x) { return -8; }
-                static int width(int<<int W>> x) { return W; }
-                static int width(uint<<int W>> x) { return -W; }
-                static int<<W>> twice(int<<int W>> x) { return x * 2; }
+                static int width(int<<size W>> x) { return W; }
+                static int width(uint<<size W>> x) { return -W; }
+                static int<<W>> twice(int<<size W>> x) { return x * 2; }
                 """);
         same("static methods of other types and the library", "144 100 9 5 1.4142135623730951 1024.0 4 2147483647 100 -3.0 3.141592653589793 6 \n", """
                 pr(Util.square(12)); pr(Util.LIMIT); pr(Math.max(3, 9)); pr(Math.abs(-5)); pr(Math.sqrt(2.0));
@@ -1435,15 +1435,15 @@ public final class JvmTest {
     /** Helpers every program gets: pr(x) prints x and a space, for every kind of number, bit and string. */
     private static final String HELPERS = """
                 static void pr(string x) { System.stdout.print(x); System.stdout.print(' '); }
-                static void pr(int<<int W>> x) { System.stdout.print(x); System.stdout.print(' '); }
-                static void pr(uint<<int W>> x) { System.stdout.print(x); System.stdout.print(' '); }
+                static void pr(int<<size W>> x) { System.stdout.print(x); System.stdout.print(' '); }
+                static void pr(uint<<size W>> x) { System.stdout.print(x); System.stdout.print(' '); }
                 static void pr(int x) { System.stdout.print(x); System.stdout.print(' '); }
                 static void pr(char x) { System.stdout.print(x); System.stdout.print(' '); }
                 static void pr(double x) { System.stdout.print(x); System.stdout.print(' '); }
                 static void pr(float x) { System.stdout.print(x); System.stdout.print(' '); }
                 static void pr(bit x) { System.stdout.print(x); System.stdout.print(' '); }
-                static void pr(fixed<<int N, int M>> x) { System.stdout.print(x); System.stdout.print(' '); }
-                static void pr(ufixed<<int N, int M>> x) { System.stdout.print(x); System.stdout.print(' '); }
+                static void pr(fixed<<size N, size M>> x) { System.stdout.print(x); System.stdout.print(' '); }
+                static void pr(ufixed<<size N, size M>> x) { System.stdout.print(x); System.stdout.print(' '); }
             """;
 
     private record Run(String output, int code, String error, Throwable fault) {

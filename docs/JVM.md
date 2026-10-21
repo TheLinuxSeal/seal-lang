@@ -310,12 +310,12 @@ compiled with the values in place:
   a fixed place in a block. A field whose type differs per shape simply has that shape's type.
 - A member that exists only in some shapes (a shape guard) is generated only in those shapes'
   instantiations, as the checker already decides.
-- A method with value binders, as `Math.abs(int<<int W>> x)`, gets one JVM method per value used:
+- A method with value binders, as `Math.abs(int<<size W>> x)`, gets one JVM method per value used:
   `abs$8` for an `int<<8>>`, `abs$32` for an `int`. Binders bound to the same values share one.
 - The bare shape `<<>>` adds nothing to a name: a bare `string` is `string`.
 - Done in M2: a method with binders or type parameters gets its parameter types in its name, and
   for type parameters only in the result, the types they stand for: `abs$int8`, `print$uint8`,
-  `make$$Point`. The values alone would not do: `print(int<<int W>>)` and `print(uint<<int W>>)`
+  `make$$Point`. The values alone would not do: `print(int<<size W>>)` and `print(uint<<size W>>)`
   both bind W = 8.
 - Static Seal overloads can share a JVM descriptor (`f(int<<8>>)` and `f(int)` are both `(I)I`):
   the first one reached keeps the name, and the others get a number, `f$2`. Instance methods are

@@ -2688,6 +2688,12 @@ final class JvmCode {
         if (to instanceof AddrT && (from instanceof AddrT || from instanceof NullT)) {
             return; // one Ptr, whatever it points at (§23)
         }
+        if (to.equals(Type.SIZE)) {
+            // A size holds 0 to 64 (§37.2): the value, as a long, is checked rather than wrapped.
+            convert(from, new IntT(CVal.of(64), true));
+            c.invokestatic(JvmGen.INTS, "size", MethodTypeDesc.of(CD_int, CD_long));
+            return;
+        }
         if (from instanceof IntT f && to instanceof IntT t) {
             TypeKind fk = load(f);
             TypeKind tk = load(t);
@@ -2829,6 +2835,9 @@ final class JvmCode {
         int tw = width(t);
         boolean fs = f.signed() && !f.isChar();
         boolean ts = t.signed() && !t.isChar();
+        if (t.isSize()) {
+            return f.isSize();
+        }
         if (t.isChar() && !f.isChar()) {
             return !fs && fw <= 16;
         }
@@ -2844,7 +2853,9 @@ final class JvmCode {
             return;
         }
         int w = width(it);
-        if (kind(it) == TypeKind.CHAR) {
+        if (it.isSize()) {
+            c.invokestatic(JvmGen.INTS, "size", MethodTypeDesc.of(CD_int, CD_int)); // checked, not wrapped (§37.2)
+        } else if (kind(it) == TypeKind.CHAR) {
             c.i2c();
         } else if (kind(it) == TypeKind.INT) {
             if (w == 32) {

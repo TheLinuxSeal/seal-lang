@@ -539,7 +539,7 @@ Unguarded code referring to a guarded name is type-checked separately against ea
 
 ## 9.3 Value binders in parameter types
 
-A parameter type may contain value binders of the form `<<int K>>`. Each binder introduces a compile-time variable whose value is taken from the argument's type at the call site.
+A parameter type may contain value binders of the form `<<int K>>`, or for a width, `<<size W>>` (§37.2). Each binder introduces a compile-time variable whose value is taken from the argument's type at the call site.
 
 ```text
 struct string<<>>
@@ -563,10 +563,10 @@ Rules:
 * Binders may appear only in parameter types. A variable that appears only in the return type cannot be inferred and is an error.
 * A binder matches only a shape with that value bound: `string<<int K>>` does not accept `string<<>>`. A separate overload is required for the bare shape.
 * A binder name must not shadow a class-level parameter.
-* Variables decide binders before constants do. In `max(int<<int W>> a, int<<W>> b)`, `max(0, x)` with an `int<<64>>` x binds `W = 64` from `x`, and `0` then takes that type.
-* When the arguments need different values, the binder takes the one every argument widens to (§41.6): `max(i, l)` with an `int` and an `int<<64>>` binds `W = 64`; `max(b, 1000)` with an `int<<8>>` b binds `W = 32`, as the constant is an `int`; `max(i, u)` with an `int` and a `uint` binds `W = 64`. A constant that fits no such type is an error: `max(u, -1)` on `uint<<int W>>`.
-* When only constants are given, each binds at its default type (`int`, `char` for `'a'`, `double` for `1.5`): `max(2, 3)` is `max` with `W = 32`. A char argument binds as an `int` (§39).
-* A plain parameter is preferred to one with value binders that also fits: of `add(int)` and `add(int<<int W>>)`, `"x" + 5` uses `add(int)`.
+* Variables decide binders before constants do. In `max(int<<size W>> a, int<<W>> b)`, `max(0, x)` with an `int<<64>>` x binds `W = 64` from `x`, and `0` then takes that type.
+* When the arguments need different values, the binder takes the one every argument widens to (§41.6): `max(i, l)` with an `int` and an `int<<64>>` binds `W = 64`; `max(b, 1000)` with an `int<<8>>` b binds `W = 32`, as the constant is an `int`; `max(i, u)` with an `int` and a `uint` binds `W = 64`. A constant that fits no such type is an error: `max(u, -1)` on `uint<<size W>>`.
+* When only constants are given, each binds at its default type (`int`, `char` for `'a'`, `double` for `1.5`): `max(2, 3)` is `max` with `W = 32`. A char argument binds as an `int` (§39), and so does a size (§37.2).
+* A plain parameter is preferred to one with value binders that also fits: of `add(int)` and `add(int<<size W>>)`, `"x" + 5` uses `add(int)`.
 
 Methods with value binders are instantiated once per distinct set of bound values that occurs in the program, in the same way as class instantiation (§55). Identical combinations share a single instance. Combinations that are never used are never generated.
 
@@ -1674,6 +1674,7 @@ The primitive types are:
 | `int<<N>>`    | signed N-bit integer          |
 | `uint`        | unsigned 32-bit integer       |
 | `uint<<N>>`   | unsigned N-bit integer        |
+| `size`        | a width: 0 to 64 (§37.2)      |
 | `bit`         | one-bit Boolean value         |
 | `float`       | IEEE 32-bit floating point    |
 | `double`      | IEEE 64-bit floating point    |
@@ -1682,7 +1683,7 @@ The primitive types are:
 | `addr<T>`     | 64-bit typed bit address      |
 | `handle<T>`   | reference to a class object; a class type `T` written alone means `handle<T>` |
 
-Integer widths may not exceed 64 bits.
+Integer widths may not exceed 64 bits. Widths are `size`s (§37.2).
 
 `string` is not a primitive. It is a fixed standard-library class (§39).
 
@@ -1724,6 +1725,24 @@ struct BigUInt<<int BITS>>
 ```
 
 Because each instantiation is concrete, large fixed-width integer types can be implemented without requiring special compiler support for arbitrary-width primitive integers.
+
+## 37.2 `size`
+
+`size` is the type of widths: a number of bits, from 0 to 64. `int<<W>>`, `uint<<W>>`, `fixed<<N, M>>` and `ufixed<<N, M>>` take sizes, and a binder of a width is one:
+
+```text
+static int<<W>> twice(int<<size W>> x) { return x + x; }
+static string show(ufixed<<size N, size M>> x) { ... }
+static pure size needed(int<<64>> n) { ... }      // uint<<needed(1000)>>
+```
+
+* A binder of a width that isn't a size is an error: `int<<int W>>` is written `int<<size W>>`. Other values in `<<...>>` (an array's length, a string's capacity, a class's own) keep the types they are declared with, and an `int` value goes where a width does as a constant does: `int<<N > 32 ? 64 : 32>>`.
+* A constant from 0 to 64 is a size: `int<<8>>`, `size bits = 12;`. One outside is an error (`size s = 65;`). A type takes the widths it can have: an integer's is 1 to 64 (`int<<0>>` is an error), and fixed point's N + M too (§37.1), so `ufixed<<0, 8>>` and `fixed<<16, 0>>` are valid.
+* `size` is a primitive, as `int` is: variables, fields, parameters, results, arrays and `const` fields may be sizes, and `pure` methods (§17.2) take and give them, so a width can be worked out while compiling. `size` is the type's name where a type is written; elsewhere it is a name like any other (`list.size()`), and a program's own type can't take it.
+* Arithmetic on sizes gives an `int`, as Java's on `char` does: `s * 2` is an `int`. A size widens to every type that holds 0 to 64: `int`, `uint<<7>>`, `int<<64>>`, `double`, and the rest.
+* Nothing else becomes a size by itself, except a constant that is one. A cast makes one, `(size)n`, and stops the program if the value isn't 0 to 64; a cast of a constant that isn't is an error. A compound assignment, `++` and `--` on a size convert back the same way: `s += 1` on a size holding 64 stops the program, where other integers wrap.
+* Where a method takes `int<<size W>>`, a size goes as an `int` (`W = 32`), as a char does; `print`, `+` on strings and `Integer.toString` take sizes as they are.
+* A size is stored in 7 bits, as `uint<<7>>` is (§21).
 
 ---
 

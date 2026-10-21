@@ -68,26 +68,26 @@ public final class Checker {
                 @native("io_write_float") static int<<64>> nFloat(int<<64>> file, float x) { }
                 @native("io_write_double") static int<<64>> nDouble(int<<64>> file, double x) { }
                 @native("io_write_bit") static int<<64>> nBit(int<<64>> file, bit x) { }
-                @native("io_write_fixed") static int<<64>> nFixed(int<<64>> file, fixed<<int N, int M>> x) { }
-                @native("io_write_ufixed") static int<<64>> nUfixed(int<<64>> file, ufixed<<int N, int M>> x) { }
+                @native("io_write_fixed") static int<<64>> nFixed(int<<64>> file, fixed<<size N, size M>> x) { }
+                @native("io_write_ufixed") static int<<64>> nUfixed(int<<64>> file, ufixed<<size N, size M>> x) { }
                 public void print(char c) { nChar(file, c); }
                 public void println(char c) { print(c); nChar(file, '\\n'); }
                 public void print(int x) { nInt(file, (int<<64>>)x); }
                 public void println(int x) { print(x); nChar(file, '\\n'); }
-                public void print(int<<int W>> x) { nInt(file, (int<<64>>)x); }
-                public void println(int<<int W>> x) { print(x); nChar(file, '\\n'); }
-                public void print(uint<<int W>> x) { nUint(file, (uint<<64>>)x); }
-                public void println(uint<<int W>> x) { print(x); nChar(file, '\\n'); }
+                public void print(int<<size W>> x) { nInt(file, (int<<64>>)x); }
+                public void println(int<<size W>> x) { print(x); nChar(file, '\\n'); }
+                public void print(uint<<size W>> x) { nUint(file, (uint<<64>>)x); }
+                public void println(uint<<size W>> x) { print(x); nChar(file, '\\n'); }
                 public void print(float x) { nFloat(file, x); }
                 public void println(float x) { print(x); nChar(file, '\\n'); }
                 public void print(double x) { nDouble(file, x); }
                 public void println(double x) { print(x); nChar(file, '\\n'); }
                 public void print(bit x) { nBit(file, x); }
                 public void println(bit x) { print(x); nChar(file, '\\n'); }
-                public void print(fixed<<int A, int B>> x) { nFixed(file, x); }
-                public void println(fixed<<int A, int B>> x) { print(x); nChar(file, '\\n'); }
-                public void print(ufixed<<int A, int B>> x) { nUfixed(file, x); }
-                public void println(ufixed<<int A, int B>> x) { print(x); nChar(file, '\\n'); }
+                public void print(fixed<<size A, size B>> x) { nFixed(file, x); }
+                public void println(fixed<<size A, size B>> x) { print(x); nChar(file, '\\n'); }
+                public void print(ufixed<<size A, size B>> x) { nUfixed(file, x); }
+                public void println(ufixed<<size A, size B>> x) { print(x); nChar(file, '\\n'); }
                 public void println() { nChar(file, '\\n'); }
             }
             """;
@@ -530,7 +530,7 @@ public final class Checker {
         binders.forEach((k, v) -> {
             if (!(v instanceof TypeV)) {
                 bound.put(k, new Const(v, binderTypes.getOrDefault(k, Type.INT)));
-                env.values.put(k, bound.get(k)); // for later parameters that use it: min(int<<int W>> a, int<<W>> b)
+                env.values.put(k, bound.get(k)); // for later parameters that use it: min(int<<size W>> a, int<<W>> b)
             }
         });
         List<Type> out = new ArrayList<>();
@@ -789,6 +789,10 @@ public final class Checker {
                 // The types every file sees, seal.lang's and the built-in ones, keep their names where they are seen
                 // without an import: in no package.
                 ClassInfo seen = info.pkg.isEmpty() ? classNamed(info.name) : null;
+                if (info.name.equals("size")) {
+                    report(info.decl.pos(), "size is a primitive type, as int is (§37.2); choose another name");
+                    continue;
+                }
                 if (seen != null) {
                     report(info.decl.pos(), info.kind.keyword + " " + info.name + " is part of the standard library ("
                             + seen.qualifiedName() + ", which every file sees); choose another name, or put it in a package");
@@ -2584,6 +2588,11 @@ public final class Checker {
             return t;
         }
         switch (n) {
+            case "size": {
+                noTypeArgs(ref);
+                noValueArgs(ref);
+                return Type.SIZE;
+            }
             case "int", "uint": {
                 noTypeArgs(ref);
                 CVal width = CVal.of(32);
@@ -2597,6 +2606,9 @@ public final class Checker {
                     if (w.value() instanceof ErrV) {
                         return Type.ERROR;
                     }
+                    if (!widthBinder(items.get(0), w, n + "<<" + widthItem(items.get(0), "W") + ">>")) {
+                        return Type.ERROR;
+                    }
                     if (!w.type().isInteger()) {
                         report(items.get(0).pos(), "integer width must be an integer, not " + w.type());
                         return Type.ERROR;
@@ -2605,7 +2617,7 @@ public final class Checker {
                     BigInteger v = width.intValue();
                     if (v != null && (v.signum() <= 0 || v.compareTo(BigInteger.valueOf(64)) > 0)) {
                         reportValue(items.get(0).pos(), "integer width must be between 1 and 64, not " + v
-                                + "; use a class such as BigUInt<<" + v + ">> for wider values");
+                                + (v.signum() > 0 ? "; use a class such as BigUInt<<" + v + ">> for wider values" : ""));
                         return Type.ERROR;
                     }
                 }
@@ -2622,6 +2634,10 @@ public final class Checker {
                 Const ib = valueItem(items.get(0), env, o);
                 Const fb = valueItem(items.get(1), env, o);
                 if (ib.value() instanceof ErrV || fb.value() instanceof ErrV) {
+                    return Type.ERROR;
+                }
+                String written = n + "<<" + widthItem(items.get(0), "N") + ", " + widthItem(items.get(1), "M") + ">>";
+                if (!widthBinder(items.get(0), ib, written) | !widthBinder(items.get(1), fb, written)) {
                     return Type.ERROR;
                 }
                 if (!ib.type().isInteger() || !fb.type().isInteger()) {
@@ -2822,6 +2838,23 @@ public final class Checker {
         }
     }
 
+    /**
+     * A binder of a width, int<<size W>> or fixed<<size N, size M>>, takes a size (§37.2): true if
+     * it does, or the item binds nothing; else reports, with how to write the type.
+     */
+    private boolean widthBinder(ValueItem item, Const c, String written) {
+        if (item instanceof Binder b && !c.type().equals(Type.SIZE) && !c.type().isError()) {
+            report(b.pos(), "a width is a size, which holds 0 to 64: " + written + ", not " + b.type().name() + " " + b.name());
+            return false;
+        }
+        return true;
+    }
+
+    /** A width item as a type with size binders writes it: size W for a binder, else the placeholder. */
+    private static String widthItem(ValueItem item, String placeholder) {
+        return item instanceof Binder b ? "size " + b.name() : placeholder;
+    }
+
     private void noValueArgs(TypeRef ref) {
         if (ref.valueArgs() != null) {
             report(ref.pos(), ref.name() + " takes no <<...>> values");
@@ -2922,6 +2955,9 @@ public final class Checker {
     }
 
     private static boolean fits(BigInteger v, IntT t) {
+        if (t.isSize()) {
+            return v.signum() >= 0 && v.compareTo(BigInteger.valueOf(Type.MAX_SIZE)) <= 0;
+        }
         BigInteger w = t.width().intValue();
         if (w == null) {
             return true;
@@ -3355,6 +3391,13 @@ public final class Checker {
                 if (w == null) {
                     report(at, "a cast in a compile-time value needs a known width, not " + to);
                     return new Const(new ErrV(), Type.ERROR);
+                }
+                if (it.isSize()) {
+                    if (!fits(n, it)) {
+                        reportValue(at, n + " isn't a size: a size is 0 to " + Type.MAX_SIZE);
+                        return new Const(new ErrV(), Type.ERROR);
+                    }
+                    return new Const(new IntV(n), to);
                 }
                 BigInteger mod = BigInteger.ONE.shiftLeft(it.isChar() ? 16 : w.intValueExact());
                 BigInteger r = n.mod(mod);
@@ -5151,8 +5194,8 @@ public final class Checker {
      * becomes a char, and fixed point never becomes a plain integer.
      */
     public static boolean widens(Type from, Type to) {
-        if (from.equals(to)) {
-            return false;
+        if (from.equals(to) || to.equals(Type.SIZE)) {
+            return false; // nothing becomes a size but a constant that is one, or by a cast (§37.2)
         }
         boolean exactFrom = from instanceof IntT || from instanceof FixedT;
         if (to instanceof DoubleT) {
@@ -5452,8 +5495,8 @@ public final class Checker {
      * 2.5 to int. Integer constants still must fit, as for assignments: they are typed, not converted.
      */
     private boolean narrows(Type from, Type to) {
-        if (!isNumber(to) || from.equals(to) || assignable(from, to)) {
-            return false;
+        if (!isNumber(to) || from.equals(to) || assignable(from, to) || to.equals(Type.SIZE)) {
+            return false; // a size, by a cast alone (§37.2)
         }
         if (isNumber(from)) {
             return true; // int<<W>> too: each instantiation is checked again with W known
@@ -5481,7 +5524,9 @@ public final class Checker {
             autoCast(pos, from, to, what);
             return;
         }
-        if (from instanceof IntConstT ic && ic.value() != null && (to instanceof IntT || to instanceof FixedT)) {
+        if (from instanceof IntConstT ic && ic.value() != null && to.equals(Type.SIZE)) {
+            reportValue(pos, ic.value() + " isn't a size: a size is 0 to " + Type.MAX_SIZE);
+        } else if (from instanceof IntConstT ic && ic.value() != null && (to instanceof IntT || to instanceof FixedT)) {
             reportValue(pos, "integer " + ic.value() + " does not fit in " + to);
         } else if (from instanceof FloatConstT fc && fc.value() != null && to instanceof FixedT) {
             reportValue(pos, fc.value().toPlainString() + " does not fit in " + to);
@@ -5494,7 +5539,9 @@ public final class Checker {
         } else if (from instanceof VoidT) {
             report(pos, what + ": expression has no value");
         } else {
-            String hint = from.isNumeric() && to.isNumeric() ? "; use a cast, e.g. (" + to + ")"
+            String hint = to.equals(Type.SIZE) && from.isNumeric()
+                    ? "; a cast makes a number a size, and stops the program if it isn't 0 to " + Type.MAX_SIZE + ": (size)x"
+                    : from.isNumeric() && to.isNumeric() ? "; use a cast, e.g. (" + to + ")"
                     : isJavaValue(to) && !isJavaValue(from) && javaOf(from) != null
                     ? "; Seal's " + from + " goes into Java by " + javaOf(from) + "(...) (docs/JAVA.md §3.1)"
                     : isJavaValue(from) && !isJavaValue(to) && !(to instanceof HandleT) ? "; a cast takes a Java value out: (" + to + ")x"
@@ -7300,14 +7347,14 @@ public final class Checker {
         List<Match> exact = matches.stream().filter(Match::exact).toList();
         List<Match> pick = exact.isEmpty() ? matches : exact;
         if (pick.size() > 1) {
-            // A plain parameter is more specific than one with value binders: add(int) over add(int<<int W>>).
+            // A plain parameter is more specific than one with value binders: add(int) over add(int<<size W>>).
             List<Match> plain = pick.stream().filter(m -> m.bound.isEmpty()).toList();
             if (plain.size() == 1) {
                 pick = plain;
             }
         }
         if (pick.size() > 1) {
-            // Value binders are more specific than type parameters: of(int<<int W>> x) over of<K>(K key).
+            // Value binders are more specific than type parameters: of(int<<size W>> x) over of<K>(K key).
             List<Match> notGeneric = pick.stream().filter(m -> m.bound.values().stream().noneMatch(v -> v instanceof TypeV)).toList();
             if (notGeneric.size() == 1) {
                 pick = notGeneric;
@@ -7335,7 +7382,7 @@ public final class Checker {
             if (preferred.size() == 1) {
                 pick = preferred;
             } else if (preferred.size() > 1) {
-                // Still tied, as add(int) and add(int<<int W>>) are for "x" + 5: the plain parameter wins.
+                // Still tied, as add(int) and add(int<<size W>>) are for "x" + 5: the plain parameter wins.
                 List<Match> plain = preferred.stream().filter(m -> m.bound.isEmpty()).toList();
                 if (plain.size() == 1) {
                     pick = plain;
@@ -7465,8 +7512,8 @@ public final class Checker {
                 continue;
             }
             exact = false;
-            if (!sig.binders.isEmpty() && a.equals(Type.CHAR) && unify(p, Type.INT, sig.binders.keySet(), bound)) {
-                continue; // a char is an int here too: abs(int<<int W>> x) takes one as an int
+            if (!sig.binders.isEmpty() && (a.equals(Type.CHAR) || a.equals(Type.SIZE)) && unify(p, Type.INT, sig.binders.keySet(), bound)) {
+                continue; // a char or a size is an int here too: abs(int<<size W>> x) takes one as an int
             }
             if (!sig.binders.isEmpty() && constantDefault(a) instanceof Type d && unify(p, d, sig.binders.keySet(), bound)) {
                 continue; // with no variable to decide, a constant decides at its default type: sqrt(2) is sqrt(int)
@@ -7485,7 +7532,7 @@ public final class Checker {
     /** {@code t} with the binders bound so far filled in: int<<W>> with W = 64 is an int<<64>>. */
     private static Type bindValues(Type t, Map<String, CVal> bound) {
         return switch (t) {
-            case IntT i -> new IntT(bindValue(i.width(), bound), i.signed(), i.isChar());
+            case IntT i -> new IntT(bindValue(i.width(), bound), i.signed(), i.isChar(), i.isSize());
             case FixedT f -> new FixedT(bindValue(f.intBits(), bound), bindValue(f.fracBits(), bound), f.signed());
             case ParamT p -> bound.get(p.name()) instanceof TypeV tv ? tv.type() : p;
             case AddrT a -> new AddrT(bindValues(a.target(), bound));
@@ -7627,7 +7674,7 @@ public final class Checker {
             case FixedT p -> arg instanceof FixedT a && a.signed() == p.signed()
                     && unifyValue(p.intBits(), a.intBits(), binders, bound)
                     && unifyValue(p.fracBits(), a.fracBits(), binders, bound);
-            case IntT p -> arg instanceof IntT a && a.signed() == p.signed() && a.isChar() == p.isChar()
+            case IntT p -> arg instanceof IntT a && a.signed() == p.signed() && a.isChar() == p.isChar() && a.isSize() == p.isSize()
                     && unifyValue(p.width(), a.width(), binders, bound);
             case AddrT p -> arg instanceof AddrT a && unify(p.target(), a.target(), binders, bound);
             case HandleT p -> arg instanceof HandleT a && unify(p.target(), a.target(), binders, bound);
@@ -8401,7 +8448,8 @@ public final class Checker {
         if (u instanceof IntConstT) {
             return new IntConstT(null);
         }
-        return u instanceof IntT it && it.isChar() ? Type.INT : u; // as in Java, arithmetic on chars gives an int
+        // As in Java, arithmetic on chars gives an int; so does arithmetic on sizes (§37.2).
+        return u instanceof IntT it && (it.isChar() || it.isSize()) ? Type.INT : u;
     }
 
     /** The type two numeric operands are compared or combined in (§41.6), or null if neither widens to the other. */
@@ -8938,6 +8986,7 @@ public final class Checker {
     private static TypeRef typeRef(Pos p, Type t) {
         return switch (t) {
             case IntT it when it.isChar() -> new TypeRef(p, "char", List.of(), null, List.of());
+            case IntT it when it.isSize() -> new TypeRef(p, "size", List.of(), null, List.of());
             case IntT it when it.width() instanceof IntV w -> new TypeRef(p, it.signed() ? "int" : "uint", List.of(),
                     new ValueList(p, List.of(new ValueExpr(p, intLit(p, w.value().longValueExact())))), List.of());
             case FixedT ft when ft.intBits() instanceof IntV n && ft.fracBits() instanceof IntV m ->

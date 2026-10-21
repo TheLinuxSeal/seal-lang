@@ -6,8 +6,8 @@ package seal.lang;
 struct Hash
 {
     public static uint<<64>> of(int x) { return mix((uint<<64>>)(int<<64>>)x); }
-    public static uint<<64>> of(int<<int W>> x) { return mix((uint<<64>>)(int<<64>>)x); }
-    public static uint<<64>> of(uint<<int W>> x) { return mix((uint<<64>>)x); }
+    public static uint<<64>> of(int<<size W>> x) { return mix((uint<<64>>)(int<<64>>)x); }
+    public static uint<<64>> of(uint<<size W>> x) { return mix((uint<<64>>)x); }
     public static uint<<64>> of(char c) { return mix((uint<<64>>)c); }
     public static uint<<64>> of(bit b) { return b ? mix(1) : mix(2); }
     public static uint<<64>> of(double x) { return mix(doubleBits(x == 0.0 ? 0.0 : x)); } // 0.0 and -0.0 are ==

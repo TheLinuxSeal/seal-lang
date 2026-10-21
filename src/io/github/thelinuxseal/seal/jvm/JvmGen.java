@@ -1204,6 +1204,7 @@ public final class JvmGen {
     String typeText(Type t) {
         return switch (t) {
             case IntT it when it.isChar() -> "char";
+            case IntT it when it.isSize() -> "size";
             case IntT it -> (it.signed() ? "int" : "uint") + (width(it) == 32 ? "" : String.valueOf(width(it)));
             case FixedT f -> (f.signed() ? "fixed" : "ufixed") + valueText(f.intBits()) + "_" + valueText(f.fracBits());
             case BitT b -> "bit";

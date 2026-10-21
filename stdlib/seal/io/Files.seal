@@ -200,8 +200,8 @@ struct Files
     @native("io_write_float") private<Writer> static int<<64>> nWriteFloat(int<<64>> file, float x) { }
     @native("io_write_double") private<Writer> static int<<64>> nWriteDouble(int<<64>> file, double x) { }
     @native("io_write_bit") private<Writer> static int<<64>> nWriteBit(int<<64>> file, bit x) { }
-    @native("io_write_fixed") private<Writer> static int<<64>> nWriteFixed(int<<64>> file, fixed<<int N, int M>> x) { }
-    @native("io_write_ufixed") private<Writer> static int<<64>> nWriteUfixed(int<<64>> file, ufixed<<int N, int M>> x) { }
+    @native("io_write_fixed") private<Writer> static int<<64>> nWriteFixed(int<<64>> file, fixed<<size N, size M>> x) { }
+    @native("io_write_ufixed") private<Writer> static int<<64>> nWriteUfixed(int<<64>> file, ufixed<<size N, size M>> x) { }
     @native("io_flush") private<Writer> static int<<64>> nFlush(int<<64>> file) { }
     @native("io_close") private<Reader, Writer> static int<<64>> nClose(int<<64>> file) { }
 }

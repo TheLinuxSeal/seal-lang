@@ -9,17 +9,25 @@ public sealed interface Type {
 
     /**
      * `int<<W>>` (signed) or `uint<<W>>`. The width may be symbolic, e.g. `int<<N>>`.
-     * `char` is a 16-bit unsigned integer kept apart from `uint<<16>>` by {@code isChar} (§39).
+     * `char` is a 16-bit unsigned integer kept apart from `uint<<16>>` by {@code isChar} (§39), and
+     * `size`, a width, a 7-bit unsigned integer that holds 0 to 64 alone, by {@code isSize} (§37.2).
      */
-    record IntT(CVal width, boolean signed, boolean isChar) implements Type {
+    record IntT(CVal width, boolean signed, boolean isChar, boolean isSize) implements Type {
         public IntT(CVal width, boolean signed) {
-            this(width, signed, false);
+            this(width, signed, false, false);
+        }
+
+        public IntT(CVal width, boolean signed, boolean isChar) {
+            this(width, signed, isChar, false);
         }
 
         @Override
         public String toString() {
             if (isChar) {
                 return "char";
+            }
+            if (isSize) {
+                return "size";
             }
             if (width.equals(CVal.of(32))) {
                 return signed ? "int" : "uint";
@@ -290,6 +298,10 @@ public sealed interface Type {
 
     Type INT = new IntT(CVal.of(32), true);
     Type CHAR = new IntT(CVal.of(16), false, true);
+    /** A width (§37.2): 0 to 64, held in 7 bits. */
+    Type SIZE = new IntT(CVal.of(7), false, false, true);
+    /** The largest value of a size. */
+    int MAX_SIZE = 64;
     Type UINT = new IntT(CVal.of(32), false);
     Type BIT = new BitT();
     Type FLOAT = new FloatT();

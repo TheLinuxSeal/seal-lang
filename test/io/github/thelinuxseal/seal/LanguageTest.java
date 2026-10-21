@@ -61,6 +61,7 @@ public final class LanguageTest {
         pureMethods();
         powersAndCompileTimeOperators();
         importsAs();
+        sizes();
 
         System.out.println(passed + " passed, " + failures.size() + " failed");
         failures.forEach(f -> System.out.println("FAIL: " + f));
@@ -3251,6 +3252,67 @@ struct Main
     }
 
     // ================================================================ helpers
+
+    /** size, the type of widths (§37.2), while the program runs. */
+    private static void sizes() {
+        output("sizes: printed, joined, formatted, and their arithmetic an int", files("Main", main("""
+                size s = 8;
+                System.stdout.println(s);
+                System.stdout.println("s is " + s + ", s * 8 is " + (s * 8) + ", s - 9 is " + (s - 9));
+                System.stdout.printf("%d bits, %s%n", s, Integer.toString(s));
+                System.stdout.println(Math.max(s, (size)3) + " " + Math.abs(s));
+                """)), "8\ns is 8, s * 8 is 64, s - 9 is -1\n8 bits, 8\n8 8\n");
+        output("sizes in fields, arrays, consts, binders and widths", files("Main", """
+                struct Main
+                {
+                    const size BITS = 12;
+                    static size kept = 3;
+                    size field;
+                    static size widthOf(int<<size W>> x) { return W; }
+                    static pure size wider(size a, size b) { return a > b ? a : b; }
+                    static int main()
+                    {
+                        array<size> sizes = new array<size>(3);
+                        sizes[1] = 64;
+                        int<<BITS>> twelve = 2047;
+                        uint<<wider(5, 9)>> nine = 511;
+                        Main m;
+                        m.field = (size)(kept + 1);
+                        System.stdout.println(sizes[0] + " " + sizes[1] + " " + twelve + " " + nine + " " + m.field);
+                        System.stdout.println(widthOf((int<<8>>)5) + " " + widthOf(5) + " " + widthOf((int<<64>>)5) + " " + widthOf(kept));
+                        return 0;
+                    }
+                }
+                """), "0 64 2047 511 4\n8 32 64 32\n");
+        output("+= and ++ on a size, within 0 to 64", files("Main", main("""
+                size s = 60;
+                s += 3;
+                s++;
+                System.stdout.print(s);
+                s -= 64;
+                System.stdout.print(" " + s);
+                """)), "64 0");
+        trap("a cast to a size past 64 stops the program", files("Main", main("""
+                int big = 65;
+                size s = (size)big;
+                """)), "65 isn't a size: a size is 0 to 64");
+        trap("a negative one too, and from a double", files("Main", main("""
+                double d = -1.5;
+                size s = (size)d;
+                """)), "-1 isn't a size: a size is 0 to 64");
+        trap("++ past 64", files("Main", main("""
+                size s = 64;
+                s++;
+                """)), "65 isn't a size: a size is 0 to 64");
+        trap("-= below 0", files("Main", main("""
+                size s = 2;
+                s -= 3;
+                """)), "-1 isn't a size: a size is 0 to 64");
+        trap("a uint past 2 ** 31 as a size", files("Main", main("""
+                uint u = 3000000000;
+                size s = (size)u;
+                """)), "3000000000 isn't a size: a size is 0 to 64");
+    }
 
     private static void importsAs() {
         String util = """

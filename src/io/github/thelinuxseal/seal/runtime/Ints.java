@@ -98,7 +98,20 @@ public final class Ints {
         return i;
     }
 
-    /** A uint<<64>> as a double, rounded as the VM does. */
+    /** A value becoming a size (§37.2), which holds 0 to 64: anything else stops the program, where other integers wrap. */
+    public static int size(long v) {
+        if (v < 0 || v > 64) {
+            throw new Trap(v + " isn't a size: a size is 0 to 64");
+        }
+        return (int) v;
+    }
+
+    /** As above, for a value held in an int. */
+    public static int size(int v) {
+        return size((long) v);
+    }
+
+    /** A uint<<64>> as a double, rounded to nearest. */
     public static double unsignedToDouble(long v) {
         return v >= 0 ? (double) v : (double) (v >>> 1) * 2.0 + (v & 1);
     }

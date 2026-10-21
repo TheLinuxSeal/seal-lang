@@ -5,7 +5,7 @@ struct Fixed
 {
     /** The exact value as decimal text, the same as print shows: 2.75, -0.125. */
     @jvm("FixedPoint.text")
-    public static string toString(fixed<<int N, int M>> x)
+    public static string toString(fixed<<size N, size M>> x)
     {
         addr<char> buf = new<char>(96);
         int n = text(x, buf);
@@ -15,7 +15,7 @@ struct Fixed
     }
 
     @jvm("FixedPoint.textUnsigned")
-    public static string toString(ufixed<<int N, int M>> x)
+    public static string toString(ufixed<<size N, size M>> x)
     {
         addr<char> buf = new<char>(96);
         int n = text(x, buf);
@@ -24,8 +24,8 @@ struct Fixed
         return s;
     }
 
-    @native("text_fixed") static int text(fixed<<int N, int M>> x, addr<char> buf) { }
-    @native("text_ufixed") static int text(ufixed<<int N, int M>> x, addr<char> buf) { }
+    @native("text_fixed") static int text(fixed<<size N, size M>> x, addr<char> buf) { }
+    @native("text_ufixed") static int text(ufixed<<size N, size M>> x, addr<char> buf) { }
 
     /**
      * The exact product of two signed fixed-point values. The result has
@@ -33,7 +33,7 @@ struct Fixed
      * fixed<<N, M>> × fixed<<P, Q>> → fixed<<N + P, M + Q>>.
      * Formats whose result would exceed 64 bits are rejected when used.
      */
-    public static fixed<<N + P, M + Q>> mulExact(fixed<<int N, int M>> a, fixed<<int P, int Q>> b)
+    public static fixed<<N + P, M + Q>> mulExact(fixed<<size N, size M>> a, fixed<<size P, size Q>> b)
     {
         // Widening casts are exact, and the product of an M-bit and a Q-bit
         // fraction fits exactly in M + Q fraction bits, so nothing rounds.
@@ -41,7 +41,7 @@ struct Fixed
     }
 
     /** The exact product of two unsigned fixed-point values: ufixed<<N + P, M + Q>>. */
-    public static ufixed<<N + P, M + Q>> mulExact(ufixed<<int N, int M>> a, ufixed<<int P, int Q>> b)
+    public static ufixed<<N + P, M + Q>> mulExact(ufixed<<size N, size M>> a, ufixed<<size P, size Q>> b)
     {
         return (ufixed<<N + P, M + Q>>)a * (ufixed<<N + P, M + Q>>)b;
     }
@@ -50,17 +50,17 @@ struct Fixed
     // these stay for code that calls them here.
 
     /** The absolute value. Like integers, the most negative value has no positive counterpart and stays negative. */
-    public static fixed<<N, M>> abs(fixed<<int N, int M>> x) { return Math.abs(x); }
-    public static fixed<<N, M>> min(fixed<<int N, int M>> a, fixed<<N, M>> b) { return Math.min(a, b); }
-    public static fixed<<N, M>> max(fixed<<int N, int M>> a, fixed<<N, M>> b) { return Math.max(a, b); }
-    public static ufixed<<N, M>> min(ufixed<<int N, int M>> a, ufixed<<N, M>> b) { return Math.min(a, b); }
-    public static ufixed<<N, M>> max(ufixed<<int N, int M>> a, ufixed<<N, M>> b) { return Math.max(a, b); }
+    public static fixed<<N, M>> abs(fixed<<size N, size M>> x) { return Math.abs(x); }
+    public static fixed<<N, M>> min(fixed<<size N, size M>> a, fixed<<N, M>> b) { return Math.min(a, b); }
+    public static fixed<<N, M>> max(fixed<<size N, size M>> a, fixed<<N, M>> b) { return Math.max(a, b); }
+    public static ufixed<<N, M>> min(ufixed<<size N, size M>> a, ufixed<<N, M>> b) { return Math.min(a, b); }
+    public static ufixed<<N, M>> max(ufixed<<size N, size M>> a, ufixed<<N, M>> b) { return Math.max(a, b); }
 
     /** The largest whole number not above x (toward negative infinity), as a value of the same format. */
-    public static fixed<<N, M>> floor(fixed<<int N, int M>> x) { return Math.floor(x); }
+    public static fixed<<N, M>> floor(fixed<<size N, size M>> x) { return Math.floor(x); }
 
     /** The fractional part, x - floor(x), in [0, 1). */
-    public static fixed<<N, M>> fraction(fixed<<int N, int M>> x)
+    public static fixed<<N, M>> fraction(fixed<<size N, size M>> x)
     {
         return x - floor(x);
     }

@@ -227,24 +227,26 @@ struct string<<int N>>
 
     @overload(Operator.ADD) public string add<<int N>>(string other) { return join(other); }
     @overload(Operator.ADD) public string add<<int N>>(int x) { return join(Integer.toString(x)); }
-    @overload(Operator.ADD) public string add<<int N>>(int<<int W>> x) { return join(Integer.toString((int<<64>>)x)); }
-    @overload(Operator.ADD) public string add<<int N>>(uint<<int W>> x) { return join(Integer.toString((uint<<64>>)x)); }
+    @overload(Operator.ADD) public string add<<int N>>(size x) { return join(Integer.toString((int)x)); }
+    @overload(Operator.ADD) public string add<<int N>>(int<<size W>> x) { return join(Integer.toString((int<<64>>)x)); }
+    @overload(Operator.ADD) public string add<<int N>>(uint<<size W>> x) { return join(Integer.toString((uint<<64>>)x)); }
     @overload(Operator.ADD) public string add<<int N>>(double x) { return join(Double.toString(x)); }
     @overload(Operator.ADD) public string add<<int N>>(float x) { return join(Float.toString(x)); }
-    @overload(Operator.ADD) public string add<<int N>>(fixed<<int A, int B>> x) { return join(Fixed.toString(x)); }
-    @overload(Operator.ADD) public string add<<int N>>(ufixed<<int A, int B>> x) { return join(Fixed.toString(x)); }
+    @overload(Operator.ADD) public string add<<int N>>(fixed<<size A, size B>> x) { return join(Fixed.toString(x)); }
+    @overload(Operator.ADD) public string add<<int N>>(ufixed<<size A, size B>> x) { return join(Fixed.toString(x)); }
     @overload(Operator.ADD) public string add<<int N>>(bit x) { if (x) { return join("true"); } return join("false"); }
     @overload(Operator.ADD) public string add<<int N>>(char c) { string r = copy(); r.put(c); return r; }
 
     @overload(Operator.ADD) public string add<<>>(string other) { return join(other); }
     @overload(Operator.ADD) public string add<<>>(string<<int K>> other) { return join(other); }
     @overload(Operator.ADD) public string add<<>>(int x) { return join(Integer.toString(x)); }
-    @overload(Operator.ADD) public string add<<>>(int<<int W>> x) { return join(Integer.toString((int<<64>>)x)); }
-    @overload(Operator.ADD) public string add<<>>(uint<<int W>> x) { return join(Integer.toString((uint<<64>>)x)); }
+    @overload(Operator.ADD) public string add<<>>(size x) { return join(Integer.toString((int)x)); }
+    @overload(Operator.ADD) public string add<<>>(int<<size W>> x) { return join(Integer.toString((int<<64>>)x)); }
+    @overload(Operator.ADD) public string add<<>>(uint<<size W>> x) { return join(Integer.toString((uint<<64>>)x)); }
     @overload(Operator.ADD) public string add<<>>(double x) { return join(Double.toString(x)); }
     @overload(Operator.ADD) public string add<<>>(float x) { return join(Float.toString(x)); }
-    @overload(Operator.ADD) public string add<<>>(fixed<<int A, int B>> x) { return join(Fixed.toString(x)); }
-    @overload(Operator.ADD) public string add<<>>(ufixed<<int A, int B>> x) { return join(Fixed.toString(x)); }
+    @overload(Operator.ADD) public string add<<>>(fixed<<size A, size B>> x) { return join(Fixed.toString(x)); }
+    @overload(Operator.ADD) public string add<<>>(ufixed<<size A, size B>> x) { return join(Fixed.toString(x)); }
     @overload(Operator.ADD) public string add<<>>(bit x) { if (x) { return join("true"); } return join("false"); }
     @overload(Operator.ADD) public string add<<>>(char c) { string r = this; r.put(c); return r; }
 
@@ -253,12 +255,12 @@ struct string<<int N>>
     @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(string other) { put(other); }
     @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(string<<int K>> other) { put(other); }
     @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(int x) { put(Integer.toString(x)); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(int<<int W>> x) { put(Integer.toString((int<<64>>)x)); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(uint<<int W>> x) { put(Integer.toString((uint<<64>>)x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(int<<size W>> x) { put(Integer.toString((int<<64>>)x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(uint<<size W>> x) { put(Integer.toString((uint<<64>>)x)); }
     @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(double x) { put(Double.toString(x)); }
     @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(float x) { put(Float.toString(x)); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(fixed<<int A, int B>> x) { put(Fixed.toString(x)); }
-    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(ufixed<<int A, int B>> x) { put(Fixed.toString(x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(fixed<<size A, size B>> x) { put(Fixed.toString(x)); }
+    @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(ufixed<<size A, size B>> x) { put(Fixed.toString(x)); }
     @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(bit x) { if (x) { put("true"); } else { put("false"); } }
     @overload(Operator.ADD_ASSIGN) public void addAssign<<>>(char c) { put(c); }
 

@@ -118,6 +118,7 @@ public final class CheckerTest {
         uniqueRules();
         accessOnEveryKind();
         pureMethods();
+        sizes();
 
         System.out.println(passed + " passed, " + failures.size() + " failed");
         failures.forEach(f -> System.out.println("FAIL: " + f));
@@ -297,7 +298,7 @@ public final class CheckerTest {
         error("binder only in parameters", """
                 struct Foo<<int N>>
                 {
-                    int<<int W>> f<<int N>>() { return 0; }
+                    int<<size W>> f<<int N>>() { return 0; }
                 }
                 """, "binders are only allowed in parameter types");
         error("binder in a field", """
@@ -1800,7 +1801,7 @@ public final class CheckerTest {
         ok("variables decide a binder before constants do", files("Main", """
                 struct Main
                 {
-                    static int<<W>> pick(int<<int W>> a, int<<W>> b) { return b; }
+                    static int<<W>> pick(int<<size W>> a, int<<W>> b) { return b; }
                     void f()
                     {
                         int<<64>> big = 5;
@@ -1815,14 +1816,14 @@ public final class CheckerTest {
         ok("a constant can decide a binder that a narrower variable widens to", files("Main", """
                 struct Main
                 {
-                    static int<<W>> pick(int<<int W>> a, int<<W>> b) { return b; }
+                    static int<<W>> pick(int<<size W>> a, int<<W>> b) { return b; }
                     void f() { int<<8>> small = 1; int x = pick(small, 1000); }
                 }
                 """));
         error("a constant must fit the width a binder got", """
                 struct Main
                 {
-                    static uint<<W>> pick(uint<<int W>> a, uint<<W>> b) { return b; }
+                    static uint<<W>> pick(uint<<size W>> a, uint<<W>> b) { return b; }
                     void f() { uint<<8>> small = 1; pick(small, -1); }
                 }
                 """, "integer -1 does not fit in uint<<8>>");
@@ -2395,6 +2396,67 @@ public final class CheckerTest {
         error("a pure method can't need itself for its own types", """
                 struct Main { static pure int f(int<<f(1)>> x) { return 8; } static int main() { return 0; } }
                 """, "this call is in the types of the method it calls, which it needs to be found");
+    }
+
+    /** size, the type of widths (§37.2): 0 to 64, a cast alone makes a number one, and binders of widths are sizes. */
+    private static void sizes() {
+        ok("size variables, fields, consts and arithmetic", files("Main", """
+                struct Main
+                {
+                    const size BITS = 12;
+                    static size kept = 64;
+                    static int<<W>> same(int<<size W>> x) { return x; }
+                    static int main()
+                    {
+                        size s = 0;
+                        int n = s + BITS;
+                        int<<64>> wide = s;
+                        uint<<7>> u = s;
+                        int<<BITS>> twelve = 2047;
+                        s += 3;
+                        s++;
+                        size t = (size)(n * 2);
+                        return n + same((int)t);
+                    }
+                }
+                """));
+        ok("zero-width parts of fixed point stay", files("Main", """
+                struct Main { static int main() { ufixed<<0, 8>> a = 0.5; fixed<<16, 0>> b = 3; return 0; } }
+                """));
+        error("an int binder of a width", files("Main", """
+                struct Main { static int f(int<<int W>> x) { return 0; } static int main() { return 0; } }
+                """), "a width is a size, which holds 0 to 64: int<<size W>>, not int W");
+        error("an int binder of a fixed width", files("Main", """
+                struct Main { static int f(ufixed<<int A, size B>> x) { return 0; } static int main() { return 0; } }
+                """), "a width is a size, which holds 0 to 64: ufixed<<size A, size B>>, not int A");
+        error("a size constant past 64", files("Main", """
+                struct Main { const size S = 65; static int main() { return 0; } }
+                """), "65 isn't a size: a size is 0 to 64");
+        error("a negative size constant", files("Main", """
+                struct Main { static int main() { size s = -1; return 0; } }
+                """), "-1 isn't a size: a size is 0 to 64");
+        error("an int becomes a size by a cast", files("Main", """
+                struct Main { static int main() { int i = 5; size s = i; return 0; } }
+                """), "expected size, found int; a cast makes a number a size, and stops the program if it isn't 0 to 64: (size)x");
+        error("nothing widens to a size", files("Main", """
+                struct Main { static void f(size s) { } static int main() { uint<<7>> u = 1; f(u); return 0; } }
+                """), "expected size, found uint<<7>>");
+        error("a constant cast past 64", files("Main", """
+                struct Main { const size S = (size)70; static int main() { return 0; } }
+                """), "70 isn't a size: a size is 0 to 64");
+        error("a pure method making a size past 64", files("Main", """
+                struct Main
+                {
+                    static pure size grow(size s) { return (size)(s * 3); }
+                    static int<<grow(30)>> wide;
+                    static int main() { return 0; }
+                }
+                """), "it made 90 a size, which holds 0 to 64");
+        error("size is the primitive's name", files("Main", "struct Main { static int main() { return 0; } }",
+                "size", "class size { }"), "size is a primitive type, as int is (§37.2); choose another name");
+        error("an integer of no bits", files("Main", """
+                struct Main { static int main() { int<<0>> none; return 0; } }
+                """), "integer width must be between 1 and 64, not 0");
     }
 
     private static void ok(String name, Map<String, String> files) {

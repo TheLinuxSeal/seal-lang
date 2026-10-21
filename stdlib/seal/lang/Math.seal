@@ -60,55 +60,55 @@ struct Math
     // ------------------------------------------------------------ signed integers: int, int<<64>>, int<<8>>, ...
 
     /** Like Java's, the most negative value has no positive counterpart and stays negative. */
-    public static int<<W>> abs(int<<int W>> x) { if (x < 0) { return -x; } return x; }
-    public static int<<W>> min(int<<int W>> a, int<<W>> b) { if (a < b) { return a; } return b; }
-    public static int<<W>> max(int<<int W>> a, int<<W>> b) { if (a > b) { return a; } return b; }
-    public static int<<W>> clamp(int<<int W>> x, int<<W>> lo, int<<W>> hi) { return max(lo, min(hi, x)); }
+    public static int<<W>> abs(int<<size W>> x) { if (x < 0) { return -x; } return x; }
+    public static int<<W>> min(int<<size W>> a, int<<W>> b) { if (a < b) { return a; } return b; }
+    public static int<<W>> max(int<<size W>> a, int<<W>> b) { if (a > b) { return a; } return b; }
+    public static int<<W>> clamp(int<<size W>> x, int<<W>> lo, int<<W>> hi) { return max(lo, min(hi, x)); }
     /** Integers are whole already: floor, ceil and round give x, which lets generic code use them on any number. */
-    public static int<<W>> floor(int<<int W>> x) { return x; }
-    public static int<<W>> ceil(int<<int W>> x) { return x; }
-    public static int<<W>> round(int<<int W>> x) { return x; }
+    public static int<<W>> floor(int<<size W>> x) { return x; }
+    public static int<<W>> ceil(int<<size W>> x) { return x; }
+    public static int<<W>> round(int<<size W>> x) { return x; }
 
-    public static double sqrt(int<<int W>> x) { return sqrt((double)x); }
-    public static double sin(int<<int W>> x) { return sin((double)x); }
-    public static double cos(int<<int W>> x) { return cos((double)x); }
-    public static double tan(int<<int W>> x) { return tan((double)x); }
-    public static double atan2(int<<int W>> y, int<<W>> x) { return atan2((double)y, (double)x); }
-    public static double exp(int<<int W>> x) { return exp((double)x); }
-    public static double log(int<<int W>> x) { return log((double)x); }
-    public static double pow(int<<int W>> x, int<<W>> y) { return pow((double)x, (double)y); }
-    public static double hypot(int<<int W>> x, int<<W>> y) { return hypot((double)x, (double)y); }
+    public static double sqrt(int<<size W>> x) { return sqrt((double)x); }
+    public static double sin(int<<size W>> x) { return sin((double)x); }
+    public static double cos(int<<size W>> x) { return cos((double)x); }
+    public static double tan(int<<size W>> x) { return tan((double)x); }
+    public static double atan2(int<<size W>> y, int<<W>> x) { return atan2((double)y, (double)x); }
+    public static double exp(int<<size W>> x) { return exp((double)x); }
+    public static double log(int<<size W>> x) { return log((double)x); }
+    public static double pow(int<<size W>> x, int<<W>> y) { return pow((double)x, (double)y); }
+    public static double hypot(int<<size W>> x, int<<W>> y) { return hypot((double)x, (double)y); }
 
     // ------------------------------------------------------------ unsigned integers: uint, uint<<64>>, ...
 
-    public static uint<<W>> abs(uint<<int W>> x) { return x; }
-    public static uint<<W>> min(uint<<int W>> a, uint<<W>> b) { if (a < b) { return a; } return b; }
-    public static uint<<W>> max(uint<<int W>> a, uint<<W>> b) { if (a > b) { return a; } return b; }
-    public static uint<<W>> clamp(uint<<int W>> x, uint<<W>> lo, uint<<W>> hi) { return max(lo, min(hi, x)); }
-    public static uint<<W>> floor(uint<<int W>> x) { return x; }
-    public static uint<<W>> ceil(uint<<int W>> x) { return x; }
-    public static uint<<W>> round(uint<<int W>> x) { return x; }
+    public static uint<<W>> abs(uint<<size W>> x) { return x; }
+    public static uint<<W>> min(uint<<size W>> a, uint<<W>> b) { if (a < b) { return a; } return b; }
+    public static uint<<W>> max(uint<<size W>> a, uint<<W>> b) { if (a > b) { return a; } return b; }
+    public static uint<<W>> clamp(uint<<size W>> x, uint<<W>> lo, uint<<W>> hi) { return max(lo, min(hi, x)); }
+    public static uint<<W>> floor(uint<<size W>> x) { return x; }
+    public static uint<<W>> ceil(uint<<size W>> x) { return x; }
+    public static uint<<W>> round(uint<<size W>> x) { return x; }
 
-    public static double sqrt(uint<<int W>> x) { return sqrt((double)x); }
-    public static double sin(uint<<int W>> x) { return sin((double)x); }
-    public static double cos(uint<<int W>> x) { return cos((double)x); }
-    public static double tan(uint<<int W>> x) { return tan((double)x); }
-    public static double atan2(uint<<int W>> y, uint<<W>> x) { return atan2((double)y, (double)x); }
-    public static double exp(uint<<int W>> x) { return exp((double)x); }
-    public static double log(uint<<int W>> x) { return log((double)x); }
-    public static double pow(uint<<int W>> x, uint<<W>> y) { return pow((double)x, (double)y); }
-    public static double hypot(uint<<int W>> x, uint<<W>> y) { return hypot((double)x, (double)y); }
+    public static double sqrt(uint<<size W>> x) { return sqrt((double)x); }
+    public static double sin(uint<<size W>> x) { return sin((double)x); }
+    public static double cos(uint<<size W>> x) { return cos((double)x); }
+    public static double tan(uint<<size W>> x) { return tan((double)x); }
+    public static double atan2(uint<<size W>> y, uint<<W>> x) { return atan2((double)y, (double)x); }
+    public static double exp(uint<<size W>> x) { return exp((double)x); }
+    public static double log(uint<<size W>> x) { return log((double)x); }
+    public static double pow(uint<<size W>> x, uint<<W>> y) { return pow((double)x, (double)y); }
+    public static double hypot(uint<<size W>> x, uint<<W>> y) { return hypot((double)x, (double)y); }
 
     // ------------------------------------------------------------ signed fixed point: fixed<<N, M>>
 
     /** Like integers, the most negative value has no positive counterpart and stays negative. */
-    public static fixed<<N, M>> abs(fixed<<int N, int M>> x) { if (x < 0) { return -x; } return x; }
-    public static fixed<<N, M>> min(fixed<<int N, int M>> a, fixed<<N, M>> b) { if (a < b) { return a; } return b; }
-    public static fixed<<N, M>> max(fixed<<int N, int M>> a, fixed<<N, M>> b) { if (a > b) { return a; } return b; }
-    public static fixed<<N, M>> clamp(fixed<<int N, int M>> x, fixed<<N, M>> lo, fixed<<N, M>> hi) { return max(lo, min(hi, x)); }
+    public static fixed<<N, M>> abs(fixed<<size N, size M>> x) { if (x < 0) { return -x; } return x; }
+    public static fixed<<N, M>> min(fixed<<size N, size M>> a, fixed<<N, M>> b) { if (a < b) { return a; } return b; }
+    public static fixed<<N, M>> max(fixed<<size N, size M>> a, fixed<<N, M>> b) { if (a > b) { return a; } return b; }
+    public static fixed<<N, M>> clamp(fixed<<size N, size M>> x, fixed<<N, M>> lo, fixed<<N, M>> hi) { return max(lo, min(hi, x)); }
 
     /** The largest whole number not above x (toward negative infinity), computed exactly. */
-    public static fixed<<N, M>> floor(fixed<<int N, int M>> x)
+    public static fixed<<N, M>> floor(fixed<<size N, size M>> x)
     {
         fixed<<N, M>> t = (fixed<<N, M>>)(int<<64>>)x;   // toward zero
         // `+ -1` rather than `- 1`: -1 fits every signed format, even fixed<<1, M>>.
@@ -117,7 +117,7 @@ struct Math
     }
 
     /** The smallest whole number not below x. Wraps if that is past the format's largest value. */
-    public static fixed<<N, M>> ceil(fixed<<int N, int M>> x)
+    public static fixed<<N, M>> ceil(fixed<<size N, size M>> x)
     {
         fixed<<N, M>> f = floor(x);
         if (f < x) { return f - -1; }
@@ -125,53 +125,53 @@ struct Math
     }
 
     /** Rounds half up, exactly. */
-    public static fixed<<N, M>> round(fixed<<int N, int M>> x)
+    public static fixed<<N, M>> round(fixed<<size N, size M>> x)
     {
         fixed<<N, M>> f = floor(x);
         if (x - f >= 0.5) { return f - -1; }
         return f;
     }
 
-    public static fixed<<N, M>> sqrt(fixed<<int N, int M>> x) { return (fixed<<N, M>>)sqrt((double)x); }
-    public static fixed<<N, M>> sin(fixed<<int N, int M>> x) { return (fixed<<N, M>>)sin((double)x); }
-    public static fixed<<N, M>> cos(fixed<<int N, int M>> x) { return (fixed<<N, M>>)cos((double)x); }
-    public static fixed<<N, M>> tan(fixed<<int N, int M>> x) { return (fixed<<N, M>>)tan((double)x); }
-    public static fixed<<N, M>> atan2(fixed<<int N, int M>> y, fixed<<N, M>> x) { return (fixed<<N, M>>)atan2((double)y, (double)x); }
-    public static fixed<<N, M>> exp(fixed<<int N, int M>> x) { return (fixed<<N, M>>)exp((double)x); }
-    public static fixed<<N, M>> log(fixed<<int N, int M>> x) { return (fixed<<N, M>>)log((double)x); }
-    public static fixed<<N, M>> pow(fixed<<int N, int M>> x, fixed<<N, M>> y) { return (fixed<<N, M>>)pow((double)x, (double)y); }
-    public static fixed<<N, M>> hypot(fixed<<int N, int M>> x, fixed<<N, M>> y) { return (fixed<<N, M>>)hypot((double)x, (double)y); }
+    public static fixed<<N, M>> sqrt(fixed<<size N, size M>> x) { return (fixed<<N, M>>)sqrt((double)x); }
+    public static fixed<<N, M>> sin(fixed<<size N, size M>> x) { return (fixed<<N, M>>)sin((double)x); }
+    public static fixed<<N, M>> cos(fixed<<size N, size M>> x) { return (fixed<<N, M>>)cos((double)x); }
+    public static fixed<<N, M>> tan(fixed<<size N, size M>> x) { return (fixed<<N, M>>)tan((double)x); }
+    public static fixed<<N, M>> atan2(fixed<<size N, size M>> y, fixed<<N, M>> x) { return (fixed<<N, M>>)atan2((double)y, (double)x); }
+    public static fixed<<N, M>> exp(fixed<<size N, size M>> x) { return (fixed<<N, M>>)exp((double)x); }
+    public static fixed<<N, M>> log(fixed<<size N, size M>> x) { return (fixed<<N, M>>)log((double)x); }
+    public static fixed<<N, M>> pow(fixed<<size N, size M>> x, fixed<<N, M>> y) { return (fixed<<N, M>>)pow((double)x, (double)y); }
+    public static fixed<<N, M>> hypot(fixed<<size N, size M>> x, fixed<<N, M>> y) { return (fixed<<N, M>>)hypot((double)x, (double)y); }
 
     // ------------------------------------------------------------ unsigned fixed point: ufixed<<N, M>>
 
-    public static ufixed<<N, M>> abs(ufixed<<int N, int M>> x) { return x; }
-    public static ufixed<<N, M>> min(ufixed<<int N, int M>> a, ufixed<<N, M>> b) { if (a < b) { return a; } return b; }
-    public static ufixed<<N, M>> max(ufixed<<int N, int M>> a, ufixed<<N, M>> b) { if (a > b) { return a; } return b; }
-    public static ufixed<<N, M>> clamp(ufixed<<int N, int M>> x, ufixed<<N, M>> lo, ufixed<<N, M>> hi) { return max(lo, min(hi, x)); }
+    public static ufixed<<N, M>> abs(ufixed<<size N, size M>> x) { return x; }
+    public static ufixed<<N, M>> min(ufixed<<size N, size M>> a, ufixed<<N, M>> b) { if (a < b) { return a; } return b; }
+    public static ufixed<<N, M>> max(ufixed<<size N, size M>> a, ufixed<<N, M>> b) { if (a > b) { return a; } return b; }
+    public static ufixed<<N, M>> clamp(ufixed<<size N, size M>> x, ufixed<<N, M>> lo, ufixed<<N, M>> hi) { return max(lo, min(hi, x)); }
 
-    public static ufixed<<N, M>> floor(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)(uint<<64>>)x; }
+    public static ufixed<<N, M>> floor(ufixed<<size N, size M>> x) { return (ufixed<<N, M>>)(uint<<64>>)x; }
 
-    public static ufixed<<N, M>> ceil(ufixed<<int N, int M>> x)
+    public static ufixed<<N, M>> ceil(ufixed<<size N, size M>> x)
     {
         ufixed<<N, M>> f = floor(x);
         if (f < x) { return f + 1; }
         return f;
     }
 
-    public static ufixed<<N, M>> round(ufixed<<int N, int M>> x)
+    public static ufixed<<N, M>> round(ufixed<<size N, size M>> x)
     {
         ufixed<<N, M>> f = floor(x);
         if (x - f >= 0.5) { return f + 1; }
         return f;
     }
 
-    public static ufixed<<N, M>> sqrt(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)sqrt((double)x); }
-    public static ufixed<<N, M>> sin(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)sin((double)x); }
-    public static ufixed<<N, M>> cos(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)cos((double)x); }
-    public static ufixed<<N, M>> tan(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)tan((double)x); }
-    public static ufixed<<N, M>> atan2(ufixed<<int N, int M>> y, ufixed<<N, M>> x) { return (ufixed<<N, M>>)atan2((double)y, (double)x); }
-    public static ufixed<<N, M>> exp(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)exp((double)x); }
-    public static ufixed<<N, M>> log(ufixed<<int N, int M>> x) { return (ufixed<<N, M>>)log((double)x); }
-    public static ufixed<<N, M>> pow(ufixed<<int N, int M>> x, ufixed<<N, M>> y) { return (ufixed<<N, M>>)pow((double)x, (double)y); }
-    public static ufixed<<N, M>> hypot(ufixed<<int N, int M>> x, ufixed<<N, M>> y) { return (ufixed<<N, M>>)hypot((double)x, (double)y); }
+    public static ufixed<<N, M>> sqrt(ufixed<<size N, size M>> x) { return (ufixed<<N, M>>)sqrt((double)x); }
+    public static ufixed<<N, M>> sin(ufixed<<size N, size M>> x) { return (ufixed<<N, M>>)sin((double)x); }
+    public static ufixed<<N, M>> cos(ufixed<<size N, size M>> x) { return (ufixed<<N, M>>)cos((double)x); }
+    public static ufixed<<N, M>> tan(ufixed<<size N, size M>> x) { return (ufixed<<N, M>>)tan((double)x); }
+    public static ufixed<<N, M>> atan2(ufixed<<size N, size M>> y, ufixed<<N, M>> x) { return (ufixed<<N, M>>)atan2((double)y, (double)x); }
+    public static ufixed<<N, M>> exp(ufixed<<size N, size M>> x) { return (ufixed<<N, M>>)exp((double)x); }
+    public static ufixed<<N, M>> log(ufixed<<size N, size M>> x) { return (ufixed<<N, M>>)log((double)x); }
+    public static ufixed<<N, M>> pow(ufixed<<size N, size M>> x, ufixed<<N, M>> y) { return (ufixed<<N, M>>)pow((double)x, (double)y); }
+    public static ufixed<<N, M>> hypot(ufixed<<size N, size M>> x, ufixed<<N, M>> y) { return (ufixed<<N, M>>)hypot((double)x, (double)y); }
 }

@@ -1499,6 +1499,12 @@ final class PureEval {
         if (it.isChar()) {
             return v & 0xffff;
         }
+        if (it.isSize()) {
+            if (v < 0 || v > Type.MAX_SIZE) {
+                throw new Failure("made " + v + " a size, which holds 0 to " + Type.MAX_SIZE, null);
+            }
+            return v;
+        }
         int w = width(it);
         if (w >= 64) {
             return v;

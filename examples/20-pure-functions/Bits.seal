@@ -2,10 +2,10 @@
 // so the compiler can run them too, wherever a compile-time value goes.
 struct Bits
 {
-    /** How many bits an unsigned number up to max needs. */
-    public static pure int needed(int<<64>> max)
+    /** How many bits an unsigned number up to max needs: a width, so a size (§37.2). */
+    public static pure size needed(int<<64>> max)
     {
-        int bits = 1;
+        size bits = 1;
         while (bits < 64 && ((int<<64>>)1 <<< bits) <= max) { bits++; }
         return bits;
     }

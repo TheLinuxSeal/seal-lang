@@ -80,12 +80,12 @@ class StringBuilder
     }
 
     public StringBuilder append(int x) { return append(Integer.toString(x)); }
-    public StringBuilder append(int<<int W>> x) { return append(Integer.toString((int<<64>>)x)); }
-    public StringBuilder append(uint<<int W>> x) { return append(Integer.toString((uint<<64>>)x)); }
+    public StringBuilder append(int<<size W>> x) { return append(Integer.toString((int<<64>>)x)); }
+    public StringBuilder append(uint<<size W>> x) { return append(Integer.toString((uint<<64>>)x)); }
     public StringBuilder append(double x) { return append(Double.toString(x)); }
     public StringBuilder append(float x) { return append(Float.toString(x)); }
-    public StringBuilder append(fixed<<int A, int B>> x) { return append(Fixed.toString(x)); }
-    public StringBuilder append(ufixed<<int A, int B>> x) { return append(Fixed.toString(x)); }
+    public StringBuilder append(fixed<<size A, size B>> x) { return append(Fixed.toString(x)); }
+    public StringBuilder append(ufixed<<size A, size B>> x) { return append(Fixed.toString(x)); }
     public StringBuilder append(bit x) { return append(x ? "true" : "false"); }
 
     /** Any other value, as its type's cast to string makes it (§46). */

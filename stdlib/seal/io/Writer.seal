@@ -25,25 +25,27 @@ class Writer implements(AutoCloseable)
 
     public void print(char c) { Files.check(Files.nWriteChar(file, c)); }
     public void print(int x) { Files.check(Files.nWriteInt(file, (int<<64>>)x)); }
-    public void print(int<<int W>> x) { Files.check(Files.nWriteInt(file, (int<<64>>)x)); }
-    public void print(uint<<int W>> x) { Files.check(Files.nWriteUint(file, (uint<<64>>)x)); }
+    public void print(size x) { Files.check(Files.nWriteInt(file, (int<<64>>)x)); }
+    public void print(int<<size W>> x) { Files.check(Files.nWriteInt(file, (int<<64>>)x)); }
+    public void print(uint<<size W>> x) { Files.check(Files.nWriteUint(file, (uint<<64>>)x)); }
     public void print(float x) { Files.check(Files.nWriteFloat(file, x)); }
     public void print(double x) { Files.check(Files.nWriteDouble(file, x)); }
     public void print(bit x) { Files.check(Files.nWriteBit(file, x)); }
-    public void print(fixed<<int A, int B>> x) { Files.check(Files.nWriteFixed(file, x)); }
-    public void print(ufixed<<int A, int B>> x) { Files.check(Files.nWriteUfixed(file, x)); }
+    public void print(fixed<<size A, size B>> x) { Files.check(Files.nWriteFixed(file, x)); }
+    public void print(ufixed<<size A, size B>> x) { Files.check(Files.nWriteUfixed(file, x)); }
 
     public void println() { print('\n'); }
     public void println(string text) { write(text); print('\n'); }
     public void println(char c) { print(c); print('\n'); }
     public void println(int x) { print(x); print('\n'); }
-    public void println(int<<int W>> x) { print(x); print('\n'); }
-    public void println(uint<<int W>> x) { print(x); print('\n'); }
+    public void println(size x) { print(x); print('\n'); }
+    public void println(int<<size W>> x) { print(x); print('\n'); }
+    public void println(uint<<size W>> x) { print(x); print('\n'); }
     public void println(float x) { print(x); print('\n'); }
     public void println(double x) { print(x); print('\n'); }
     public void println(bit x) { print(x); print('\n'); }
-    public void println(fixed<<int A, int B>> x) { print(x); print('\n'); }
-    public void println(ufixed<<int A, int B>> x) { print(x); print('\n'); }
+    public void println(fixed<<size A, size B>> x) { print(x); print('\n'); }
+    public void println(ufixed<<size A, size B>> x) { print(x); print('\n'); }
 
     /** A fixed-size string, as the bare one. */
     public void print(string<<int K>> text) { write(text); }

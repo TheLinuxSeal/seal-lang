@@ -23,6 +23,7 @@ struct Integer
     public static string toString(uint<<64>> x) { return digits(x, 10, false); }
 
     public static string toString(int x) { return toString((int<<64>>)x); }
+    public static string toString(size x) { return toString((int<<64>>)x); }
     public static string toString(uint x) { return toString((uint<<64>>)x); }
 
     /** Text of x in the given base (2 to 36), as a new bare string. */
@@ -68,23 +69,23 @@ struct Integer
     // never overflow: int × int → int<<64>>. Mixed widths need no casts. Results
     // wider than 64 bits are rejected when used; use BigUInt for those.
 
-    public static int<<N + P>> mulExact(int<<int N>> a, int<<int P>> b)
+    public static int<<N + P>> mulExact(int<<size N>> a, int<<size P>> b)
     {
         return (int<<N + P>>)a * (int<<N + P>>)b;
     }
 
-    public static uint<<N + P>> mulExact(uint<<int N>> a, uint<<int P>> b)
+    public static uint<<N + P>> mulExact(uint<<size N>> a, uint<<size P>> b)
     {
         return (uint<<N + P>>)a * (uint<<N + P>>)b;
     }
 
     /** Signed times unsigned: the unsigned value fits in N + P signed bits, and so does the product. */
-    public static int<<N + P>> mulExact(int<<int N>> a, uint<<int P>> b)
+    public static int<<N + P>> mulExact(int<<size N>> a, uint<<size P>> b)
     {
         return (int<<N + P>>)a * (int<<N + P>>)b;
     }
 
-    public static int<<N + P>> mulExact(uint<<int N>> a, int<<int P>> b)
+    public static int<<N + P>> mulExact(uint<<size N>> a, int<<size P>> b)
     {
         return (int<<N + P>>)a * (int<<N + P>>)b;
     }
