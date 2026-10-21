@@ -1,0 +1,9 @@
+package seal.java;
+
+// Java's boolean (docs/JAVA.md §3.1). JavaBoolean.of(x) makes one of a Seal bit, for a Java method that
+// takes a boolean, and a cast, (bit)x, makes one that Java gives back a Seal bit. It has no
+// operators in Seal: cast it first. A value of one is held as a bit is, so neither step costs anything.
+struct JavaBoolean
+{
+    @jvm("JavaValues.booleanOf") public static JavaBoolean of(bit x);
+}

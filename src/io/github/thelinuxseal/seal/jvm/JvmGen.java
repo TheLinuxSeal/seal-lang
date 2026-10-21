@@ -93,7 +93,8 @@ public final class JvmGen {
             "io.github.thelinuxseal.seal.runtime.Block",
             "io.github.thelinuxseal.seal.runtime.Ptr",
             "io.github.thelinuxseal.seal.runtime.Exit",
-            "io.github.thelinuxseal.seal.runtime.Trap");
+            "io.github.thelinuxseal.seal.runtime.Trap",
+            "io.github.thelinuxseal.seal.runtime.JavaValues");
 
     /** The method every main class gets that runs the program and returns its exit code. */
     public static final String RUN_METHOD = "$run";
@@ -268,7 +269,7 @@ public final class JvmGen {
                 }
             }
             init = ref(initKey, at);
-            boolean staticUniques = ck.allClasses().stream().anyMatch(c -> c.all.stream().anyMatch(m ->
+            boolean staticUniques = ck.allClasses().stream().filter(c -> !Checker.isJavaType(c)).anyMatch(c -> c.all.stream().anyMatch(m ->
                     m.member instanceof Field f && f.modifiers().isStatic() && !f.modifiers().isConst()
                             && needsDestroy(ck.staticFieldType(c, f))));
             if (staticUniques) {
@@ -525,7 +526,10 @@ public final class JvmGen {
         }
     }
 
-    /** The classes this program defines, for the stack maps the class-file API computes. */
+    /**
+     * The classes this program defines, for the stack maps the class-file API computes; then Java's,
+     * from their class files (docs/JAVA.md §6), the class path's among them.
+     */
     private ClassHierarchyResolver hierarchy() {
         Set<ClassDesc> interfaces = new HashSet<>();
         Map<ClassDesc, ClassDesc> supers = new HashMap<>();
@@ -536,7 +540,9 @@ public final class JvmGen {
                 supers.put(jc.desc, jc.superclass);
             }
         }
-        return ClassHierarchyResolver.of(interfaces, supers).orElse(ClassHierarchyResolver.defaultResolver());
+        return ClassHierarchyResolver.of(interfaces, supers)
+                .orElse(ClassHierarchyResolver.ofResourceParsing(ck.javaClasses()::open))
+                .orElse(ClassHierarchyResolver.defaultResolver());
     }
 
     // ================================================================ methods
@@ -858,6 +864,9 @@ public final class JvmGen {
 
     /** A class's JVM binary name: as in Seal, with nested types after a $; the library's in its own packages. */
     static String binaryName(ClassInfo c) {
+        if (c.java != null) {
+            return c.java.name(); // one of Java's classes, which the program uses and doesn't define
+        }
         String name = c.name.replace('.', '$');
         if (c.builtin) {
             return (c.pkg.isEmpty() ? LIBRARY_PACKAGE : LIBRARY_ROOT + c.pkg) + "." + name;
@@ -961,6 +970,13 @@ public final class JvmGen {
             return done;
         }
         ClassInfo c = t.cls();
+        if (Checker.isJavaType(c)) {
+            // One of Java's classes: named by the program's code, never generated (docs/JAVA.md §6).
+            JClass jc = new JClass(c.java != null ? c.java.name() : "java.lang.Object");
+            jc.isInterface = c.isInterface;
+            instances.put(t, jc);
+            return jc;
+        }
         if (!c.dynamic) {
             throw new Unsupported(null, "values of type " + t + " are not available on the JVM yet");
         }
@@ -1235,6 +1251,7 @@ public final class JvmGen {
             case FloatT f -> TypeKind.FLOAT;
             case DoubleT d -> TypeKind.DOUBLE;
             case VoidT v -> TypeKind.VOID;
+            case JavaPrimT j -> kind(j.sealType()); // held as the Seal number with its values (docs/JAVA.md §3.1)
             case HandleT h -> TypeKind.REFERENCE;
             case AddrT a -> TypeKind.REFERENCE;
             case NullT n -> TypeKind.REFERENCE;
@@ -1246,6 +1263,8 @@ public final class JvmGen {
     ClassDesc desc(Type t, Pos at) {
         try {
             return switch (t) {
+                case HandleT h when h.target() instanceof ClassT ct && Checker.isJavaArray(ct.cls()) ->
+                        javaDesc(ct.typeArgs().get(0), at).arrayType(); // JavaArray<JavaByte> is a byte[]
                 case HandleT h when h.target() instanceof ClassT ct -> instance(ct).desc;
                 case AddrT a -> PTR; // §4.4
                 case NullT n -> CD_Object;
@@ -1266,6 +1285,22 @@ public final class JvmGen {
         } catch (Unsupported u) {
             throw u.pos == null && at != null ? new Unsupported(at, u.getMessage()) : u;
         }
+    }
+
+    /**
+     * A Java type's own descriptor (docs/JAVA.md §3.1), as Java's arrays and calls name it: JavaByte
+     * is a byte here, though a value of one is held as an int, as Seal's int<<8>> is.
+     */
+    ClassDesc javaDesc(Type t, Pos at) {
+        if (t instanceof JavaPrimT j) {
+            return ClassDesc.ofDescriptor(String.valueOf(j.code()));
+        }
+        return desc(t, at);
+    }
+
+    /** How Java's arrays hold elements of a Java type: a JavaByte's as bytes. */
+    static TypeKind javaKind(Type t) {
+        return t instanceof JavaPrimT j ? TypeKind.fromDescriptor(String.valueOf(j.code())) : TypeKind.REFERENCE;
     }
 
     ClassDesc[] descs(List<Type> types, Pos at) {

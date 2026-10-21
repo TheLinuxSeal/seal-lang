@@ -1,0 +1,13 @@
+package seal.java;
+
+// Java's java.lang.Object (docs/JAVA.md §3.1), with its own methods: equals, hashCode, toString,
+// getClass. Every Java class extends it. A Seal class's object isn't one of Java's, so it goes
+// where Java wants an Object by JavaObject.of(o), and comes back by a cast, (Tag)o, which checks
+// that it is one. Seal's == compares Java objects by identity, and hash() matches it, so that a
+// Java object can be a key of Seal's HashMap.
+class JavaObject
+{
+    @jvm("JavaValues.objectOf") public static JavaObject of(Object o);
+
+    @jvm("JavaValues.hash") public uint<<64>> hash();
+}

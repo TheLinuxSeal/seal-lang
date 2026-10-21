@@ -101,6 +101,12 @@ public final class JvmRunner {
             String message = t.getMessage();
             return frames(t, new StringBuilder("uncaught " + seal + (message == null || message.isEmpty() ? "" : ": " + message)));
         }
+        if (thrownByJava(t)) {
+            // What Java code threw and nothing caught (docs/JAVA.md §4), reported as a Seal exception is.
+            String message = t.getMessage();
+            return frames(t, new StringBuilder("uncaught " + t.getClass().getName()
+                    + (message == null || message.isEmpty() ? "" : ": " + message)));
+        }
         String what = switch (t) {
             case Trap trap -> trap.getMessage();
             case ArithmeticException a when "/ by zero".equals(a.getMessage()) -> "division by zero";
@@ -111,6 +117,35 @@ public final class JvmRunner {
             default -> t.toString();
         };
         return frames(t, new StringBuilder("trap: " + what));
+    }
+
+    /**
+     * Whether an exception is one Java code threw, rather than a fault of Seal code the JVM or the
+     * runtime reports (a null handle, division by zero): one thrown above the program's own code,
+     * in the JDK or a jar's class, and not on the runtime's behalf.
+     */
+    private static boolean thrownByJava(Throwable t) {
+        if (t instanceof Trap || t instanceof Error) {
+            return false;
+        }
+        StackTraceElement[] frames = t.getStackTrace();
+        for (int i = 0; i < frames.length; i++) {
+            String cls = frames[i].getClassName();
+            if (cls.startsWith("java.") || cls.startsWith("javax.") || cls.startsWith("jdk.") || cls.startsWith("sun.")
+                    || cls.startsWith("com.sun.")) {
+                continue;
+            }
+            if (cls.startsWith(JvmGen.RUNTIME)) {
+                return false; // the runtime's own work, as a division
+            }
+            boolean seal = frames[i].getFileName() != null && frames[i].getFileName().endsWith(".seal");
+            // What the JVM raises at an instruction of the program's own code is a fault; what that code throws isn't.
+            boolean raised = t instanceof NullPointerException || t instanceof ArithmeticException
+                    || t instanceof ClassCastException || t instanceof ArrayIndexOutOfBoundsException
+                    || t instanceof NegativeArraySizeException || t instanceof ArrayStoreException;
+            return !(seal && i == 0 && raised);
+        }
+        return true;
     }
 
     /** The Seal name of a Seal exception's class, or null for a Java one: io.github...lang.IllegalStateException is IllegalStateException. */
@@ -140,6 +175,11 @@ public final class JvmRunner {
      * each problem with the class it is in (none for a correct program).
      */
     public static java.util.List<String> verify(JvmGen.Result program) {
+        return verify(program, io.github.thelinuxseal.seal.check.JavaClasses.jdk());
+    }
+
+    /** As above, knowing the Java classes of the class path the program uses too (docs/JAVA.md §6). */
+    public static java.util.List<String> verify(JvmGen.Result program, io.github.thelinuxseal.seal.check.JavaClasses classPath) {
         java.lang.classfile.ClassFile plain = java.lang.classfile.ClassFile.of();
         java.util.Set<java.lang.constant.ClassDesc> interfaces = new java.util.HashSet<>();
         Map<java.lang.constant.ClassDesc, java.lang.constant.ClassDesc> supers = new java.util.HashMap<>();
@@ -155,6 +195,7 @@ public final class JvmRunner {
         java.lang.classfile.ClassFile cf = java.lang.classfile.ClassFile.of(
                 java.lang.classfile.ClassFile.ClassHierarchyResolverOption.of(
                         java.lang.classfile.ClassHierarchyResolver.of(interfaces, supers)
+                                .orElse(java.lang.classfile.ClassHierarchyResolver.ofResourceParsing(classPath::open))
                                 .orElse(java.lang.classfile.ClassHierarchyResolver.defaultResolver())));
         java.util.List<String> problems = new java.util.ArrayList<>();
         for (Map.Entry<String, byte[]> e : program.classes().entrySet()) {

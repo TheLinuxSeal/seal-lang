@@ -2334,6 +2334,7 @@ The standard library is a directory of ordinary source files (`stdlib/`), compil
 * `seal.lang` (`stdlib/seal/lang/`): what every program uses, which every file sees without an import, as Java's `java.lang`;
 * `seal.util`: collections and other utilities, as `java.util`; `seal.util.function`: the functional interfaces lambdas implement, as `java.util.function`;
 * `seal.io`: files, folders and streams, as `java.io` and `java.nio.file`;
+* `seal.java`: Java's types as Seal names them, for using Java's own classes (§42.7).
 
 A file imports the types it uses outside `seal.lang`: `import seal.util.List;`, or `import seal.io.*;`. `string` and `array` are built in: they are in no package, and every file sees them. A program's type in no package can't take the name of a `seal.lang` type or a built-in one, and a program can't declare a type in package `seal` or one in it (§2.4).
 
@@ -2372,6 +2373,8 @@ Library classes may declare `@native("name")` methods, which are implemented by 
 | `NoSuchElementException` | `seal.util` | what a collection throws for an element it doesn't have (§41.4) |
 | `Supplier`, `Consumer`, `BiConsumer`, `Predicate`, `Function`, `BiFunction` | `seal.util.function` | functional interfaces for lambdas (§30.3) |
 | `Files`, `File`, `Reader`, `FileReader`, `Writer`, `FileWriter`, `IOException`, `FileNotFoundException` | `seal.io` | files, folders and the standard streams (§42.1, §42.2); `printf` (§42.6) |
+| `JavaInt`, `JavaLong`, `JavaShort`, `JavaByte`, `JavaFloat`, `JavaDouble`, `JavaChar`, `JavaBoolean` | `seal.java` | Java's primitive types, and `of`, which makes one of a Seal number (§42.7) |
+| `JavaObject`, `JavaString`, `JavaIntBoxed` and the other boxes (`JavaLongBoxed` ... `JavaBooleanBoxed`), `JavaArray` | `seal.java` | `java.lang.Object`, `java.lang.String`, `java.lang.Integer` and the others, with Java's members and an `of`; Java's arrays (§42.7) |
 
 `List`, `Queue` and `IntMap` are classes, like Java's collections: create one with `new`, and variables share it. They keep their elements in `array<T>`s, release them as they are removed, and are freed automatically once nothing refers to them:
 
@@ -2554,7 +2557,30 @@ A specifier is `%[flags][width][.precision]conversion`:
 
 ## 42.7 Java classes
 
-Not yet. Seal is to use Java's own classes on the JVM as it uses its own, imported by name (`import java.util.ArrayList;`) and checked while compiling, with values crossing by hand through `seal.java`'s types: `JavaInt.of(5)`, `JavaString.of("Ada")`, `JavaIntBoxed.of(5)` in, casts out. docs/JAVA.md has the design. An earlier bridge, which named Java's classes and methods by strings (`JavaBridge.create("java.util.ArrayList").invoke(...)`), was removed for it.
+On the JVM, a program uses Java's own classes (the JDK's, and those of the jars and folders `--classpath` names) as it uses Seal's: imported by name, checked while compiling, and called as the JVM calls them (docs/JAVA.md). Values cross between the two by hand, through `seal.java`'s types.
+
+```text
+import java.time.LocalDate;
+import java.util.ArrayList;
+import seal.java.*;
+
+LocalDate d = LocalDate.of(JavaInt.of(2026), JavaInt.of(10), JavaInt.of(20));
+ArrayList names = new ArrayList();
+names.add(JavaString.of("Ada"));
+int n = (int)names.size();
+string first = (string)names.get(JavaInt.of(0));
+System.stdout.println(d.getDayOfWeek() + " " + names + " " + n);   // TUESDAY [Ada] 1
+```
+
+* **Names.** `import java.util.ArrayList;`, `import java.util.*;`, `import static java.lang.Math.max;`, and a full name anywhere (`java.time.LocalDate.now()`) name Java's classes; a nested one is named after its class, `Map.Entry`. `java.lang` isn't imported by itself, and an import by name hides a `seal.lang` type of the same name in its file. A name that a `*` import of Java's shares with `seal.lang` is an error where it is used. Only public classes, and public members, are seen.
+* **Types.** A Java class or interface is a class type, held by a handle that may be `null`; `==` is identity. Java's primitive types are `seal.java`'s `JavaInt` (`int`), `JavaLong`, `JavaShort`, `JavaByte`, `JavaFloat`, `JavaDouble`, `JavaChar` and `JavaBoolean`, which have no operators. `java.lang.Object` is `JavaObject`, `java.lang.String` is `JavaString`, and the boxes are `JavaIntBoxed`, `JavaLongBoxed`, `JavaShortBoxed`, `JavaByteBoxed`, `JavaFloatBoxed`, `JavaDoubleBoxed`, `JavaCharBoxed` and `JavaBooleanBoxed`, each with Java's own members; importing one of those by Java's name is an error. A Java array `T[]` is `JavaArray<T>`. Generic classes are used without type arguments, their type variables as `JavaObject`.
+* **Into Java,** nothing goes by itself: a Seal value goes in by the `of` of the Java type it becomes. `JavaInt.of(int)`, `JavaLong.of(int<<64>>)`, `JavaShort.of(int<<16>>)`, `JavaByte.of(int<<8>>)`, `JavaFloat.of`, `JavaDouble.of`, `JavaChar.of(char)`, `JavaBoolean.of(bit)`, `JavaString.of(string)`, the boxes' `of` (`JavaIntBoxed.of(5)`, an `Integer`), and `JavaObject.of(o)` for an object of a Seal class. `null` goes to any Java reference.
+* **Out of Java,** a cast: `(int)` of a `JavaInt` (and `(int<<64>>)` of a `JavaLong`, and so on), converted as Seal converts numbers; of a box, which unboxes it; of a `JavaObject`, which unboxes the box of that type's primitive, checked while the program runs (`(int)o` an `Integer`), as Java's does. `(string)` of any Java value is Java's text of it (`"null"` for `null`), which `+` and `println` use too. A `JavaObject` that holds a Seal object casts back to its class, checked, and `instanceof` tests it.
+* **Calls.** Constructors (`new ArrayList()`), static and instance methods, and fields, read and assigned (`final` ones only read). Among overloads, the arguments choose as in Java, but without boxing: the methods they fit (an object of a subclass, a primitive Java widens, as a `JavaInt` to a `long`), then those taking varargs, whose arguments are put in an array; the most specific wins, and two equally specific are an error. A `JavaInt` doesn't go where an `Integer` or `Object` is wanted: `JavaIntBoxed.of` makes one that does.
+* **Arrays** are copied both ways, as an `array<T>` is a unique: `JavaArray.of(xs)` makes a Java array of a Seal one (an `array<int<<8>>>` or `array<uint<<8>>>` is a `byte[]`, `array<int>` an `int[]`, `array<string>` a `String[]`, `array<JavaObject>` an `Object[]`), a cast copies one out (`(array<uint<<8>>>)bytes`), and `JavaArray<JavaByte> b = new JavaArray(n);` makes one of Java's defaults, for Java to fill.
+* **Exceptions.** Java's are classes: `catch (IOException e)` catches one by its class, and `throw` throws one; Seal's `catch (Exception e)` catches Seal's alone. `finally` runs for both. One nothing catches ends the program as a Seal exception does: `uncaught java.nio.file.NoSuchFileException: notes.txt`.
+* **Not yet** (docs/JAVA.md §5, §4.1): Java's generics and for-each over a Java `Iterable`; lambdas where Java wants an interface; Seal classes extending Java classes or implementing Java interfaces. Each is an error that says so.
+* Java's classes run only on the JVM: with `--vm`, code using them is an error.
 
 ---
 

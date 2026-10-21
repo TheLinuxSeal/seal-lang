@@ -112,6 +112,12 @@ public final class ClassInfo {
     /** True for the built-in prelude (`Object`, `Writer`, `System`) and the standard library. */
     public final boolean builtin;
 
+    /**
+     * For one of Java's classes (docs/JAVA.md §3): its class file, which the members were made from
+     * (seal.java's JavaString is java.lang.String's, with its own `of` added); null for Seal's.
+     */
+    public JavaClasses.JClass java;
+
     /** The package the type is in, as com.example, or "" for none (§2.4). A nested type is in its outer type's. */
     public String pkg = "";
     /** Where the file says its package. */

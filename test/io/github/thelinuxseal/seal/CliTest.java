@@ -360,27 +360,66 @@ public final class CliTest {
         classPath(dir);
     }
 
-    /**
-     * --classpath: its entries must exist, and a program runs with them. A program reaches the classes
-     * in them from T1 (docs/JAVA.md §8); the string bridge that reached them before is removed.
-     */
+    /** --classpath: Java classes of a class folder and of a jar, which a program imports (docs/JAVA.md §6). */
     private static void classPath(Path dir) throws IOException {
-        Path folder = Files.createDirectories(dir.resolve("java/classes"));
-        Path jar = dir.resolve("java/empty.jar");
-        new java.util.jar.JarOutputStream(Files.newOutputStream(jar)).close();
-        String prog = write(dir, "classpath/Main.seal", """
+        Path src = write(dir, "java/src/demo/Greeter.java", """
+                package demo;
+
+                public class Greeter {
+                    public String greet(String who) { return "hello, " + who; }
+                }
+                """);
+        Path other = write(dir, "java/src/demo/Counter.java", """
+                package demo;
+
+                public class Counter {
+                    public static int next = 41;
+                    public static int take() { return ++next; }
+                }
+                """);
+        Path folder = dir.resolve("java/classes");
+        Path jarClasses = dir.resolve("java/jar-classes");
+        javax.tools.JavaCompiler javac = javax.tools.ToolProvider.getSystemJavaCompiler();
+        check(javac.run(null, null, null, "-d", folder.toString(), src.toString()) == 0
+                && javac.run(null, null, null, "-d", jarClasses.toString(), other.toString()) == 0, "the Java classes compile");
+        Path jar = dir.resolve("java/counter.jar");
+        try (java.util.jar.JarOutputStream out = new java.util.jar.JarOutputStream(Files.newOutputStream(jar))) {
+            out.putNextEntry(new java.util.jar.JarEntry("demo/Counter.class"));
+            out.write(Files.readAllBytes(jarClasses.resolve("demo/Counter.class")));
+            out.closeEntry();
+        }
+        String prog = write(dir, "uses-java/Main.seal", """
+                import demo.Greeter;
+                import demo.Counter;
+                import seal.java.*;
+
                 class Main
                 {
-                    static void main() { System.stdout.println("ran"); }
+                    static void main()
+                    {
+                        Greeter g = new Greeter();
+                        System.stdout.println(g.greet(JavaString.of("Ada")) + " " + (int)Counter.take());
+                    }
                 }
                 """).getParent().toString();
         String both = folder + java.io.File.pathSeparator + jar;
         Run r = run("run", "--classpath", both, prog);
-        check(r.code() == 0 && r.out().equals("ran\n") && r.err().isEmpty(), "run --classpath: a folder and a jar " + r);
+        check(r.code() == 0 && r.out().equals("hello, Ada 42\n") && r.err().isEmpty(), "run --classpath: a folder and a jar " + r);
         r = run("run", "-cp", both, prog);
-        check(r.code() == 0 && r.out().equals("ran\n"), "run -cp " + r);
+        check(r.code() == 0 && r.out().equals("hello, Ada 42\n"), "run -cp " + r);
+        r = run("check", "-cp", both, prog);
+        check(r.code() == 0 && r.err().isEmpty(), "check -cp " + r);
+        r = run("run", prog);
+        check(r.code() == 1 && r.err().contains("no type demo.Greeter to import"), "run: without the class path " + r);
         r = run("run", "--classpath", dir.resolve("java/missing.jar").toString(), prog);
         check(r.code() == 2 && r.err().contains("class path entry not found: "), "run: a missing class path entry " + r);
+        r = run("run", "--vm", "-cp", both, prog);
+        check(r.code() == 1 && r.err().contains("code using Java's classes runs only on the JVM"), "run --vm: no Java on the VM " + r);
+        Path classes = dir.resolve("uses-java-classes");
+        r = run("build", "-cp", both, "-d", classes.toString(), prog);
+        check(r.code() == 0 && Files.isRegularFile(classes.resolve("Main.class"))
+                && Files.isRegularFile(classes.resolve("io/github/thelinuxseal/seal/runtime/JavaValues.class"))
+                && !Files.exists(classes.resolve("demo")), "build: writes the program and the runtime, not the class path's " + r);
     }
 
     /** Whether the text is exactly these lines, each ending as given (after the directory part of its path). */

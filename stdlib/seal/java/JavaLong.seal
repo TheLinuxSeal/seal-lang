@@ -1,0 +1,9 @@
+package seal.java;
+
+// Java's long (docs/JAVA.md §3.1). JavaLong.of(x) makes one of a Seal int<<64>>, for a Java method that
+// takes a long, and a cast, (int<<64>>)x, makes one that Java gives back a Seal int<<64>>. It has no
+// operators in Seal: cast it first. A value of one is held as an int<<64>> is, so neither step costs anything.
+struct JavaLong
+{
+    @jvm("JavaValues.longOf") public static JavaLong of(int<<64>> x);
+}

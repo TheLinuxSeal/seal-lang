@@ -1,0 +1,21 @@
+package seal.java;
+
+// Java's arrays (docs/JAVA.md §3.1): JavaArray<JavaByte> is a byte[], JavaArray<JavaString> a
+// String[]. JavaArray.of(xs) copies a Seal array into a new Java one; new JavaArray(n) is one of n
+// of Java's defaults (0, false, null), for Java to fill: JavaArray<JavaByte> buffer = new JavaArray(4096);
+// and a cast copies one out into a new Seal array: (array<uint<<8>>>)buffer. Both directions copy,
+// as an array<T> is a unique, which Java can't keep.
+class JavaArray<T> extends(JavaObject)
+{
+    @jvm("JavaValues.bytesIn") public static JavaArray<JavaByte> of(array<int<<8>>> xs);
+    @jvm("JavaValues.bytesIn") public static JavaArray<JavaByte> of(array<uint<<8>>> xs);
+    @jvm("JavaValues.shortsIn") public static JavaArray<JavaShort> of(array<int<<16>>> xs);
+    @jvm("JavaValues.intsIn") public static JavaArray<JavaInt> of(array<int> xs);
+    @jvm("JavaValues.longsIn") public static JavaArray<JavaLong> of(array<int<<64>>> xs);
+    @jvm("JavaValues.floatsIn") public static JavaArray<JavaFloat> of(array<float> xs);
+    @jvm("JavaValues.doublesIn") public static JavaArray<JavaDouble> of(array<double> xs);
+    @jvm("JavaValues.charsIn") public static JavaArray<JavaChar> of(array<char> xs);
+    @jvm("JavaValues.booleansIn") public static JavaArray<JavaBoolean> of(array<bit> xs);
+    @jvm("JavaValues.stringsIn") public static JavaArray<JavaString> of(array<string> xs);
+    @jvm("JavaValues.objectsIn") public static JavaArray<JavaObject> of(array<JavaObject> xs);
+}

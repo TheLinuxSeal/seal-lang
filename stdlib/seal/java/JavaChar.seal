@@ -1,0 +1,9 @@
+package seal.java;
+
+// Java's char (docs/JAVA.md §3.1). JavaChar.of(x) makes one of a Seal char, for a Java method that
+// takes a char, and a cast, (char)x, makes one that Java gives back a Seal char. It has no
+// operators in Seal: cast it first. A value of one is held as a char is, so neither step costs anything.
+struct JavaChar
+{
+    @jvm("JavaValues.charOf") public static JavaChar of(char x);
+}

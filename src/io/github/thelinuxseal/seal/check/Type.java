@@ -201,6 +201,63 @@ public sealed interface Type {
         }
     }
 
+    /**
+     * One of Java's primitive types, as seal.java names it (docs/JAVA.md §3.1): JavaInt is Java's
+     * int. A value of one is held as the Seal number with the same values (a JavaInt as an int,
+     * a JavaByte as an int<<8>>), and has no operators: a cast makes it Seal's.
+     *
+     * @param code its JVM descriptor: I, J, S, B, F, D, C or Z
+     */
+    record JavaPrimT(char code) implements Type {
+
+        /** The Java type for a descriptor's letter, or null if it is none. */
+        public static JavaPrimT of(char code) {
+            return "IJSBFDCZ".indexOf(code) < 0 ? null : new JavaPrimT(code);
+        }
+
+        /** The Seal type holding the same values, as the JVM holds them. */
+        public Type sealType() {
+            return switch (code) {
+                case 'I' -> INT;
+                case 'J' -> new IntT(CVal.of(64), true);
+                case 'S' -> new IntT(CVal.of(16), true);
+                case 'B' -> new IntT(CVal.of(8), true);
+                case 'F' -> FLOAT;
+                case 'D' -> DOUBLE;
+                case 'C' -> CHAR;
+                default -> BIT;
+            };
+        }
+
+        /** Java's name for it: int, boolean. */
+        public String javaName() {
+            return switch (code) {
+                case 'I' -> "int";
+                case 'J' -> "long";
+                case 'S' -> "short";
+                case 'B' -> "byte";
+                case 'F' -> "float";
+                case 'D' -> "double";
+                case 'C' -> "char";
+                default -> "boolean";
+            };
+        }
+
+        @Override
+        public String toString() {
+            return switch (code) {
+                case 'I' -> "JavaInt";
+                case 'J' -> "JavaLong";
+                case 'S' -> "JavaShort";
+                case 'B' -> "JavaByte";
+                case 'F' -> "JavaFloat";
+                case 'D' -> "JavaDouble";
+                case 'C' -> "JavaChar";
+                default -> "JavaBoolean";
+            };
+        }
+    }
+
     /** A class name used as a value, as in `Integer.toString(32)`. */
     record ClassRefT(ClassInfo cls) implements Type {
         @Override

@@ -1,0 +1,11 @@
+package seal.java;
+
+// Java's java.lang.String (docs/JAVA.md §3.1), with its own methods: s.length(), a JavaInt, and
+// JavaString.valueOf(...), JavaString.format(...). JavaString.of(s) passes a Seal string into Java,
+// and a cast, (string)s, takes one out. A Seal string is a java.lang.String on the JVM already, so
+// neither copies it; but a Java String may be null, where a Seal string never is, and (string)s of
+// a null one is "null", as Java's String.valueOf gives.
+class JavaString
+{
+    @jvm("JavaValues.stringOf") public static JavaString of(string s);
+}

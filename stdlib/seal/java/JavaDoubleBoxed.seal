@@ -1,0 +1,9 @@
+package seal.java;
+
+// Java's java.lang.Double (docs/JAVA.md §3.1), with its own methods: an object holding a number,
+// for what Java wants an object for, a List's elements or an Object parameter. JavaDoubleBoxed.of(x) boxes
+// a Seal double, and a cast, (double)b, unboxes one; a null box stops the program there.
+class JavaDoubleBoxed
+{
+    @jvm("JavaValues.doubleBoxed") public static JavaDoubleBoxed of(double x);
+}

@@ -15,6 +15,7 @@ import java.util.stream.Stream;
 
 import io.github.thelinuxseal.seal.check.Checker;
 import io.github.thelinuxseal.seal.check.Diagnostic;
+import io.github.thelinuxseal.seal.check.JavaClasses;
 import io.github.thelinuxseal.seal.check.Warning;
 import io.github.thelinuxseal.seal.codegen.CodeGen;
 import io.github.thelinuxseal.seal.jvm.ClassText;
@@ -36,8 +37,8 @@ import io.github.thelinuxseal.seal.vm.VM;
  *   --vm              run (or dump) on Seal's own VM instead; deprecated, to be removed (docs/JVM.md §13)
  *   -d DIR            where build writes the class files (default: classes)
  *   --main Class      the class whose main() is the entry point (default Main); com.example.Main for one in a package
- *   --classpath PATH  (or -cp) the jars and class folders `run` puts in the program's class loader, for Java's
- *                     classes (docs/JAVA.md, from T1), separated as Java's class path is (: on Linux and macOS)
+ *   --classpath PATH  (or -cp) the jars and class folders of the Java classes the program imports, after the
+ *                     JDK's (docs/JAVA.md), separated as Java's class path is (: on Linux and macOS)
  *   --stdlib DIR      where the standard library is (default: the stdlib directory
  *                     next to the compiler's class files, or the seal.stdlib property)
  *   --no-stdlib       do not load the standard library
@@ -121,18 +122,18 @@ public final class Main {
             readSources(stdlib, library);
         }
 
-        Checker checker = Checker.analyze(sources, library, warn);
-        checker.warnings().forEach(err::println);
-        List<Diagnostic> errors = checker.diagnostics();
-        if (!errors.isEmpty() || command.equals("check")) {
-            errors.forEach(err::println);
-            return errors.isEmpty() ? 0 : 1;
-        }
         for (Path entry : classPath) {
             if (!Files.exists(entry)) {
                 err.println("class path entry not found: " + entry);
                 return 2;
             }
+        }
+        Checker checker = Checker.analyze(sources, library, warn, new JavaClasses(classPath));
+        checker.warnings().forEach(err::println);
+        List<Diagnostic> errors = checker.diagnostics();
+        if (!errors.isEmpty() || command.equals("check")) {
+            errors.forEach(err::println);
+            return errors.isEmpty() ? 0 : 1;
         }
         if (!vm) {
             return runOnJvm(command, checker, mainClass, classDir, classPath, in, out, err);

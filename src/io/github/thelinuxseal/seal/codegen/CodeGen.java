@@ -1778,6 +1778,16 @@ public final class CodeGen {
             if (!t.errors.isEmpty()) {
                 throw new Unsupported(pos, null); // already reported above
             }
+            List<Expr> java = new ArrayList<>(t.javaCalls.keySet());
+            t.types.forEach((e, type) -> {
+                if (Checker.isJavaValue(type)) {
+                    java.add(e);
+                }
+            });
+            if (!java.isEmpty()) {
+                throw new Unsupported(java.get(0).pos(), "code using Java's classes runs only on the JVM: the VM is"
+                        + " deprecated, and gets no new features; run without --vm");
+            }
         }
 
         // ------------------------------------------------------------ statements

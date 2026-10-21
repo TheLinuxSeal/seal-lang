@@ -107,6 +107,21 @@ public final class Checker {
     /** The standard library's package that every file sees without an import, as Java's java.lang. */
     public static final String LANG = "seal.lang";
 
+    /** seal.java's names for the Java classes Seal has its own of, or names its own way (docs/JAVA.md §3.1). */
+    private static final Map<String, String> JAVA_NAMES = Map.ofEntries(
+            Map.entry("JavaObject", "java.lang.Object"), Map.entry("JavaString", "java.lang.String"),
+            Map.entry("JavaIntBoxed", "java.lang.Integer"), Map.entry("JavaLongBoxed", "java.lang.Long"),
+            Map.entry("JavaShortBoxed", "java.lang.Short"), Map.entry("JavaByteBoxed", "java.lang.Byte"),
+            Map.entry("JavaFloatBoxed", "java.lang.Float"), Map.entry("JavaDoubleBoxed", "java.lang.Double"),
+            Map.entry("JavaCharBoxed", "java.lang.Character"), Map.entry("JavaBooleanBoxed", "java.lang.Boolean"));
+
+    /** seal.java's names for Java's primitive types, and their descriptors. */
+    private static final Map<String, Character> JAVA_PRIMITIVES = Map.of("JavaInt", 'I', "JavaLong", 'J', "JavaShort", 'S',
+            "JavaByte", 'B', "JavaFloat", 'F', "JavaDouble", 'D', "JavaChar", 'C', "JavaBoolean", 'Z');
+
+    /** The file Java's classes say they are in, in a message. */
+    private static final String JAVA_FILE = "<java>";
+
     /** Library types whose elements are copied in and out, so can't be uniques. */
     private static final Set<String> COPYING_COLLECTIONS = Set.of("array", "List", "Queue", "HashMap", "IntMap", "HashMap.Entry");
 
@@ -131,10 +146,22 @@ public final class Checker {
 
     /** As above, also reporting the warnings asked for (§56.1), in the program's own files. */
     public static Checker analyze(Map<String, String> sources, Map<String, String> library, Set<Warning> warn) {
+        return analyze(sources, library, warn, JavaClasses.jdk());
+    }
+
+    /** As above, with the Java classes the program may import: the JDK's and the class path's (docs/JAVA.md §6). */
+    public static Checker analyze(Map<String, String> sources, Map<String, String> library, Set<Warning> warn,
+                                  JavaClasses java) {
         Checker c = new Checker();
         c.warn.addAll(warn);
+        c.javaClasses = java;
         c.run(sources, library);
         return c;
+    }
+
+    /** The Java classes the program sees (docs/JAVA.md §6). */
+    public JavaClasses javaClasses() {
+        return javaClasses;
     }
 
     /** The errors. */
@@ -173,6 +200,14 @@ public final class Checker {
      */
     public record CallInfo(CallKind kind, MemberInfo member, ClassT owner, Map<String, CVal> binders,
                            boolean swap, boolean negate) {
+    }
+
+    /**
+     * A call of a Java method or constructor (docs/JAVA.md §4): the class the JVM's call names (the
+     * object's type, or the class written before a static method's name), and, for a call through
+     * varargs, how many arguments come before those put in the array (-1 for none).
+     */
+    public record JavaCall(ClassInfo qualifier, int varargsFrom) {
     }
 
     /**
@@ -227,6 +262,8 @@ public final class Checker {
         public final Map<Expr, Expr> rewritten;
         /** xs[i]++ on an object with a []= operator: the xs[i] = xs[i] + 1 it runs, reading xs[i] once (§41.5). */
         public final Map<IncDec, Assign> elementSteps;
+        /** Calls of Java's methods and constructors, with what the JVM's call needs (docs/JAVA.md §4). */
+        public final Map<Expr, JavaCall> javaCalls;
         /** i += 2.5: the type the operator computes in, narrowed back to i's as a cast does (§41.6). */
         public final Map<Assign, Type> narrowed;
         /** int<<8>> b = i: values converted to a narrower number type where stored or passed, as a cast would (§41.6). */
@@ -256,6 +293,7 @@ public final class Checker {
             this.catchTypes = b.catchTypes;
             this.rewritten = b.rewritten;
             this.elementSteps = b.elementSteps;
+            this.javaCalls = b.javaCalls;
             this.narrowed = b.narrowed;
             this.implicitCasts = b.implicitCasts;
             this.params = params;
@@ -288,8 +326,9 @@ public final class Checker {
         return classes.values().stream().filter(c -> !c.builtin && c.outer == null && c.simpleName.equals(name)).toList();
     }
 
+    /** Every class, Java's read so far among them (a copy: using one may read more). */
     public java.util.Collection<ClassInfo> allClasses() {
-        return classes.values();
+        return new ArrayList<>(classes.values());
     }
 
     /**
@@ -598,6 +637,16 @@ public final class Checker {
     }
 
     private final Map<String, ClassInfo> classes = new LinkedHashMap<>();
+    /** Java's classes (docs/JAVA.md §6): the JDK's, and the class path's. */
+    private JavaClasses javaClasses = JavaClasses.jdk();
+    /** The Java classes read so far, by binary name (java.util.Map$Entry); java.lang.String's is seal.java's JavaString. */
+    private final Map<String, ClassInfo> javaByBinary = new HashMap<>();
+    /** Binary names that name no Java class. */
+    private final Set<String> notJava = new HashSet<>();
+    /** The class-file member each of a Java class's members was made from. */
+    private final Map<Member, JavaClasses.JMember> javaMembers = new IdentityHashMap<>();
+    /** The class each member is declared in, as found. */
+    private final Map<MemberInfo, ClassInfo> declaringCache = new IdentityHashMap<>();
     private final Set<Diagnostic> diagnostics = new LinkedHashSet<>();
     private final Set<Diagnostic> warnings = new LinkedHashSet<>();
     /** The standard library's files, which give no warnings. */
@@ -721,6 +770,9 @@ public final class Checker {
         libraryFiles.addAll(library.keySet());
         for (Map.Entry<String, String> e : library.entrySet()) {
             ClassInfo info = load(e.getKey(), e.getValue(), true);
+            if (info != null && info.pkg.equals("seal.java") && JAVA_NAMES.containsKey(info.name)) {
+                info = javaBacked(info);
+            }
             if (info != null) {
                 addClass(e.getKey(), info, true, order);
             }
@@ -745,22 +797,30 @@ public final class Checker {
             }
         }
 
-        for (ClassInfo c : classes.values()) {
+        // Java's classes come in as they are named, while these run: each loop goes over the classes there were.
+        order.removeIf(Checker::isJavaType); // Java's own are checked by javac (docs/JAVA.md §6)
+        for (ClassInfo c : allClasses()) {
             file = c.file;
-            declareHeaders(c);
+            if (c.java != null) {
+                declareJava(c);
+            } else {
+                declareHeaders(c);
+            }
         }
         synthesizeVirtualFields();
-        for (ClassInfo c : classes.values()) {
-            file = c.file;
-            declareMembers(c);
+        for (ClassInfo c : allClasses()) {
+            if (c.java == null) {
+                file = c.file;
+                declareMembers(c);
+            }
         }
-        for (ClassInfo c : classes.values()) {
+        for (ClassInfo c : allClasses()) {
             if (!c.builtin && c.outer == null) {
                 file = c.file;
                 checkImports(c); // after the members, which static imports name
             }
         }
-        for (ClassInfo c : classes.values()) {
+        for (ClassInfo c : allClasses()) {
             if (c.outer != null && c.outer.members.containsKey(c.simpleName)) {
                 file = c.file;
                 report(c.decl.pos(), c.outer.name + " already has a member named " + c.simpleName
@@ -858,9 +918,16 @@ public final class Checker {
         if (dot > 0) {
             ClassInfo head = lookupClass(name.substring(0, dot), from);
             if (head != null) {
-                return classes.get(head.qualifiedName() + name.substring(dot));
+                ClassInfo inner = classes.get(head.qualifiedName() + name.substring(dot));
+                if (inner == null && head.java != null) {
+                    inner = javaClass(head.java.name() + name.substring(dot).replace('.', '$')); // Map.Entry, Java's nested class
+                }
+                return inner;
             }
             ClassInfo full = classes.get(name); // com.example.Vec2, com.example.Outer.Inner
+            if (full == null) {
+                full = javaNamed(name); // java.util.ArrayList (docs/JAVA.md §3.2)
+            }
             return full != null && !full.pkg.isEmpty() ? full : null;
         }
         for (ClassInfo c = from; c != null; c = c.outer) {
@@ -888,9 +955,198 @@ public final class Checker {
         }
         List<ClassInfo> brought = imported(name, imports);
         if (!brought.isEmpty()) {
+            if (brought.size() == 1 && brought.get(0).java != null && classNamed(name) != null) {
+                return null; // import java.lang.*; and Math: Seal's or Java's? (docs/JAVA.md §3.2)
+            }
             return brought.size() == 1 ? brought.get(0) : null;
         }
         return classNamed(name);
+    }
+
+    // ================================================================ Java's classes (docs/JAVA.md)
+
+    /**
+     * Whether a type is one of Java's (docs/JAVA.md §3): a class read from its class file (seal.java's
+     * JavaString and the others among them), or seal.java's JavaArray, Java's arrays.
+     */
+    public static boolean isJavaType(ClassInfo c) {
+        return c.java != null || isJavaArray(c);
+    }
+
+    /** seal.java's JavaArray<T>: Java's T[]. */
+    public static boolean isJavaArray(ClassInfo c) {
+        return c.builtin && c.java == null && c.pkg.equals("seal.java") && c.name.equals("JavaArray");
+    }
+
+    /** seal.java's JavaObject: java.lang.Object, which every Java type extends. */
+    public static boolean isJavaObject(ClassInfo c) {
+        return c.java != null && c.java.name().equals("java.lang.Object");
+    }
+
+    /** The class-file member a Java class's member was made from; null for Seal's (JavaString's `of`). */
+    public JavaClasses.JMember javaMember(Member m) {
+        return javaMembers.get(m);
+    }
+
+    /** One of Java's values: of one of Java's primitive types, or a reference to a Java object. */
+    public static boolean isJavaValue(Type t) {
+        return t instanceof JavaPrimT || (t instanceof HandleT h && h.target() instanceof ClassT ct && isJavaType(ct.cls()));
+    }
+
+    /**
+     * A library class of seal.java that names a Java class (JavaString is java.lang.String): the
+     * Java class's members, with the library's added (its `of`), and the Java class's parents.
+     */
+    private ClassInfo javaBacked(ClassInfo lib) {
+        JavaClasses.JClass jc = javaClasses.find(JAVA_NAMES.get(lib.name));
+        if (jc == null) {
+            return lib;
+        }
+        ClassDecl java = javaDecl(jc, lib.name);
+        List<Member> members = new ArrayList<>(lib.decl.members());
+        members.addAll(java.members());
+        ClassInfo c = new ClassInfo(lib.file, new ClassDecl(lib.decl.pos(), java.headers(), members), true);
+        c.pkg = lib.pkg;
+        c.pkgPos = lib.pkgPos;
+        c.imports = lib.imports;
+        c.java = jc;
+        javaByBinary.put(jc.name(), c);
+        return c;
+    }
+
+    /** seal.java's name for a Java class Seal names its own way (JavaString for java.lang.String), or null. */
+    private static String javaSealName(String binary) {
+        for (Map.Entry<String, String> e : JAVA_NAMES.entrySet()) {
+            if (e.getValue().equals(binary)) {
+                return e.getKey();
+            }
+        }
+        return null;
+    }
+
+    /** The Java class of this binary name (java.util.Map$Entry), read when first asked for; null if there is none. */
+    private ClassInfo javaClass(String binary) {
+        ClassInfo known = javaByBinary.get(binary);
+        if (known != null || notJava.contains(binary)) {
+            return known;
+        }
+        JavaClasses.JClass jc = javaClasses.find(binary);
+        if (jc == null) {
+            notJava.add(binary);
+            return null;
+        }
+        ClassInfo outer = jc.outerName() == null ? null : javaClass(jc.outerName());
+        ClassInfo c = new ClassInfo(JAVA_FILE, javaDecl(jc, jc.simpleName()), true, outer, jc.visible());
+        if (outer == null) {
+            c.pkg = jc.pkg();
+        }
+        c.java = jc;
+        javaByBinary.put(binary, c);
+        classes.putIfAbsent(c.qualifiedName(), c);
+        declareJava(c);
+        return c;
+    }
+
+    /**
+     * A Java class by the name Seal writes it with (java.util.Map.Entry, a nested class after its
+     * class) or its binary name (java.util.Map$Entry); null if there is none. Without the standard
+     * library, which names Java's types, there are none; and none are in Seal's own packages.
+     */
+    private ClassInfo javaNamed(String name) {
+        if (name.equals("seal") || name.startsWith("seal.") || !classes.containsKey("seal.java.JavaObject")) {
+            return null;
+        }
+        String binary = name;
+        while (true) {
+            ClassInfo c = javaClass(binary);
+            if (c != null) {
+                return c;
+            }
+            int dot = binary.lastIndexOf('.');
+            if (dot < 0) {
+                return null;
+            }
+            binary = binary.substring(0, dot) + "$" + binary.substring(dot + 1);
+        }
+    }
+
+    /** A Java class's members, as declarations made from its class file: its public ones, of their erased types. */
+    private ClassDecl javaDecl(JavaClasses.JClass jc, String name) {
+        Pos p = new Pos(0, 0);
+        boolean itf = jc.isInterface();
+        List<ExtendsClause> ext = jc.superName() == null ? List.of()
+                : List.of(new ExtendsClause(p, null, javaRef(jc.superName())));
+        List<TypeRef> itfs = jc.interfaces().stream().map(this::javaRef).toList();
+        ClassHeader h = new ClassHeader(p, itf ? Kind.INTERFACE : Kind.CLASS,
+                !itf && (jc.flags() & JavaClasses.ABSTRACT) != 0, name, List.of(), null, ext, itfs);
+        List<Member> members = new ArrayList<>();
+        for (JavaClasses.JMember m : jc.members()) {
+            if ((m.flags() & JavaClasses.PUBLIC) == 0 || (m.flags() & (JavaClasses.SYNTHETIC | JavaClasses.BRIDGE)) != 0
+                    || m.name().equals("<clinit>")) {
+                continue;
+            }
+            Modifiers mods = new Modifiers(List.of(), Access.PUBLIC, List.of(), m.isStatic(), false,
+                    (m.flags() & JavaClasses.ABSTRACT) != 0);
+            int[] at = {0};
+            Member made;
+            if (m.isField()) {
+                made = new Field(p, mods, javaRef(m.descriptor(), at), m.name(), null, null);
+            } else {
+                at[0] = 1;
+                List<Param> params = new ArrayList<>();
+                while (m.descriptor().charAt(at[0]) != ')') {
+                    params.add(new Param(p, javaRef(m.descriptor(), at), "p" + params.size()));
+                }
+                at[0]++;
+                TypeRef ret = javaRef(m.descriptor(), at);
+                made = m.isConstructor() ? new Constructor(p, mods, null, params, null)
+                        : new Method(p, mods, List.of(), ret, m.name(), null, params, null);
+            }
+            javaMembers.put(made, m);
+            members.add(made);
+        }
+        return new ClassDecl(p, List.of(h), members);
+    }
+
+    /** The Seal type of the Java type a descriptor names from {@code at[0]}, which moves past it. */
+    private TypeRef javaRef(String desc, int[] at) {
+        Pos p = new Pos(0, 0);
+        char ch = desc.charAt(at[0]++);
+        return switch (ch) {
+            case 'V' -> new TypeRef(p, "void", List.of(), null, List.of());
+            case '[' -> new TypeRef(p, "seal.java.JavaArray", List.of(javaRef(desc, at)), null, List.of());
+            case 'L' -> {
+                int end = desc.indexOf(';', at[0]);
+                String binary = desc.substring(at[0], end).replace('/', '.');
+                at[0] = end + 1;
+                yield javaRef(binary);
+            }
+            default -> new TypeRef(p, "seal.java." + new JavaPrimT(ch), List.of(), null, List.of());
+        };
+    }
+
+    /** A Java class as a type, by its binary name; seal.java's name for one Seal names its own way. */
+    private TypeRef javaRef(String binary) {
+        String seal = javaSealName(binary);
+        return new TypeRef(new Pos(0, 0), seal != null ? "seal.java." + seal : binary, List.of(), null, List.of());
+    }
+
+    /** A Java class's one shape and its members, as declareHeaders and declareMembers give a Seal class's. */
+    private void declareJava(ClassInfo c) {
+        if (!c.shapes.isEmpty()) {
+            return;
+        }
+        c.shapes.add(new Shape(0, c.decl.headers().get(0), List.of()));
+        for (Member m : c.decl.members()) {
+            MemberInfo info = new MemberInfo(m);
+            c.all.add(info);
+            declaringCache.put(info, c);
+            if (m instanceof Constructor) {
+                c.constructors.add(info);
+            } else {
+                c.members.computeIfAbsent(info.name(), k -> new ArrayList<>()).add(info);
+            }
+        }
     }
 
     /**
@@ -898,7 +1154,7 @@ public final class Checker {
      * library type renamed, `import HashMap as SealHashMap;`); null if none.
      */
     private ClassInfo importedType(Import i, ClassInfo from) {
-        ClassInfo t = classes.get(i.name());
+        ClassInfo t = classes.containsKey(i.name()) || i.isStatic() ? classes.get(i.name()) : javaNamed(i.name());
         if (t == null || (t.pkg.isEmpty() && (i.alias() == null || i.isStatic() || (!t.builtin && from != null && !from.pkg.isEmpty())))) {
             return null;
         }
@@ -928,7 +1184,7 @@ public final class Checker {
             if (!i.all() && !i.bound().equals(name)) {
                 continue;
             }
-            ClassInfo c = classes.get(type);
+            ClassInfo c = classes.containsKey(type) ? classes.get(type) : javaNamed(type);
             if (c == null || (c.pkg.isEmpty() && !c.builtin && !from.pkg.isEmpty())) {
                 continue; // reported by checkImports
             }
@@ -945,7 +1201,7 @@ public final class Checker {
 
     /** For an unknown method: the library types with a static method of that name, to call or import. */
     private String staticMethodHint(String name) {
-        List<String> owners = classes.values().stream().filter(c -> c.builtin && c.outer == null
+        List<String> owners = classes.values().stream().filter(c -> c.builtin && c.outer == null && c.java == null
                 && c.members.getOrDefault(name, List.of()).stream().anyMatch(m -> m.member instanceof Method md
                         && md.modifiers().isStatic() && md.modifiers().access() == Access.PUBLIC))
                 .map(c -> c.name).sorted(java.util.Comparator.comparing((String n) -> !n.equals("Math")) // the general one first
@@ -955,7 +1211,8 @@ public final class Checker {
         }
         String list = owners.size() == 1 ? owners.get(0)
                 : String.join(", ", owners.subList(0, owners.size() - 1)) + " and " + owners.get(owners.size() - 1);
-        ClassInfo first = classes.values().stream().filter(c -> c.builtin && c.outer == null && c.name.equals(owners.get(0)))
+        ClassInfo first = classes.values().stream().filter(c -> c.builtin && c.outer == null && c.java == null
+                        && c.name.equals(owners.get(0)))
                 .findFirst().orElseThrow();
         String imported = first.pkg.isEmpty() || first.pkg.equals(LANG) ? "" : " (with import " + first.qualifiedName() + ";)";
         return "; it is a static method of " + list + ": call " + owners.get(0) + "." + name + "(...)" + imported
@@ -966,7 +1223,15 @@ public final class Checker {
     private List<ClassInfo> imported(String name, List<Import> imports) {
         List<ClassInfo> found = new ArrayList<>();
         for (Import i : imports) {
-            if (i.all() && classes.get(i.name() + "." + name) instanceof ClassInfo c && !found.contains(c)) {
+            if (!i.all()) {
+                continue;
+            }
+            ClassInfo c = classes.get(i.name() + "." + name);
+            if (c == null && javaNamed(i.name() + "." + name) instanceof ClassInfo j && j.java.visible()
+                    && !j.pkg.equals("seal.java")) {
+                c = j; // a Java class, but not java.lang.String, which is JavaString (docs/JAVA.md §3.2)
+            }
+            if (c != null && !found.contains(c)) {
                 found.add(c);
             }
         }
@@ -1000,6 +1265,17 @@ public final class Checker {
             return renamed;
         }
         List<ClassInfo> brought = imported(name, from == null ? List.of() : from.imports);
+        if (brought.size() == 1 && brought.get(0).java != null && classNamed(name) != null) {
+            return ": it could be " + brought.get(0).qualifiedName() + ", which a * import brings, or "
+                    + classNamed(name).qualifiedName() + "; import the one you mean by name, as in import "
+                    + brought.get(0).qualifiedName() + ";";
+        }
+        for (String javaName : List.of("Object", "String", "Integer", "Long", "Short", "Byte", "Float", "Double",
+                "Character", "Boolean")) {
+            if (name.equals(javaName) && classNamed(name) == null) {
+                return "; Java's java.lang." + name + " is " + javaSealName("java.lang." + name) + " (import seal.java.*;)";
+            }
+        }
         if (brought.size() > 1) {
             return ": it could be " + brought.stream().map(ClassInfo::qualifiedName).collect(Collectors.joining(" or "))
                     + ", which * imports bring; import the one you mean by name, as in import "
@@ -1027,7 +1303,7 @@ public final class Checker {
     /** `import static T.member;` needs a static member (or nested type) of T so named; `import static T.*;` a type T. */
     private void checkStaticImport(ClassInfo c, Import i) {
         String type = i.all() ? i.name() : i.name().substring(0, i.name().lastIndexOf('.'));
-        ClassInfo t = classes.get(type);
+        ClassInfo t = classes.containsKey(type) ? classes.get(type) : javaNamed(type);
         if (t == null || (t.pkg.isEmpty() && !t.builtin && !c.pkg.isEmpty())) {
             List<String> full = type.indexOf('.') < 0 ? inPackages(type) : List.of();
             report(i.pos(), "no type " + type + " to import from" + (t != null ? "; " + type
@@ -1038,6 +1314,10 @@ public final class Checker {
         }
         if (!canSeeType(c, t)) {
             report(i.pos(), t.name + " is private to " + t.outer.name);
+            return;
+        }
+        if (t.java != null && !t.java.visible()) {
+            report(i.pos(), "Java's " + t.java.name() + " isn't public, so a program can't use it");
             return;
         }
         if (i.all()) {
@@ -1067,7 +1347,8 @@ public final class Checker {
                 continue;
             }
             if (i.all()) {
-                boolean exists = classes.values().stream().anyMatch(k -> k.pkg.equals(i.name()) || k.qualifiedName().equals(i.name()));
+                boolean exists = classes.values().stream().anyMatch(k -> k.pkg.equals(i.name()) || k.qualifiedName().equals(i.name()))
+                        || (!i.name().startsWith("seal.") && javaClasses.hasPackage(i.name()));
                 if (!exists) {
                     report(i.pos(), "no package " + i.name() + " to import from");
                 }
@@ -1085,6 +1366,11 @@ public final class Checker {
                                 : unknownTypeHint(simple, c)));
             } else if (!canSeeType(c, t)) {
                 report(i.pos(), t.name + " is private to " + t.outer.name);
+            } else if (t.java != null && !t.java.visible()) {
+                report(i.pos(), "Java's " + t.java.name() + " isn't public, so a program can't use it");
+            } else if (t.java != null && t.pkg.equals("seal.java") && !i.name().startsWith("seal.")) {
+                report(i.pos(), "Java's " + t.java.name() + " is " + t.name + " in Seal (docs/JAVA.md §3.1): import seal.java."
+                        + t.name + ";");
             } else if (bound.equals(c.simpleName) && t != c) {
                 report(i.pos(), what + " clashes with " + c.qualifiedName() + ", declared in this file");
             } else if (named.containsKey(bound) && named.get(bound) != t) {
@@ -1452,7 +1738,10 @@ public final class Checker {
                     }
                 }
                 Type parent = resolveType(e.parent(), env, new Opts(false, true, false, null));
-                if (parent instanceof ClassT pc && pc.cls().isInterface) {
+                if (parent instanceof ClassT pc && isJavaType(pc.cls())) {
+                    report(e.parent().pos(), "a Seal class extending " + javaName(pc.cls()) + " comes in a later step"
+                            + " (docs/JAVA.md §5)");
+                } else if (parent instanceof ClassT pc && pc.cls().isInterface) {
                     report(e.parent().pos(), pc.cls().name + " is an interface; use implements(" + pc.cls().name
                             + ") instead of extends");
                 } else if (parent instanceof ClassT pc && !pc.cls().dynamic) {
@@ -2168,6 +2457,15 @@ public final class Checker {
         if (c != null && visibleClass(c, env.cls, ref.pos()) == null) {
             return Type.ERROR;
         }
+        if (c != null && c.builtin && c.pkg.equals("seal.java") && JAVA_PRIMITIVES.containsKey(c.name)) {
+            noTypeArgs(ref);
+            noValueArgs(ref);
+            return new JavaPrimT(JAVA_PRIMITIVES.get(c.name)); // JavaInt: Java's int (docs/JAVA.md §3.1)
+        }
+        if (c != null && c.java != null && !c.java.visible() && (env.cls == null || env.cls.java == null)) {
+            report(ref.pos(), "Java's " + c.java.name() + " isn't public, so a program can't use it");
+            return Type.ERROR;
+        }
         if (c == null) {
             ClassInfo owner = env.cls == null ? null : env.cls.outer;
             while (owner != null && !owner.typeParams.contains(n)) {
@@ -2201,6 +2499,11 @@ public final class Checker {
             targs.add(t);
         }
         if (targs.stream().anyMatch(Type::isError)) {
+            return Type.ERROR;
+        }
+        if (isJavaArray(c) && !isJavaValue(targs.get(0)) && !(targs.get(0) instanceof ParamT)) {
+            report(ref.pos(), "JavaArray<T> is Java's T[], so T is one of Java's types (JavaByte, JavaString, java.time.LocalDate),"
+                    + " not " + targs.get(0));
             return Type.ERROR;
         }
 
@@ -2889,6 +3192,7 @@ public final class Checker {
                 yield new Lay(orErr(CVal.binary("*", a.size(), stride)), e.align());
             }
             case ClassT c -> classLayout(c, pos);
+            case JavaPrimT j -> layout(j.sealType(), pos); // held as the Seal number with its values
             case ParamT p -> new Lay(new LayoutOf("sizeof", p), new LayoutOf("alignof", p));
             case ErrorT e -> new Lay(new ErrV(), new ErrV());
             default -> {
@@ -3044,7 +3348,7 @@ public final class Checker {
         }
         ExtendsClause chosen = literal != null ? literal : undetermined ? null : binding != null ? binding : unguarded;
         if (chosen == null) {
-            return undetermined ? null : objectType();
+            return undetermined || c.java != null ? null : objectType(); // java.lang.Object has no parent
         }
         Env env = instanceEnv(t, null);
         if (chosen.guard() != null && chosen == binding) {
@@ -3057,6 +3361,9 @@ public final class Checker {
         file = c.file;
         try {
             Type p = quietly(() -> resolveType(chosen.parent(), env, new Opts(false, true, false, null)));
+            if (p instanceof ClassT pc && isJavaType(pc.cls()) && !isJavaType(c)) {
+                return objectType(); // a Seal class can't extend a Java one yet (reported, docs/JAVA.md §5)
+            }
             return p instanceof ClassT pc && pc.cls().dynamic && !pc.cls().isInterface ? pc : null;
         } finally {
             file = saved;
@@ -3086,7 +3393,10 @@ public final class Checker {
     /** Whether {@code sub} is {@code sup}, inherits from it, or implements it (an interface). */
     private boolean isSubclass(ClassT sub, ClassT sup) {
         if (sup.cls().isRoot() && sub.cls().dynamic) {
-            return true; // every class and interface handle is an Object
+            return !isJavaType(sub.cls()); // every class and interface handle is an Object, but a Java object isn't Seal's
+        }
+        if (isJavaObject(sup.cls()) && isJavaType(sub.cls())) {
+            return true; // every Java class, interface and array is a java.lang.Object
         }
         ClassT t = sub;
         for (int i = 0; t != null && i < MAX_INSTANTIATION_DEPTH; i++) {
@@ -3130,8 +3440,8 @@ public final class Checker {
             List<ClassT> out = new ArrayList<>();
             for (TypeRef r : refs) {
                 Type it = quietly(() -> resolveType(r, env, new Opts(false, true, false, null)));
-                if (it instanceof ClassT ic && ic.cls().isInterface) {
-                    out.add(ic);
+                if (it instanceof ClassT ic && ic.cls().isInterface && (isJavaType(c) || !isJavaType(ic.cls()))) {
+                    out.add(ic); // a Seal class can't implement a Java interface yet (reported, docs/JAVA.md §5)
                 }
             }
             return out;
@@ -3286,8 +3596,8 @@ public final class Checker {
      * the accessors; code reaching it through the class reads the field itself.
      */
     private void synthesizeVirtualFields() {
-        for (ClassInfo x : classes.values()) {
-            if (!x.dynamic) {
+        for (ClassInfo x : allClasses()) {
+            if (!x.dynamic || isJavaType(x)) {
                 continue;
             }
             for (Member m : x.decl.members()) {
@@ -3299,8 +3609,8 @@ public final class Checker {
             }
         }
         Set<ClassInfo> done = new HashSet<>();
-        for (ClassInfo c : new ArrayList<>(classes.values())) {
-            if (c.dynamic && !c.isInterface) {
+        for (ClassInfo c : allClasses()) {
+            if (c.dynamic && !c.isInterface && !isJavaType(c)) {
                 fillVirtualFields(c, done);
             }
         }
@@ -3483,7 +3793,10 @@ public final class Checker {
             Env env = shapeEnv(c, s.index, null);
             for (TypeRef r : s.header.interfaces()) {
                 Type t = resolveType(r, env, new Opts(false, true, false, null));
-                if (t instanceof ClassT ic && !ic.cls().isInterface) {
+                if (t instanceof ClassT ic && isJavaType(ic.cls())) {
+                    report(r.pos(), "a Seal class implementing " + javaName(ic.cls()) + " comes in a later step,"
+                            + " with lambdas for Java's interfaces (docs/JAVA.md §5)");
+                } else if (t instanceof ClassT ic && !ic.cls().isInterface) {
                     report(r.pos(), ic.cls().name + " is a " + ic.cls().kind.keyword + ", not an interface"
                             + (ic.cls().dynamic ? "; use extends(" + ic.cls().name + ") for a parent class" : ""));
                 } else if (!(t instanceof ClassT) && !t.isError()) {
@@ -3608,6 +3921,7 @@ public final class Checker {
         /** Expressions that stand for others the checker wrote, e.g. 5 + "x" for "" + 5 + "x". */
         final Map<Expr, Expr> rewritten = new IdentityHashMap<>();
         final Map<IncDec, Assign> elementSteps = new IdentityHashMap<>();
+        final Map<Expr, JavaCall> javaCalls = new IdentityHashMap<>();
         /** Compound assignments computed in a wider type and narrowed back: i += 2.5 (§41.6). */
         final Map<Assign, Type> narrowed = new IdentityHashMap<>();
         /**
@@ -3741,7 +4055,11 @@ public final class Checker {
         checkStmt(b, subject);
         Type t = b.locals.get(subject);
         ClassInfo enumClass = t instanceof ClassT ct && ct.cls().kind == Kind.ENUM ? ct.cls() : null;
-        if (!t.isError() && !t.isInteger() && !(t instanceof ClassT ct && (ct.cls().name.equals("string") || enumClass != null))) {
+        if (t instanceof JavaPrimT j) {
+            report(subjectExpr.pos(), "switch works on integers, characters, strings and enums, not " + t + "; " + t
+                    + " is Java's " + j.javaName() + ", which a cast makes Seal's: switch ((" + j.sealType() + ")x)");
+            b.scopes.peek().put(hidden, Type.ERROR); // its cases aren't checked against it
+        } else if (!t.isError() && !t.isInteger() && !(t instanceof ClassT ct && (ct.cls().name.equals("string") || enumClass != null))) {
             report(subjectExpr.pos(), "switch works on integers, characters, strings and enums, not " + t);
         }
         boolean arrows = !cases.isEmpty() && cases.get(0).arrow();
@@ -3956,9 +4274,13 @@ public final class Checker {
                         ? " (it doesn't come from " + op.symbol + ", §46)" : "");
     }
 
-    /** Whether a type is a handle to an Exception (or a subclass). */
+    /** Whether a type is a handle to an Exception (or a subclass), or to one of Java's Throwables (docs/JAVA.md §4). */
     private boolean isException(Type t) {
         ClassInfo e = classNamed("Exception");
+        if (t instanceof HandleT h && h.target() instanceof ClassT ct && ct.cls().java != null) {
+            ClassInfo throwable = javaClass("java.lang.Throwable");
+            return throwable != null && isSubclass(ct, new ClassT(throwable, List.of(), List.of(), 0));
+        }
         return e != null && t instanceof HandleT h && h.target() instanceof ClassT ct
                 && isSubclass(ct, new ClassT(e, List.of(), List.of(), 0));
     }
@@ -3998,6 +4320,12 @@ public final class Checker {
         }
         t = defaultLiteral(b, items, checkExpr(b, items, null));
         if (t.isError()) {
+            return null;
+        }
+        if (isJavaValue(t)) {
+            report(items.pos(), "for-each over Java's " + (t instanceof HandleT h && h.target() instanceof ClassT ct ? ct.cls().name : t)
+                    + " comes with Java's generics, a later step (docs/JAVA.md §4.1);"
+                    + " until then, go through its iterator: while ((bit)it.hasNext()) { ... it.next() ... }");
             return null;
         }
         boolean simple = isSimplePath(items);
@@ -4378,7 +4706,8 @@ public final class Checker {
                 for (Catch c : tr.catches()) {
                     Type t = resolveType(c.type(), b.env, new Opts(false, true, false, null));
                     if (!t.isError() && !(t instanceof ClassT ct && isException(new HandleT(ct)))) {
-                        report(c.type().pos(), "catch takes a class extending Exception, not " + t);
+                        report(c.type().pos(), "catch takes a class extending Exception, not " + t
+                                + (t instanceof ClassT jt && isJavaType(jt.cls()) ? "; of Java's, one extending java.lang.Throwable" : ""));
                         t = Type.ERROR;
                     }
                     if (t instanceof ClassT ct) {
@@ -4424,7 +4753,8 @@ public final class Checker {
     private void requireCondition(Body b, Expr cond) {
         Type t = checkExpr(b, cond, Type.BIT);
         if (!(t instanceof BitT) && !t.isError()) {
-            report(cond.pos(), "condition must be a bit, not " + t + (t.isInteger() ? "; compare explicitly, e.g. x != 0" : ""));
+            report(cond.pos(), "condition must be a bit, not " + t + (t.isInteger() ? "; compare explicitly, e.g. x != 0"
+                    : t instanceof JavaPrimT j && j.code() == 'Z' ? "; Java's boolean is a bit by a cast: (bit)x" : ""));
         }
     }
 
@@ -4451,6 +4781,7 @@ public final class Checker {
                         && ct.typeArgs().size() == 1 && ct.typeArgs().get(0).equals(fa.element())) // T[N] to array<T>: a copy
                     || implicitConversion(from, ct) != null;
             case ArrayT at -> from instanceof ArrayConstT ac && arrayFits(ac, at);
+            case JavaPrimT jp -> from instanceof JavaPrimT f && javaWidens(f, jp); // as Java widens (docs/JAVA.md §4)
             default -> false;
         };
     }
@@ -4805,7 +5136,13 @@ public final class Checker {
         } else if (from instanceof VoidT) {
             report(pos, what + ": expression has no value");
         } else {
-            String hint = from.isNumeric() && to.isNumeric() ? "; use a cast, e.g. (" + to + ")" : "";
+            String hint = from.isNumeric() && to.isNumeric() ? "; use a cast, e.g. (" + to + ")"
+                    : isJavaValue(to) && !isJavaValue(from) && javaOf(from) != null
+                    ? "; Seal's " + from + " goes into Java by " + javaOf(from) + "(...) (docs/JAVA.md §3.1)"
+                    : isJavaValue(from) && !isJavaValue(to) && !(to instanceof HandleT) ? "; a cast takes a Java value out: (" + to + ")x"
+                    : isJavaValue(from) && to instanceof HandleT th && th.target() instanceof ClassT tc
+                    ? "; Java's objects aren't Seal's; a Seal object that went into Java comes back by a cast from a JavaObject,"
+                    + " as (" + tc.cls().name + ")o (docs/JAVA.md §3.1)" : "";
             report(pos, what + ": expected " + to + ", found " + from + hint);
         }
     }
@@ -5228,8 +5565,13 @@ public final class Checker {
     }
 
     private ClassInfo declaringClass(MemberInfo m) {
+        ClassInfo known = declaringCache.get(m);
+        if (known != null) {
+            return known;
+        }
         for (ClassInfo c : classes.values()) {
             if (c.all.contains(m)) {
+                declaringCache.put(m, c);
                 return c;
             }
         }
@@ -5404,7 +5746,7 @@ public final class Checker {
                 owner = ct;
                 cls = ct.cls();
             }
-            case ClassRefT cr when classes.get(cr.cls().qualifiedName() + "." + s.name()) instanceof ClassInfo inner -> {
+            case ClassRefT cr when nestedIn(cr.cls(), s.name()) instanceof ClassInfo inner -> {
                 // Outer.Inner: a nested type, used for its statics or its constants (§2.3)
                 return visibleClass(inner, b.cls, s.pos()) == null ? Type.ERROR : new ClassRefT(inner);
             }
@@ -5424,6 +5766,19 @@ public final class Checker {
                 report(s.pos(), target + " has no members");
                 return Type.ERROR;
             }
+        }
+        if (isJavaType(cls)) {
+            MemberInfo f = javaField(cls, s.name(), staticAccess);
+            if (f == null) {
+                boolean method = !javaMethods(cls, s.name(), staticAccess).isEmpty();
+                report(s.pos(), method ? "method " + s.name() + " must be called: " + s.name() + "(...)"
+                        : javaName(cls) + " has no " + (staticAccess ? "static " : "") + "field " + s.name()
+                        + (staticAccess && javaField(cls, s.name(), false) != null ? "; it is an instance field, of an object" : ""));
+                return Type.ERROR;
+            }
+            b.selected.put(s, f);
+            b.owners.put(s, f.member.modifiers().isStatic() ? null : owner);
+            return memberFieldType(f.member.modifiers().isStatic() ? null : owner, f, b.cls, (Field) f.member);
         }
         Found found = findMembers(b, owner, cls, s.name(), s.pos(), staticAccess);
         if (found == null) {
@@ -5447,6 +5802,12 @@ public final class Checker {
         b.selected.put(s, m);
         b.owners.put(s, found.owner);
         return memberFieldType(found.owner, m, b.cls, (Field) m.member);
+    }
+
+    /** The type nested in {@code c} with this name, a Java class's among them (Map.Entry); null if none. */
+    private ClassInfo nestedIn(ClassInfo c, String name) {
+        ClassInfo inner = classes.get(c.qualifiedName() + "." + name);
+        return inner == null && c.java != null ? javaClass(c.java.name() + "$" + name) : inner;
     }
 
     /** The parent type for `super`, or null (reported). */
@@ -5522,12 +5883,20 @@ public final class Checker {
     }
 
     private Type resolveCallOverload(Body b, Call c, Candidates cands, List<Type> argTypes) {
-        return resolveOverload(b, cands.name, cands.owner, cands.methods, argTypes, c.pos(), cands.staticAccess,
+        if (cands.methods.stream().allMatch(m -> javaMembers.containsKey(m.member))) {
+            return resolveJava(b, cands.name, cands.owner, cands.qualifier, cands.methods, argTypes, c.pos(), c);
+        }
+        List<MemberInfo> seal = cands.methods.stream().filter(m -> !javaMembers.containsKey(m.member)).toList();
+        return resolveOverload(b, cands.name, cands.owner, seal, argTypes, c.pos(), cands.staticAccess,
                 c, cands.viaSuper ? CallKind.SUPER_METHOD : CallKind.METHOD);
     }
 
+    /** @param qualifier for a method of a Java class, the class the call goes through (docs/JAVA.md §4) */
     private record Candidates(String name, ClassT owner, List<MemberInfo> methods, boolean staticAccess,
-                              boolean viaSuper) {
+                              boolean viaSuper, ClassInfo qualifier) {
+        Candidates(String name, ClassT owner, List<MemberInfo> methods, boolean staticAccess, boolean viaSuper) {
+            this(name, owner, methods, staticAccess, viaSuper, null);
+        }
     }
 
     private Candidates calleeCandidates(Body b, Call c) {
@@ -5609,6 +5978,15 @@ public final class Checker {
                         return null;
                     }
                 }
+                if (isJavaType(cls)) {
+                    List<MemberInfo> methods = javaMethods(cls, s.name(), staticAccess);
+                    if (methods.isEmpty()) {
+                        report(s.pos(), javaName(cls) + " has no " + (staticAccess ? "static " : "") + "method " + s.name()
+                                + javaNoMethod(cls, s.name(), staticAccess));
+                        return null;
+                    }
+                    return new Candidates(s.name(), owner, methods, staticAccess, false, cls);
+                }
                 Found f = findMembers(b, owner, cls, s.name(), s.pos(), staticAccess);
                 if (f == null) {
                     report(s.pos(), cls.name + " has no method " + s.name() + stringMethodHint(cls, s.name()));
@@ -5632,6 +6010,251 @@ public final class Checker {
                 return null;
             }
         }
+    }
+
+    /** How a class is named in a message: Java's own as Java's (Java's java.util.ArrayList), Seal's by their names. */
+    private static String javaName(ClassInfo c) {
+        return c.java != null && !c.pkg.equals("seal.java") ? "Java's " + c.qualifiedName() : c.name;
+    }
+
+    /**
+     * The methods of this name that a Java type has, as Java finds them: its own and those it
+     * inherits from its parent and interfaces, each once (the lowest declaration of a signature);
+     * java.lang.Object's for an interface; and seal.java's own, as JavaString's `of`. An interface's
+     * static methods are called through it alone, as in Java.
+     */
+    private List<MemberInfo> javaMethods(ClassInfo cls, String name, boolean staticOnly) {
+        List<MemberInfo> out = new ArrayList<>();
+        Set<String> signatures = new HashSet<>();
+        Deque<ClassInfo> todo = new ArrayDeque<>(List.of(cls));
+        Set<ClassInfo> seen = new HashSet<>();
+        while (!todo.isEmpty()) {
+            ClassInfo c = todo.poll();
+            if (!seen.add(c)) {
+                continue;
+            }
+            for (MemberInfo m : c.members.getOrDefault(name, List.of())) {
+                if (!(m.member instanceof Method md) || (staticOnly && !md.modifiers().isStatic())
+                        || (c != cls && c.isInterface && md.modifiers().isStatic())) {
+                    continue;
+                }
+                JavaClasses.JMember jm = javaMembers.get(md);
+                if (jm == null && c != cls && md.modifiers().isStatic()) {
+                    continue; // seal.java's own static methods (JavaObject.of) aren't inherited; hash() is
+                }
+                String sig = jm == null ? "seal " + System.identityHashCode(md)
+                        : jm.descriptor().substring(0, jm.descriptor().indexOf(')') + 1);
+                if (signatures.add(sig)) {
+                    out.add(m);
+                }
+            }
+            for (String parent : parentNames(c)) {
+                if (lookupClass(parent, c) instanceof ClassInfo p) {
+                    todo.add(p);
+                }
+            }
+            if (c.isInterface && todo.isEmpty() && classes.get("seal.java.JavaObject") instanceof ClassInfo object) {
+                todo.add(object); // an interface's objects are objects
+            }
+        }
+        return out;
+    }
+
+    /** The field of this name a Java type has or inherits, the lowest one; null if none. */
+    private MemberInfo javaField(ClassInfo cls, String name, boolean staticOnly) {
+        Deque<ClassInfo> todo = new ArrayDeque<>(List.of(cls));
+        Set<ClassInfo> seen = new HashSet<>();
+        while (!todo.isEmpty()) {
+            ClassInfo c = todo.poll();
+            if (!seen.add(c)) {
+                continue;
+            }
+            for (MemberInfo m : c.members.getOrDefault(name, List.of())) {
+                if (m.member instanceof Field f && (!staticOnly || f.modifiers().isStatic())) {
+                    return m;
+                }
+            }
+            for (String parent : parentNames(c)) {
+                if (lookupClass(parent, c) instanceof ClassInfo p) {
+                    todo.add(p);
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Why a Java type has no method so named, when there is more to say. */
+    private String javaNoMethod(ClassInfo cls, String name, boolean staticOnly) {
+        if (staticOnly && !javaMethods(cls, name, false).isEmpty()) {
+            return "; it is an instance method, called on an object";
+        }
+        if (javaField(cls, name, false) != null) {
+            return "; " + name + " is a field, read without (...)";
+        }
+        return "";
+    }
+
+    /**
+     * A call of a Java method or constructor, chosen as Java chooses (docs/JAVA.md §4): of those the
+     * arguments fit by Java's rules (an object of a subclass where its class is wanted, a primitive
+     * widened), the most specific; if none fits, those taking varargs. Java's middle step, boxing,
+     * never happens, as nothing crosses between Seal and Java by itself: a JavaInt doesn't go where
+     * an Integer is wanted, and a Seal int doesn't go where Java's int is.
+     */
+    private Type resolveJava(Body b, String name, ClassT owner, ClassInfo qualifier, List<MemberInfo> methods,
+                             List<Type> args, Pos pos, Expr site) {
+        boolean ctor = methods.get(0).member instanceof Constructor;
+        record Fit(MemberInfo m, List<Type> params, boolean varargs) {
+        }
+        List<Fit> fits = new ArrayList<>();
+        for (int phase = 0; phase < 2 && fits.isEmpty(); phase++) {
+            for (MemberInfo m : methods) {
+                boolean isStatic = m.member.modifiers().isStatic();
+                List<Type> ps = paramTypes(isStatic ? null : owner, m, Map.of());
+                if (phase == 0) {
+                    if (ps.size() == args.size() && javaFitAll(args, ps)) {
+                        fits.add(new Fit(m, ps, false));
+                    }
+                } else if (javaMembers.get(m.member).isVarargs() && args.size() >= ps.size() - 1) {
+                    Type element = javaElement(ps.get(ps.size() - 1));
+                    List<Type> spread = new ArrayList<>(ps.subList(0, ps.size() - 1));
+                    while (spread.size() < args.size()) {
+                        spread.add(element);
+                    }
+                    if (element != null && javaFitAll(args, spread)) {
+                        fits.add(new Fit(m, spread, true));
+                    }
+                }
+            }
+        }
+        String what = ctor ? "the constructor of " + javaName(owner.cls()) : name;
+        if (fits.isEmpty()) {
+            List<String> takes = methods.stream().map(m -> "(" + paramTypes(m.member.modifiers().isStatic() ? null : owner, m,
+                    Map.of()).stream().map(Type::toString).collect(Collectors.joining(", ")) + ")").distinct().toList();
+            String given = "(" + args.stream().map(Type::toString).collect(Collectors.joining(", ")) + ")";
+            report(pos, (methods.size() == 1 ? what + " takes " + takes.get(0) + ", not " + given
+                    : "no overload of " + what + " takes " + given + "; " + (ctor ? "they take " : "its overloads take ")
+                    + (takes.size() > 6 ? String.join(", ", takes.subList(0, 6)) + ", ..." : String.join(", ", takes)))
+                    + javaArgumentHint(args));
+            return Type.ERROR;
+        }
+        List<Fit> maximal = fits.stream().filter(f -> fits.stream().allMatch(o -> o == f || javaFitAll(f.params(), o.params())))
+                .toList();
+        List<Fit> best = maximal.size() > 1 && maximal.stream().allMatch(f -> f.params().equals(maximal.get(0).params()))
+                ? List.of(maximal.get(0)) : maximal; // one signature, declared again above (an interface's method a class implements)
+        if (best.size() != 1) {
+            List<Fit> tied = best.isEmpty() ? fits : best;
+            report(pos, "ambiguous call to " + what + ": " + tied.stream().map(f -> "(" + f.params().stream().map(Type::toString)
+                    .collect(Collectors.joining(", ")) + ")").distinct().collect(Collectors.joining(" and "))
+                    + " fit equally well; cast an argument to the type meant, as (JavaString)null");
+            return Type.ERROR;
+        }
+        Fit chosen = best.get(0);
+        boolean isStatic = chosen.m().member.modifiers().isStatic();
+        CallKind kind = ctor ? CallKind.CONSTRUCTOR : isStatic ? CallKind.STATIC : CallKind.METHOD;
+        if (site != null) {
+            b.calls.put(site, new CallInfo(kind, chosen.m(), isStatic ? null : owner, Map.of(), false, false));
+            ClassInfo q = qualifier != null ? qualifier : owner != null && !isStatic ? owner.cls() : declaringClass(chosen.m());
+            int fixed = paramTypes(isStatic ? null : owner, chosen.m(), Map.of()).size() - 1;
+            b.javaCalls.put(site, new JavaCall(q, chosen.varargs() ? fixed : -1));
+        }
+        return ctor ? Type.VOID : returnTypeOf(isStatic ? null : owner, chosen.m(), Map.of());
+    }
+
+    private boolean javaFitAll(List<Type> args, List<Type> params) {
+        if (args.size() != params.size()) {
+            return false;
+        }
+        for (int i = 0; i < args.size(); i++) {
+            if (!javaFits(args.get(i), params.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether a value of type {@code a} goes where Java wants a {@code p}, by Java's rules without
+     * boxing: the same type, a primitive Java widens (an int to a long), null or an object of a
+     * subclass for a reference, an array of objects of a subclass for an array of objects.
+     */
+    private boolean javaFits(Type a, Type p) {
+        if (a.isError() || a.equals(p)) {
+            return true;
+        }
+        if (p instanceof JavaPrimT pp) {
+            return a instanceof JavaPrimT ap && javaWidens(ap, pp);
+        }
+        if (!(p instanceof HandleT ph && ph.target() instanceof ClassT pc)) {
+            return false;
+        }
+        if (a instanceof NullT) {
+            return true;
+        }
+        if (!(a instanceof HandleT ah && ah.target() instanceof ClassT ac) || !isJavaType(ac.cls())) {
+            return false;
+        }
+        if (isJavaArray(ac.cls()) && isJavaArray(pc.cls())) {
+            Type ae = ac.typeArgs().get(0);
+            Type pe = pc.typeArgs().get(0);
+            return ae.equals(pe) || (!(ae instanceof JavaPrimT) && !(pe instanceof JavaPrimT) && javaFits(ae, pe));
+        }
+        return isSubclass(ac, pc);
+    }
+
+    /** Java's widening of primitives (JLS §5.1.2): a byte to a short, int, long, float or double, and so on. */
+    private static boolean javaWidens(JavaPrimT from, JavaPrimT to) {
+        String wider = switch (from.code()) {
+            case 'B' -> "SIJFD";
+            case 'S', 'C' -> "IJFD";
+            case 'I' -> "JFD";
+            case 'J' -> "FD";
+            case 'F' -> "D";
+            default -> "";
+        };
+        return wider.indexOf(to.code()) >= 0;
+    }
+
+    /** The element type of a JavaArray<T>, T; null for any other type. */
+    private static Type javaElement(Type t) {
+        return t instanceof HandleT h && h.target() instanceof ClassT ct && isJavaArray(ct.cls()) ? ct.typeArgs().get(0) : null;
+    }
+
+    /** "; Seal's int goes into Java by JavaInt.of(...)", for the first argument that is a Seal value, or "". */
+    private String javaArgumentHint(List<Type> args) {
+        for (Type a : args) {
+            String of = javaOf(a);
+            if (of != null) {
+                return "; Seal's " + a + " goes into Java by " + of + "(...) (docs/JAVA.md §3.1)";
+            }
+            if (a instanceof LambdaT) {
+                return "; a lambda goes where Java wants an interface in a later step (docs/JAVA.md §5)";
+            }
+        }
+        return "";
+    }
+
+    /** The seal.java method that makes a Java value of a Seal value of this type: JavaInt.of for an int; or null. */
+    private String javaOf(Type a) {
+        if (isJavaValue(a) || a instanceof NullT || a.isError()) {
+            return null;
+        }
+        Type t = a instanceof IntConstT ic ? (ic.isChar() ? Type.CHAR : Type.INT) : a instanceof FloatConstT ? Type.DOUBLE : a;
+        if (t instanceof StrConstT || (t instanceof ClassT ct && ct.cls().name.equals("string") && ct.cls().builtin)) {
+            return "JavaString.of";
+        }
+        if (t instanceof HandleT h && h.target() instanceof ClassT) {
+            return "JavaObject.of";
+        }
+        if (t instanceof ClassT ct && isArrayObject(ct)) {
+            return "JavaArray.of";
+        }
+        for (char code : "IJSBFDCZ".toCharArray()) {
+            if (new JavaPrimT(code).sealType().equals(t)) {
+                return new JavaPrimT(code) + ".of";
+            }
+        }
+        return t instanceof IntT ? "JavaInt.of" : null;
     }
 
     /** A candidate method after matching arguments: its return type and whether all arguments matched exactly. */
@@ -6018,8 +6641,10 @@ public final class Checker {
             Type p = params.get(i);
             if ((a instanceof IntConstT ic && p.equals(ic.isChar() ? Type.CHAR : Type.INT))
                     || (a instanceof FloatConstT && p.equals(Type.DOUBLE))
-                    || ((a instanceof StrConstT || a instanceof ArrayConstT) && p.equals(defaultOf(a)))) {
-                kept++;
+                    || ((a instanceof StrConstT || a instanceof ArrayConstT) && p.equals(defaultOf(a)))
+                    || (a instanceof ArrayConstT && defaultOf(a) instanceof ArrayT d && p instanceof ClassT pc
+                        && isArrayObject(pc) && pc.valueArgs().isEmpty() && pc.typeArgs().equals(List.of(d.element())))) {
+                kept++; // [1.5, 2.5] is an array<double> where it could be an array<float>, as 1.5 is a double
             }
         }
         return kept;
@@ -6307,6 +6932,9 @@ public final class Checker {
                     + " with new; create a class that " + (c.isInterface ? "implements" : "extends") + " it");
             return Type.ERROR;
         }
+        if (isJavaArray(c) && ref.typeArgs().isEmpty()) {
+            return newJavaArray(b, n, expected, args);
+        }
         ClassT t;
         boolean explicit = !ref.typeArgs().isEmpty() || ref.valueArgs() != null;
         if (explicit) {
@@ -6331,6 +6959,23 @@ public final class Checker {
                 return Type.ERROR;
             }
         }
+        if (c.java != null) {
+            // A Java class's constructor, chosen as Java chooses (docs/JAVA.md §4).
+            if (c.constructors.isEmpty()) {
+                List<String> makers = c.all.stream().filter(m -> m.member instanceof Method md && md.modifiers().isStatic()
+                        && javaMembers.get(md) instanceof JavaClasses.JMember jm
+                        && jm.descriptor().endsWith(")L" + c.java.internalName() + ";")).map(MemberInfo::name).distinct().limit(3)
+                        .map(m -> c.name + "." + m + "(...)").toList();
+                report(n.pos(), javaName(c) + " has no public constructor" + (makers.isEmpty() ? ""
+                        : "; its static methods make them: " + String.join(", ", makers)));
+            } else if (args.stream().noneMatch(Type::isError)) {
+                resolveJava(b, "new", t, c, c.constructors, args, n.pos(), n);
+            }
+            return new HandleT(t);
+        }
+        if (isJavaArray(c)) {
+            return newJavaArray(b, n, new HandleT(t), args);
+        }
         if (args.stream().noneMatch(Type::isError)) {
             resolveConstructor(b, t, args, n.pos(), n, CallKind.CONSTRUCTOR);
             checkLambdaArgs(b, n, n.args());
@@ -6342,6 +6987,27 @@ public final class Checker {
             return new AddrT(t);
         }
         return t;
+    }
+
+    /**
+     * new JavaArray(n): a Java array of n of Java's defaults (0, false, null), for Java to fill; its
+     * element type comes from where it goes, as in JavaArray<JavaByte> buffer = new JavaArray(4096).
+     */
+    private Type newJavaArray(Body b, New n, Type expected, List<Type> args) {
+        if (!(expected instanceof HandleT h && h.target() instanceof ClassT t && isJavaArray(t.cls()))) {
+            report(n.pos(), "new JavaArray(n) makes the type it goes to, which says its elements' type, as in"
+                    + " JavaArray<JavaByte> buffer = new JavaArray(4096);");
+            return Type.ERROR;
+        }
+        if (args.size() != 1) {
+            report(n.pos(), "new JavaArray(n) takes the length, an int");
+            return Type.ERROR;
+        }
+        if (!args.get(0).isError()) {
+            requireConvertible(b, n.args().get(0), args.get(0), Type.INT, "the length of a Java array");
+        }
+        b.calls.put(n, new CallInfo(CallKind.CONSTRUCTOR, null, t, Map.of(), false, false));
+        return expected;
     }
 
     // ================================================================ operators
@@ -6516,7 +7182,8 @@ public final class Checker {
         boolean stringRight = r instanceof StrConstT || (r instanceof ClassT rc && rc.cls().name.equals("string"));
         boolean stringLeft = l instanceof StrConstT || (l instanceof ClassT lc && lc.cls().name.equals("string"));
         if (bin.op() == BinaryOp.ADD && stringLeft != stringRight && !(stringLeft ? r : l).isNumeric()
-                && !((stringLeft ? r : l) instanceof BitT) && objectType(stringLeft ? r : l) != null) {
+                && !((stringLeft ? r : l) instanceof BitT)
+                && (objectType(stringLeft ? r : l) != null || (stringLeft ? r : l) instanceof JavaPrimT)) {
             // "box: " + box and box + " apples": the object's cast to string, as Java's toString() (§46)
             Expr object = stringLeft ? bin.right() : bin.left();
             Type ot = stringLeft ? r : l;
@@ -6536,6 +7203,12 @@ public final class Checker {
             Expr rewrite = new Binary(p, BinaryOp.ADD, new Binary(p, BinaryOp.ADD, new StringLit(p, ""), bin.left()), bin.right());
             b.rewritten.put(bin, rewrite);
             return checkExpr(b, rewrite, null);
+        }
+        if (l instanceof JavaPrimT || r instanceof JavaPrimT) {
+            JavaPrimT j = (JavaPrimT) (l instanceof JavaPrimT ? l : r);
+            report(bin.pos(), "operator " + bin.op().symbol + ": " + j + " is Java's " + j.javaName() + ", which has no"
+                    + " operators in Seal; cast it to Seal's first, as (" + j.sealType() + ")x (docs/JAVA.md §3.1)");
+            return Type.ERROR;
         }
         l = defaultLiteral(b, bin.left(), l); // "abc" == s
         BinaryOp op = bin.op();
@@ -7273,6 +7946,11 @@ public final class Checker {
             report(pos, "cannot assign to this");
             return false;
         }
+        MemberInfo field = target instanceof Select s ? b.selected.get(s) : target instanceof Name n ? b.fieldOf.get(n) : null;
+        if (field != null && javaMembers.get(field.member) instanceof JavaClasses.JMember jm && jm.isFinal()) {
+            report(pos, "Java's field " + jm.name() + " is final, so it can't be assigned");
+            return false;
+        }
         if (target instanceof Name n && b.resources.contains(n.name()) && "local".equals(b.nameKinds.get(n))) {
             report(pos, n.name() + " is a resource of try-with-resources, closed at the end of its block, so it can't"
                     + " be assigned");
@@ -7413,7 +8091,8 @@ public final class Checker {
             return Type.ERROR;
         }
         boolean ok = from instanceof NullT || (from instanceof HandleT fh && fh.target() instanceof ClassT fc
-                && (isSubclass(fc, tc) || isSubclass(tc, fc) || fc.cls().isInterface || tc.cls().isInterface));
+                && (isSubclass(fc, tc) || isSubclass(tc, fc) || fc.cls().isInterface || tc.cls().isInterface
+                    || isJavaObject(fc.cls()))); // a JavaObject may hold a Seal object (docs/JAVA.md §3.1)
         if (!ok) {
             report(io.pos(), from instanceof HandleT ? from + " can never be a " + tc
                     : "instanceof needs an object (a class or interface handle), not " + from);
@@ -7582,6 +8261,9 @@ public final class Checker {
 
     /** Whether a value of this type has a cast to string: an @overload(Operator.CAST) method returning string (§46). */
     private boolean castsToString(Type t) {
+        if (isJavaValue(t)) {
+            return true; // Java's text of it (docs/JAVA.md §3.1)
+        }
         ClassT ct = objectType(t);
         ClassT owner = ct == null ? null : operatorOwner(ct, CAST);
         ClassT text = bareString();
@@ -7604,6 +8286,104 @@ public final class Checker {
                 + "@overload(Operator.CAST) public string text() { ... }";
     }
 
+    /**
+     * A cast between Java's values and Seal's (docs/JAVA.md §3.1): out of Java, a primitive (or
+     * its box) as a Seal number or bit, any Java value as its text, a JavaObject as a Seal class's
+     * object, a Java array as a copy in a Seal array; between Java's classes, as in Java. Into Java
+     * only seal.java's `of` methods go.
+     */
+    private Type javaCast(Cast c, Type from, Type to) {
+        if (from.equals(to) || from instanceof NullT) {
+            return to;
+        }
+        if (isJavaValue(from) && to.equals(bareString())) {
+            return to; // its text: Java's String.valueOf (§3.1)
+        }
+        JavaPrimT prim = from instanceof JavaPrimT p ? p : boxOf(from);
+        if (prim != null && (prim.code() == 'Z' ? to instanceof BitT : isNumber(to))) {
+            return to;
+        }
+        if (from instanceof HandleT fh && fh.target() instanceof ClassT fc && isJavaObject(fc.cls()) && unboxedAs(to) != null) {
+            return to; // (int)o, as Java's: an Integer, checked while the program runs, unboxed
+        }
+        if (prim != null && (to instanceof BitT || isNumber(to))) {
+            report(c.pos(), "cannot cast " + from + " to " + to + "; " + from + " is Java's " + prim.javaName()
+                    + ", which casts to " + (prim.code() == 'Z' ? "bit" : "a number"));
+            return Type.ERROR;
+        }
+        if (from instanceof HandleT fh && fh.target() instanceof ClassT fc && to instanceof HandleT th
+                && th.target() instanceof ClassT tc) {
+            if (isJavaObject(fc.cls()) && !isJavaType(tc.cls())) {
+                return to; // (Tag)o: a Seal object that went into Java, checked while the program runs
+            }
+            if (isJavaType(fc.cls()) && isJavaType(tc.cls()) && (isSubclass(fc, tc) || isSubclass(tc, fc)
+                    || fc.cls().isInterface || tc.cls().isInterface)) {
+                return to; // between Java's classes, as in Java
+            }
+        }
+        if (javaElement(from) != null && to instanceof ClassT ac && isArrayObject(ac) && ac.valueArgs().isEmpty()
+                && javaArrayCopies(javaElement(from), ac.typeArgs().get(0))) {
+            return to; // a copy of a Java array, as a new Seal array (§3.1)
+        }
+        if (to instanceof HandleT th && th.target() instanceof ClassT tc && !isJavaType(tc.cls()) && isJavaValue(from)) {
+            report(c.pos(), "cannot cast " + from + " to " + to + "; Java's objects aren't Seal's, but a Seal object that"
+                    + " went into Java casts back from a JavaObject, as (" + tc.cls().name + ")o (docs/JAVA.md §3.1)");
+            return Type.ERROR;
+        }
+        if (isJavaValue(to) && !isJavaValue(from)) {
+            String of = javaOf(from);
+            report(c.pos(), "cannot cast " + from + " to " + to + "; a Seal value goes into Java by "
+                    + (of != null ? of + "(...)" : "seal.java's of methods") + ", not by a cast (docs/JAVA.md §3.1)");
+            return Type.ERROR;
+        }
+        report(c.pos(), "cannot cast " + from + " to " + to);
+        return Type.ERROR;
+    }
+
+    /** The Java primitive a Seal type is (JavaInt for int, JavaBoolean for bit), whose box a cast from Object takes; or null. */
+    public static JavaPrimT unboxedAs(Type t) {
+        for (char code : "IJSBFDCZ".toCharArray()) {
+            if (new JavaPrimT(code).sealType().equals(t)) {
+                return new JavaPrimT(code);
+            }
+        }
+        return null;
+    }
+
+    /** The primitive a Java box holds (JavaInt for JavaIntBoxed), or null for any other type. */
+    private static JavaPrimT boxOf(Type t) {
+        if (!(t instanceof HandleT h && h.target() instanceof ClassT ct && ct.cls().java != null)) {
+            return null;
+        }
+        return switch (ct.cls().java.name()) {
+            case "java.lang.Integer" -> new JavaPrimT('I');
+            case "java.lang.Long" -> new JavaPrimT('J');
+            case "java.lang.Short" -> new JavaPrimT('S');
+            case "java.lang.Byte" -> new JavaPrimT('B');
+            case "java.lang.Float" -> new JavaPrimT('F');
+            case "java.lang.Double" -> new JavaPrimT('D');
+            case "java.lang.Character" -> new JavaPrimT('C');
+            case "java.lang.Boolean" -> new JavaPrimT('Z');
+            default -> null;
+        };
+    }
+
+    /**
+     * Whether a Java array of this element type copies into a Seal array of that one: a primitive's
+     * into the Seal number's (a byte[] into an array<int<<8>>> or, by its bits, an array<uint<<8>>>),
+     * and objects into an array of their own type.
+     */
+    private static boolean javaArrayCopies(Type javaElement, Type sealElement) {
+        if (javaElement instanceof JavaPrimT p) {
+            return p.sealType().equals(sealElement) || (p.code() == 'B' && sealElement.equals(new IntT(CVal.of(8), false)));
+        }
+        if (javaElement instanceof HandleT h && h.target() instanceof ClassT ct && ct.cls().java != null
+                && ct.cls().java.name().equals("java.lang.String")) {
+            return sealElement instanceof ClassT sc && sc.cls().name.equals("string") && sc.cls().builtin;
+        }
+        return javaElement.equals(sealElement);
+    }
+
     private Type checkCast(Body b, Cast c) {
         Type to = resolveType(c.type(), b.env, new Opts(false, false, false, null));
         Type from = checkExpr(b, c.operand(), to);
@@ -7612,6 +8392,9 @@ public final class Checker {
         }
         if (from instanceof ParamT) {
             return to; // (string)x on a T: checked for each type T is used with (§12)
+        }
+        if (isJavaValue(from) || isJavaValue(to)) {
+            return javaCast(c, from, to);
         }
         ClassT castsItself = operandClass(from) != null ? operandClass(from) : from instanceof ClassT ct ? ct : null;
         boolean ok = from.equals(to)

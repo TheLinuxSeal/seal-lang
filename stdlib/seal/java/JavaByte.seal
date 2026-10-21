@@ -1,0 +1,9 @@
+package seal.java;
+
+// Java's byte (docs/JAVA.md §3.1). JavaByte.of(x) makes one of a Seal int<<8>>, for a Java method that
+// takes a byte, and a cast, (int<<8>>)x, makes one that Java gives back a Seal int<<8>>. It has no
+// operators in Seal: cast it first. A value of one is held as an int<<8>> is, so neither step costs anything.
+struct JavaByte
+{
+    @jvm("JavaValues.byteOf") public static JavaByte of(int<<8>> x);
+}

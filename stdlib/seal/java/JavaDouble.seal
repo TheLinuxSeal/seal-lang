@@ -1,0 +1,9 @@
+package seal.java;
+
+// Java's double (docs/JAVA.md §3.1). JavaDouble.of(x) makes one of a Seal double, for a Java method that
+// takes a double, and a cast, (double)x, makes one that Java gives back a Seal double. It has no
+// operators in Seal: cast it first. A value of one is held as a double is, so neither step costs anything.
+struct JavaDouble
+{
+    @jvm("JavaValues.doubleOf") public static JavaDouble of(double x);
+}

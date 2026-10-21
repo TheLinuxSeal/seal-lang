@@ -61,6 +61,11 @@ Point[x=3, y=9]  is 9.49 from the origin
 - **The standard library is written in Seal** ([`stdlib/`](stdlib)), in packages as Java's is:
   `seal.lang` (`System`, math, `StringBuilder`, exceptions; no import needed), `seal.util` (lists, maps, big
   integers), `seal.util.function` and `seal.io` (files).
+- **Java's own classes,** imported and used as Seal's are: `import java.time.LocalDate;`, then
+  `LocalDate.of(JavaInt.of(2026), JavaInt.of(1), JavaInt.of(1))`, checked while compiling and called
+  as the JVM calls them, with overloads chosen as Java chooses them. Values cross by hand, through
+  `seal.java`'s `JavaInt.of`, `JavaString.of` and casts; jars come from `--classpath`
+  ([`docs/JAVA.md`](docs/JAVA.md)).
 
 The full language is described in [`SPEC.md`](SPEC.md).
 
@@ -95,7 +100,7 @@ seal dump  [options] PATH...   print the class files
 seal build [options] PATH...   write the class files, for java to run
 
   --main Class       the class whose main() runs (default Main; com.example.Main in a package)
-  --classpath PATH   jars and class folders for the program's class loader (also -cp)
+  --classpath PATH   jars and class folders of the Java classes the program imports (also -cp)
   --vm               run or dump on Seal's old VM instead (deprecated, see Status)
   -d DIR             where build writes class files (default classes)
   -WautoCast         warn about every number converted without a cast
@@ -106,8 +111,8 @@ seal build [options] PATH...   write the class files, for java to run
 
 ## Examples
 
-[`examples/`](examples) has 20 programs, each with the output it should give, from the basics to
-generics, fixed point, files, packages, static imports and pure functions. [`examples/README.md`](examples/README.md)
+[`examples/`](examples) has 21 programs, each with the output it should give, from the basics to
+generics, fixed point, files, packages, static imports, pure functions and Java's own classes. [`examples/README.md`](examples/README.md)
 says what each one shows.
 
 ## Status

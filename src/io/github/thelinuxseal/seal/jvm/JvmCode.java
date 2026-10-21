@@ -989,6 +989,10 @@ final class JvmCode {
 
     /** With a block and offset on the stack: the value of type t stored there. */
     private void loadPushed(Type t) {
+        if (t instanceof JavaPrimT j) {
+            loadPushed(j.sealType()); // stored as the Seal number with its values (docs/JAVA.md §3.1)
+            return;
+        }
         if (isString(t)) {
             c.invokestatic(JvmGen.BLOCK, "string", MethodTypeDesc.of(CD_String, JvmGen.BLOCK, CD_int));
             return;
@@ -1040,6 +1044,10 @@ final class JvmCode {
 
     /** With a block, an offset and a value of type t on the stack: stores the value there. */
     private void storePushed(Type t) {
+        if (t instanceof JavaPrimT j) {
+            storePushed(j.sealType());
+            return;
+        }
         if (kind(t) == TypeKind.REFERENCE) {
             c.invokestatic(JvmGen.BLOCK, "setRef", MethodTypeDesc.of(CD_void, JvmGen.BLOCK, CD_int, CD_Object));
             return;
@@ -1060,6 +1068,7 @@ final class JvmCode {
 
     private static int bitWidth(Type t) {
         return switch (t) {
+            case JavaPrimT j -> bitWidth(j.sealType());
             case IntT it -> width(it);
             case FixedT f -> width(f);
             case BitT b -> 1;
@@ -1719,10 +1728,18 @@ final class JvmCode {
             ClassInfo exception = ck.classNamed("Exception");
             if (exception != null && exception.builtin) {
                 Label handler = c.newLabel();
+                Label fault = c.newLabel();
                 ClassDesc ed = g.instance(new ClassT(exception, List.of(), List.of(), 0)).desc;
                 for (Label[] r : guarded) {
+                    // A fault and System.exit stop the program at once, finally or not; Seal's exceptions and
+                    // Java's run it on their way (docs/JAVA.md §4).
+                    c.exceptionCatch(r[0], r[1], fault, JvmGen.TRAP);
+                    c.exceptionCatch(r[0], r[1], fault, ClassDesc.of(JvmGen.RUNTIME + "Exit"));
                     c.exceptionCatch(r[0], r[1], handler, ed);
+                    c.exceptionCatch(r[0], r[1], handler, ClassDesc.of("java.lang.Exception"));
                 }
+                c.labelBinding(fault);
+                c.athrow();
                 c.labelBinding(handler);
                 int slot = c.allocateLocal(TypeKind.REFERENCE);
                 c.astore(slot);
@@ -2413,6 +2430,11 @@ final class JvmCode {
             constant(ck.constFieldValue(ck.declaringClassOf(m), f), concrete(t), s.pos());
             return concrete(t);
         }
+        if (f.modifiers().isStatic() && ck.javaMember(f) != null && type(s.target()) instanceof ClassRefT cr) {
+            // ChronoUnit.DAYS: through the class written, as javac names it (docs/JAVA.md §4).
+            c.getstatic(ClassDesc.of(cr.cls().java.name()), f.name(), ClassDesc.ofDescriptor(ck.javaMember(f).descriptor()));
+            return t;
+        }
         if (f.modifiers().isStatic()) {
             return getStatic(m, s.pos());
         }
@@ -2429,6 +2451,10 @@ final class JvmCode {
         ClassInfo cls = ck.declaringClassOf(m);
         Field f = (Field) m.member;
         Type t = ck.staticFieldType(cls, f);
+        if (ck.javaMember(f) != null) {
+            c.getstatic(ClassDesc.of(cls.java.name()), f.name(), ClassDesc.ofDescriptor(ck.javaMember(f).descriptor()));
+            return t;
+        }
         if (g.inStaticBlock(cls, f)) {
             loadFrom(staticMem(m), t);
             return t;
@@ -2440,6 +2466,10 @@ final class JvmCode {
     private void putStatic(MemberInfo m, Pos at) {
         ClassInfo cls = ck.declaringClassOf(m);
         Field f = (Field) m.member;
+        if (ck.javaMember(f) != null) {
+            c.putstatic(ClassDesc.of(cls.java.name()), f.name(), ClassDesc.ofDescriptor(ck.javaMember(f).descriptor()));
+            return;
+        }
         c.putstatic(g.staticClass(cls).desc, f.name(), g.desc(ck.staticFieldType(cls, f), at));
     }
 
@@ -2461,6 +2491,11 @@ final class JvmCode {
         if (!(target instanceof HandleT h) || !(h.target() instanceof ClassT ct)) {
             throw unsupported(at, "the field " + f.name() + " of " + target);
         }
+        if (ck.javaMember(f) != null) {
+            // A Java object's field, through the object's type, as javac names it (docs/JAVA.md §4).
+            c.getfield(g.desc(target, at), f.name(), ClassDesc.ofDescriptor(ck.javaMember(f).descriptor()));
+            return ck.fieldTypeOf(ct, m);
+        }
         ClassT owner = g.declaringType(ct, m);
         Type ft = ck.fieldTypeOf(owner, m);
         c.getfield(g.instance(owner).desc, f.name(), g.desc(ft, at));
@@ -2471,6 +2506,10 @@ final class JvmCode {
         Field f = (Field) m.member;
         if (!(target instanceof HandleT h) || !(h.target() instanceof ClassT ct)) {
             throw unsupported(at, "assigning the field " + f.name() + " of " + target);
+        }
+        if (ck.javaMember(f) != null) {
+            c.putfield(g.desc(target, at), f.name(), ClassDesc.ofDescriptor(ck.javaMember(f).descriptor()));
+            return;
         }
         ClassT owner = g.declaringType(ct, m);
         c.putfield(g.instance(owner).desc, f.name(), g.desc(ck.fieldTypeOf(owner, m), at));
@@ -2525,6 +2564,10 @@ final class JvmCode {
      * representation can change (int to long); references need nothing.
      */
     private void widen(Type from, Type to) {
+        if (from instanceof JavaPrimT f && to instanceof JavaPrimT t && !f.equals(t)) {
+            javaWiden(f, t); // a JavaInt where Java wants a long (docs/JAVA.md §4)
+            return;
+        }
         if (from.equals(to) || !isNumber(from) || !isNumber(to)) {
             return;
         }
@@ -2614,7 +2657,7 @@ final class JvmCode {
         }
         if (to instanceof HandleT th && th.target() instanceof ClassT tc && (from instanceof HandleT || from instanceof NullT)) {
             if (from instanceof HandleT) {
-                c.checkcast(g.instance(tc).desc);
+                c.checkcast(g.desc(to, pos));
             }
             return;
         }
@@ -2759,6 +2802,10 @@ final class JvmCode {
         }
         Type to = type(cast);
         Type from = type(cast.operand());
+        if (Checker.isJavaValue(from) && !from.equals(to)) {
+            javaCast(cast.operand(), from, to);
+            return to;
+        }
         if (from instanceof IntConstT || from instanceof FloatConstT) {
             if (to instanceof IntT && from instanceof FloatConstT) {
                 double d = ((FloatV) ck.constantIn(tb, cast.operand())).value();
@@ -3606,6 +3653,10 @@ final class JvmCode {
         if (ck.isRawAssembly(ci)) {
             return Type.VOID; // assembly is for a native compiler (§42.3)
         }
+        Checker.JavaCall java = tb.javaCalls.get(call);
+        if (java != null) {
+            return javaCall(call, ci, java);
+        }
         Pos at = call.pos();
         switch (ci.kind()) {
             case STATIC -> {
@@ -3737,7 +3788,7 @@ final class JvmCode {
 
     /** A type as the runtime, which knows no Seal classes, sees it: an object as java.lang.Object, a fixed-point value as a long. */
     private ClassDesc erased(Type t, Pos at) {
-        return t instanceof HandleT ? CD_Object : t instanceof FixedT ? CD_long : g.desc(t, at);
+        return t instanceof HandleT && !Checker.isJavaValue(t) ? CD_Object : t instanceof FixedT ? CD_long : g.desc(t, at);
     }
 
     /** A method marked @jvm: a static method of a runtime class ("Strings.at"), or one this backend generates. */
@@ -3790,6 +3841,20 @@ final class JvmCode {
         Type ret = ck.returnTypeOf(ci.owner(), ci.member(), ci.binders());
         if (g.isAggregate(ret) && dst == null) {
             dst = temp(ret);
+        }
+        if (Checker.isJavaValue(recvType) && Checker.jvmName((Method) ci.member().member) instanceof String spec) {
+            // seal.java's own method of a Java object (JavaObject's hash()): the runtime's, with the object first.
+            value(receiver, null);
+            List<Type> params = ck.paramTypes(ci.owner(), ci.member(), ci.binders());
+            pushArgs(params, args);
+            List<ClassDesc> ps = new ArrayList<>(List.of(CD_Object));
+            for (Type p : params) {
+                ps.add(erased(p, at));
+            }
+            int dot = spec.indexOf('.');
+            c.invokestatic(ClassDesc.of(JvmGen.RUNTIME + spec.substring(0, dot)), spec.substring(dot + 1),
+                    MethodTypeDesc.of(erased(ret, at), ps.toArray(ClassDesc[]::new)));
+            return ret;
         }
         if (recvType instanceof HandleT || recvType instanceof NullT) {
             if (receiver == null) {
@@ -4023,6 +4088,22 @@ final class JvmCode {
             throw unsupported(n.pos(), "new here");
         }
         ClassT ct = ci.owner();
+        if (Checker.isJavaArray(ct.cls())) {
+            // new JavaArray(n): a Java array of n of Java's defaults (docs/JAVA.md §3.1).
+            value(n.args().get(0), Type.INT);
+            newJavaArray(ct.typeArgs().get(0), n.pos());
+            return t;
+        }
+        Checker.JavaCall java = tb.javaCalls.get(n);
+        if (java != null) {
+            // A Java class's constructor (docs/JAVA.md §4).
+            ClassDesc owner = g.desc(new HandleT(ct), n.pos());
+            c.new_(owner);
+            c.dup();
+            pushJavaArgs(ck.paramTypes(ct, ci.member(), Map.of()), n.args(), java.varargsFrom(), n.pos());
+            c.invokespecial(owner, "<init>", MethodTypeDesc.ofDescriptor(ck.javaMember(ci.member().member).descriptor()));
+            return t;
+        }
         if (isValue(ct)) {
             List<Type> params = ci.member() == null ? List.of() : ck.paramTypes(ct, ci.member(), ci.binders());
             pushArgs(params, n.args());
@@ -4047,7 +4128,7 @@ final class JvmCode {
     /** x instanceof T, and x instanceof T name, which then holds x as a T (§35.1). */
     private Type instanceOf(InstanceOf io) {
         ClassT tc = tb.owners.get(io);
-        ClassDesc d = g.instance(tc).desc;
+        ClassDesc d = g.desc(new HandleT(tc), io.pos());
         value(io.operand(), null);
         if (io.binding() == null) {
             c.instanceOf(d);
@@ -4072,6 +4153,173 @@ final class JvmCode {
         c.labelBinding(end);
         return Type.BIT;
     }
+
+    // ------------------------------------------------------------ Java's classes (docs/JAVA.md)
+
+    /**
+     * A call of a Java method (docs/JAVA.md §4): the JVM's own call, with the descriptor from its
+     * class file, through the class the call names: the object's type, or the class written before
+     * a static method's name. A method of java.lang.Object called on an interface is Object's.
+     */
+    private Type javaCall(Call call, CallInfo ci, Checker.JavaCall java) {
+        MemberInfo m = ci.member();
+        Pos at = call.pos();
+        boolean isStatic = m.member.modifiers().isStatic();
+        ClassT owner = isStatic ? null : ci.owner();
+        Type ret = ck.returnTypeOf(owner, m, Map.of());
+        String name = ((Method) m.member).name();
+        MethodTypeDesc type = MethodTypeDesc.ofDescriptor(ck.javaMember(m.member).descriptor());
+        if (!isStatic) {
+            Expr receiver = call.callee() instanceof Select s ? s.target() : null;
+            if (receiver == null) {
+                loadThis(at);
+            } else {
+                value(receiver, null);
+            }
+        }
+        pushJavaArgs(ck.paramTypes(owner, m, Map.of()), call.args(), java.varargsFrom(), at);
+        ClassInfo declaring = ck.declaringClassOf(m);
+        if (isStatic) {
+            // An interface's static method is called through the interface itself.
+            ClassInfo through = declaring.isInterface ? declaring : java.qualifier();
+            c.invokestatic(ClassDesc.of(through.java.name()), name, type, through.isInterface);
+        } else if (owner.cls().isInterface && Checker.isJavaObject(declaring)) {
+            c.invokevirtual(CD_Object, name, type);
+        } else if (owner.cls().isInterface) {
+            c.invokeinterface(g.desc(new HandleT(owner), at), name, type);
+        } else {
+            c.invokevirtual(g.desc(new HandleT(owner), at), name, type);
+        }
+        return ret;
+    }
+
+    /**
+     * A Java call's arguments, each as its parameter wants it; with varargs, those from
+     * {@code varargsFrom} in a new array of the last parameter's type, as javac passes them.
+     */
+    private void pushJavaArgs(List<Type> params, List<Expr> args, int varargsFrom, Pos at) {
+        int fixed = varargsFrom < 0 ? args.size() : varargsFrom;
+        for (int i = 0; i < fixed; i++) {
+            value(args.get(i), params.get(i));
+        }
+        if (varargsFrom < 0) {
+            return;
+        }
+        Type element = ((ClassT) ((HandleT) params.get(params.size() - 1)).target()).typeArgs().get(0);
+        c.loadConstant(args.size() - fixed);
+        newJavaArray(element, at);
+        for (int i = fixed; i < args.size(); i++) {
+            c.dup();
+            c.loadConstant(i - fixed);
+            value(args.get(i), element);
+            c.arrayStore(JvmGen.javaKind(element));
+        }
+    }
+
+    /** A new Java array of the length on the stack, of a Java type's elements: Java's defaults, 0, false and null. */
+    private void newJavaArray(Type element, Pos at) {
+        TypeKind k = JvmGen.javaKind(element);
+        if (k == TypeKind.REFERENCE) {
+            c.anewarray(g.javaDesc(element, at));
+        } else {
+            c.newarray(k);
+        }
+    }
+
+    /** Java's widening of a primitive on the stack (JLS §5.1.2): an int as a long, a long as a float. */
+    private void javaWiden(JavaPrimT from, JavaPrimT to) {
+        TypeKind f = kind(from);
+        TypeKind t = kind(to);
+        if (f == t || (f != TypeKind.LONG && f != TypeKind.FLOAT && f != TypeKind.DOUBLE && t == TypeKind.INT)) {
+            return; // a byte, short or char is an int already
+        }
+        TypeKind fk = f == TypeKind.LONG || f == TypeKind.FLOAT || f == TypeKind.DOUBLE ? f : TypeKind.INT;
+        c.conversion(fk, t);
+    }
+
+    /**
+     * A cast out of a Java value (docs/JAVA.md §3.1), whose operand is not yet pushed: to string,
+     * Java's text of it; a primitive, or a box unboxed, to a Seal number or bit, as Seal converts
+     * numbers; a Java array to a new Seal array, a copy; a JavaObject to a Seal class's object, or
+     * between Java's classes, checked.
+     */
+    private void javaCast(Expr operand, Type from, Type to) {
+        value(operand, from);
+        if (isString(to)) {
+            ClassDesc arg = from instanceof JavaPrimT j ? g.javaDesc(j, pos) : CD_Object;
+            if (from instanceof JavaPrimT j && (j.code() == 'B' || j.code() == 'S')) {
+                arg = CD_int; // held as an int, and its text is the int's
+            }
+            c.invokestatic(CD_String, "valueOf", MethodTypeDesc.of(CD_String, arg));
+            return;
+        }
+        if (from instanceof JavaPrimT j) {
+            convert(j.sealType(), to);
+            return;
+        }
+        String box = from instanceof HandleT h && h.target() instanceof ClassT ct && ct.cls().java != null ? ct.cls().java.name() : "";
+        if (box.equals("java.lang.Object") && !(to instanceof HandleT) && Checker.unboxedAs(to) instanceof JavaPrimT p) {
+            // (int)o, as Java's: the Integer it must be, then its int.
+            box = switch (p.code()) {
+                case 'I' -> "java.lang.Integer";
+                case 'J' -> "java.lang.Long";
+                case 'S' -> "java.lang.Short";
+                case 'B' -> "java.lang.Byte";
+                case 'F' -> "java.lang.Float";
+                case 'D' -> "java.lang.Double";
+                case 'C' -> "java.lang.Character";
+                default -> "java.lang.Boolean";
+            };
+            c.checkcast(ClassDesc.of(box));
+        }
+        String[] unbox = switch (box) {
+            case "java.lang.Integer" -> new String[]{"intValue", "I"};
+            case "java.lang.Long" -> new String[]{"longValue", "J"};
+            case "java.lang.Short" -> new String[]{"shortValue", "S"};
+            case "java.lang.Byte" -> new String[]{"byteValue", "B"};
+            case "java.lang.Float" -> new String[]{"floatValue", "F"};
+            case "java.lang.Double" -> new String[]{"doubleValue", "D"};
+            case "java.lang.Character" -> new String[]{"charValue", "C"};
+            case "java.lang.Boolean" -> new String[]{"booleanValue", "Z"};
+            default -> null;
+        };
+        if (unbox != null && !(to instanceof HandleT)) {
+            c.invokevirtual(ClassDesc.of(box), unbox[0], MethodTypeDesc.ofDescriptor("()" + unbox[1]));
+            convert(new JavaPrimT(unbox[1].charAt(0)).sealType(), to);
+            return;
+        }
+        if (isArray(to)) {
+            javaArrayOut(from, (ClassT) to);
+            return;
+        }
+        c.checkcast(g.desc(to, pos)); // checked while the program runs
+    }
+
+    /** A Java array on the stack copied into a new Seal array (docs/JAVA.md §3.1), by the runtime's JavaValues. */
+    private void javaArrayOut(Type from, ClassT to) {
+        Type element = ((ClassT) ((HandleT) from).target()).typeArgs().get(0);
+        ClassDesc fd = g.desc(from, pos);
+        ClassDesc td = g.desc(to, pos);
+        if (element instanceof JavaPrimT j) {
+            boolean unsigned = j.code() == 'B' && to.typeArgs().get(0) instanceof IntT it && !it.signed();
+            String name = switch (j.code()) {
+                case 'B' -> unsigned ? "unsignedBytesOut" : "bytesOut";
+                case 'S' -> "shortsOut";
+                case 'I' -> "intsOut";
+                case 'J' -> "longsOut";
+                case 'F' -> "floatsOut";
+                case 'D' -> "doublesOut";
+                case 'C' -> "charsOut";
+                default -> "booleansOut";
+            };
+            c.invokestatic(JAVA_VALUES, name, MethodTypeDesc.of(td, fd));
+            return;
+        }
+        c.invokestatic(JAVA_VALUES, "objectsOut", MethodTypeDesc.of(CD_Object.arrayType(), CD_Object.arrayType()));
+        c.checkcast(td);
+    }
+
+    private static final ClassDesc JAVA_VALUES = ClassDesc.of(JvmGen.RUNTIME + "JavaValues");
 
     /** A lambda's object (§30.3): its class, made with the enclosing object and the copies it captures. */
     private Type closure(Lambda lam) {
