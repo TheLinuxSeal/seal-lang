@@ -1,8 +1,0 @@
-package seal.java;
-
-// Seal's int<<16>> as Java's short (docs/JAVA.md §3.1), for a method or constructor that
-// takes one: it prefers short parameters, as a Java short does.
-struct JavaShort
-{
-    @jvm("JavaBridge.ofShort") public static JavaObject of(int<<16>> x);
-}

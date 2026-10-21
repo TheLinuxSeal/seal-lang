@@ -2613,11 +2613,7 @@ final class JvmCode {
             return;
         }
         if (to instanceof HandleT th && th.target() instanceof ClassT tc && (from instanceof HandleT || from instanceof NullT)) {
-            if (JvmGen.isJava(to)) {
-                if (from instanceof HandleT fh && !fh.equals(th) && tc.cls().name.equals("JavaClass")) {
-                    c.checkcast(java.lang.constant.ConstantDescs.CD_Class); // (JavaClass)o: a Java object that is a class
-                }
-            } else if (from instanceof HandleT) {
+            if (from instanceof HandleT) {
                 c.checkcast(g.instance(tc).desc);
             }
             return;
@@ -3747,9 +3743,6 @@ final class JvmCode {
     /** A method marked @jvm: a static method of a runtime class ("Strings.at"), or one this backend generates. */
     private void runtimeCall(String spec, Type receiver, List<Type> params, Type ret, Pos at) {
         int dot = spec.indexOf('.');
-        if (spec.startsWith("JavaBridge.")) {
-            g.bridgeCalled(at);
-        }
         ClassDesc owner = ClassDesc.of(JvmGen.RUNTIME + spec.substring(0, dot));
         List<ClassDesc> ps = new ArrayList<>();
         if (receiver != null) {
@@ -3797,18 +3790,6 @@ final class JvmCode {
         Type ret = ck.returnTypeOf(ci.owner(), ci.member(), ci.binders());
         if (g.isAggregate(ret) && dst == null) {
             dst = temp(ret);
-        }
-        if (JvmGen.isJava(recvType)) {
-            // A Java object's methods are the bridge's, with the object first (docs/JAVA.md §8).
-            String jvm = Checker.jvmName((Method) ci.member().member);
-            if (jvm == null) {
-                throw unsupported(at, "calling " + ci.member().name() + " on a Java object");
-            }
-            value(receiver, null);
-            List<Type> params = ck.paramTypes(ci.owner(), ci.member(), ci.binders());
-            pushRuntimeArgs(params, args);
-            runtimeCall(jvm, recvType, params, ret, at);
-            return ret;
         }
         if (recvType instanceof HandleT || recvType instanceof NullT) {
             if (receiver == null) {

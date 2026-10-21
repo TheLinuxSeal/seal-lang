@@ -3466,7 +3466,7 @@ public final class CodeGen {
             }
         }
 
-        /** seal.java's methods (docs/JAVA.md) run only on the JVM: the VM, deprecated, gets no new features. */
+        /** A library method with no Seal body, which the JVM's runtime does, runs only on the JVM: the VM gets no new features. */
         void jvmOnly(CallInfo ci, Pos at) {
             if (ci != null && ci.member() != null && ci.member().member instanceof Method md && Checker.isJvmOnly(md)) {
                 throw new Unsupported(at, ck.declaringClassOf(ci.member()).name + "." + md.name()

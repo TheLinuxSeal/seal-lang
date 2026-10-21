@@ -360,63 +360,27 @@ public final class CliTest {
         classPath(dir);
     }
 
-    /** --classpath: Java classes of a class folder and of a jar, which the bridge reaches (docs/JAVA.md §4). */
+    /**
+     * --classpath: its entries must exist, and a program runs with them. A program reaches the classes
+     * in them from T1 (docs/JAVA.md §8); the string bridge that reached them before is removed.
+     */
     private static void classPath(Path dir) throws IOException {
-        Path src = write(dir, "java/src/demo/Greeter.java", """
-                package demo;
-
-                public class Greeter {
-                    public String greet(String who) { return "hello, " + who; }
-                }
-                """);
-        Path other = write(dir, "java/src/demo/Counter.java", """
-                package demo;
-
-                public class Counter {
-                    public static int next = 41;
-                    public static int take() { return ++next; }
-                }
-                """);
-        Path folder = dir.resolve("java/classes");
-        Path jarClasses = dir.resolve("java/jar-classes");
-        javax.tools.JavaCompiler javac = javax.tools.ToolProvider.getSystemJavaCompiler();
-        check(javac.run(null, null, null, "-d", folder.toString(), src.toString()) == 0
-                && javac.run(null, null, null, "-d", jarClasses.toString(), other.toString()) == 0, "the Java classes compile");
-        Path jar = dir.resolve("java/counter.jar");
-        try (java.util.jar.JarOutputStream out = new java.util.jar.JarOutputStream(Files.newOutputStream(jar))) {
-            out.putNextEntry(new java.util.jar.JarEntry("demo/Counter.class"));
-            out.write(Files.readAllBytes(jarClasses.resolve("demo/Counter.class")));
-            out.closeEntry();
-        }
-        String prog = write(dir, "bridge/Main.seal", """
-                import seal.java.*;
-
+        Path folder = Files.createDirectories(dir.resolve("java/classes"));
+        Path jar = dir.resolve("java/empty.jar");
+        new java.util.jar.JarOutputStream(Files.newOutputStream(jar)).close();
+        String prog = write(dir, "classpath/Main.seal", """
                 class Main
                 {
-                    static void main()
-                    {
-                        JavaObject g = JavaBridge.create("demo.Greeter");
-                        System.stdout.println(g.invoke("greet", [JavaString.of("Ada")]) + " "
-                                + (int)JavaBridge.get("demo.Counter").invokeStatic("take"));
-                    }
+                    static void main() { System.stdout.println("ran"); }
                 }
                 """).getParent().toString();
         String both = folder + java.io.File.pathSeparator + jar;
         Run r = run("run", "--classpath", both, prog);
-        check(r.code() == 0 && r.out().equals("hello, Ada 42\n") && r.err().isEmpty(), "run --classpath: a folder and a jar " + r);
+        check(r.code() == 0 && r.out().equals("ran\n") && r.err().isEmpty(), "run --classpath: a folder and a jar " + r);
         r = run("run", "-cp", both, prog);
-        check(r.code() == 0 && r.out().equals("hello, Ada 42\n"), "run -cp " + r);
-        r = run("run", prog);
-        check(r.code() == 70 && r.err().startsWith("uncaught seal.java.JavaClassNotFoundException: no Java class demo.Greeter"), "run: without the class path " + r);
+        check(r.code() == 0 && r.out().equals("ran\n"), "run -cp " + r);
         r = run("run", "--classpath", dir.resolve("java/missing.jar").toString(), prog);
         check(r.code() == 2 && r.err().contains("class path entry not found: "), "run: a missing class path entry " + r);
-        r = run("run", "--vm", prog);
-        check(r.code() == 1 && r.err().contains("JavaBridge.create runs only on the JVM"), "run --vm: no bridge on the VM " + r);
-        Path classes = dir.resolve("bridge-classes");
-        r = run("build", "-d", classes.toString(), prog);
-        check(r.code() == 0 && Files.isRegularFile(classes.resolve("io/github/thelinuxseal/seal/runtime/JavaBridge.class"))
-                && Files.isRegularFile(classes.resolve("io/github/thelinuxseal/seal/runtime/JavaPrimitive.class")),
-                "build: writes the bridge's runtime " + r);
     }
 
     /** Whether the text is exactly these lines, each ending as given (after the directory part of its path). */

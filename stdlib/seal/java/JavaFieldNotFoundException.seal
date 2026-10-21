@@ -1,8 +1,0 @@
-package seal.java;
-
-// No public field of the name given, or a static one where an object's was asked
-// for, or the other way (docs/JAVA.md §7).
-class JavaFieldNotFoundException extends(JavaException)
-{
-    public new(string message) { super(message); }
-}

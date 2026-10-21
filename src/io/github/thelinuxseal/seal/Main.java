@@ -36,8 +36,8 @@ import io.github.thelinuxseal.seal.vm.VM;
  *   --vm              run (or dump) on Seal's own VM instead; deprecated, to be removed (docs/JVM.md §13)
  *   -d DIR            where build writes the class files (default: classes)
  *   --main Class      the class whose main() is the entry point (default Main); com.example.Main for one in a package
- *   --classpath PATH  (or -cp) the jars and class folders whose Java classes `run` lets the program reach through
- *                     seal.java (docs/JAVA.md), separated as Java's class path is (: on Linux and macOS)
+ *   --classpath PATH  (or -cp) the jars and class folders `run` puts in the program's class loader, for Java's
+ *                     classes (docs/JAVA.md, from T1), separated as Java's class path is (: on Linux and macOS)
  *   --stdlib DIR      where the standard library is (default: the stdlib directory
  *                     next to the compiler's class files, or the seal.stdlib property)
  *   --no-stdlib       do not load the standard library

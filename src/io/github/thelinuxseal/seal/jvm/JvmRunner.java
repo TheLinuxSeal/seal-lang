@@ -42,8 +42,8 @@ public final class JvmRunner {
     }
 
     /**
-     * As above, with the jars and class folders whose classes the program reaches through the Java
-     * bridge (docs/JAVA.md §4): its classes' loader sees them, after the JDK's.
+     * As above, with the jars and class folders of the Java classes the program uses (docs/JAVA.md
+     * §6): its classes' loader sees them, after the JDK's.
      */
     public static Outcome run(JvmGen.Result program, InputStream in, PrintStream out, PrintStream err, boolean files,
                               List<Path> classPath) {

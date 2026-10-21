@@ -43,7 +43,7 @@ public final class ExamplesTest {
             // --vm says first that it is deprecated; nothing else should reach standard error.
             String errText = err.toString(StandardCharsets.UTF_8).lines()
                     .filter(l -> !l.equals(Main.VM_DEPRECATED)).reduce("", (a, b) -> a + b + "\n");
-            // The Java bridge runs only on the JVM: the VM, deprecated, says so, and the JVM's output is the one checked.
+            // What runs only on the JVM the VM, deprecated, refuses, saying so, and the JVM's output is the one checked.
             boolean onlyJvm = code == 1 && !errText.isEmpty() && errText.lines().allMatch(l -> l.contains("runs only on the JVM"));
             if (onlyJvm) {
                 jvmOnly++;

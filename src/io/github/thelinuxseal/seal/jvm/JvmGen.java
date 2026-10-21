@@ -93,9 +93,7 @@ public final class JvmGen {
             "io.github.thelinuxseal.seal.runtime.Block",
             "io.github.thelinuxseal.seal.runtime.Ptr",
             "io.github.thelinuxseal.seal.runtime.Exit",
-            "io.github.thelinuxseal.seal.runtime.Trap",
-            "io.github.thelinuxseal.seal.runtime.JavaBridge",
-            "io.github.thelinuxseal.seal.runtime.JavaPrimitive");
+            "io.github.thelinuxseal.seal.runtime.Trap");
 
     /** The method every main class gets that runs the program and returns its exit code. */
     public static final String RUN_METHOD = "$run";
@@ -457,30 +455,6 @@ public final class JvmGen {
             return c.name + " has no no-argument constructor";
         }
         return null;
-    }
-
-    /** seal.java's exceptions, which the bridge's runtime makes by name (docs/JAVA.md §7). */
-    private static final Set<String> BRIDGE_EXCEPTIONS = Set.of("JavaException", "JavaClassNotFoundException",
-            "JavaMethodNotFoundException", "JavaFieldNotFoundException", "JavaAmbiguousCallException", "JavaCastException",
-            "JavaThrownException");
-    private boolean bridgeExceptions;
-
-    /**
-     * A call into the Java bridge: the program gets every one of its exceptions, with their
-     * constructors, as the runtime makes them by name and no code of the program's need name them.
-     */
-    void bridgeCalled(Pos at) {
-        if (bridgeExceptions) {
-            return;
-        }
-        bridgeExceptions = true;
-        for (ClassInfo c : ck.allClasses()) {
-            if (c.builtin && c.pkg.equals("seal.java") && BRIDGE_EXCEPTIONS.contains(c.name)) {
-                for (MemberInfo k : c.constructors) {
-                    constructor(new ClassT(c, List.of(), List.of(), 0), k, Map.of(), at);
-                }
-            }
-        }
     }
 
     private static MemberInfo noArgConstructor(ClassInfo c) {
@@ -1238,11 +1212,6 @@ public final class JvmGen {
         return isString(t) || isArray(t);
     }
 
-    /** A JavaObject or JavaClass: a Java object, held as it is, whose methods are the runtime's JavaBridge's. */
-    static boolean isJava(Type t) {
-        return t instanceof HandleT h && h.target() instanceof ClassT ct && Checker.isJavaReference(ct.cls());
-    }
-
     static boolean isString(Type t) {
         return t instanceof ClassT ct && ct.cls().builtin && ct.cls().name.equals("string");
     }
@@ -1277,7 +1246,6 @@ public final class JvmGen {
     ClassDesc desc(Type t, Pos at) {
         try {
             return switch (t) {
-                case HandleT h when isJava(h) -> CD_Object; // the Java object itself (docs/JAVA.md §8)
                 case HandleT h when h.target() instanceof ClassT ct -> instance(ct).desc;
                 case AddrT a -> PTR; // §4.4
                 case NullT n -> CD_Object;

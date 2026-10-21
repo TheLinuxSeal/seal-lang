@@ -1,8 +1,0 @@
-package seal.java;
-
-// No public Java class by the name given, as JavaBridge.get("java.util.Nope")
-// (docs/JAVA.md §7).
-class JavaClassNotFoundException extends(JavaException)
-{
-    public new(string message) { super(message); }
-}
