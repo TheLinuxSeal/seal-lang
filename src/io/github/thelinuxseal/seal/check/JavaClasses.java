@@ -56,11 +56,13 @@ public final class JavaClasses {
      * java.lang.Object and for interfaces), interfaces, members, and, for a member class, the
      * class it is in and its own name there.
      *
-     * @param visible whether a program may name it: public (and a member class public in its
-     *                class), and for the JDK's, in a package its module exports
+     * @param visible   whether a program may name it: public (and a member class public in its
+     *                  class), and for the JDK's, in a package its module exports
+     * @param signature its generic signature, its type parameters and its parents' type arguments
+     *                  (docs/JAVA.md §4.1), or null for a class that has none
      */
     public record JClass(String name, int flags, String superName, List<String> interfaces, List<JMember> members,
-                         String outerName, String simpleName, boolean visible) {
+                         String outerName, String simpleName, boolean visible, String signature) {
 
         public boolean isInterface() {
             return (flags & INTERFACE) != 0;
@@ -78,8 +80,11 @@ public final class JavaClasses {
         }
     }
 
-    /** A method (a constructor is "<init>") or field, with its descriptor: "(I)Ljava/lang/String;", "J". */
-    public record JMember(String name, String descriptor, int flags) {
+    /**
+     * A method (a constructor is "<init>") or field, with its descriptor, "(I)Ljava/lang/String;" or
+     * "J", and its generic signature, "(TE;)Z", or null if it has none.
+     */
+    public record JMember(String name, String descriptor, int flags, String signature) {
 
         public boolean isField() {
             return !descriptor.startsWith("(");
@@ -173,10 +178,12 @@ public final class JavaClasses {
         List<String> interfaces = m.interfaces().stream().map(i -> i.asInternalName().replace('/', '.')).toList();
         List<JMember> members = new ArrayList<>();
         for (FieldModel f : m.fields()) {
-            members.add(new JMember(f.fieldName().stringValue(), f.fieldType().stringValue(), f.flags().flagsMask()));
+            members.add(new JMember(f.fieldName().stringValue(), f.fieldType().stringValue(), f.flags().flagsMask(),
+                    f.findAttribute(Attributes.signature()).map(a -> a.signature().stringValue()).orElse(null)));
         }
         for (MethodModel md : m.methods()) {
-            members.add(new JMember(md.methodName().stringValue(), md.methodType().stringValue(), md.flags().flagsMask()));
+            members.add(new JMember(md.methodName().stringValue(), md.methodType().stringValue(), md.flags().flagsMask(),
+                    md.findAttribute(Attributes.signature()).map(a -> a.signature().stringValue()).orElse(null)));
         }
         String outer = null;
         String simple = name.substring(name.lastIndexOf('.') + 1);
@@ -195,7 +202,8 @@ public final class JavaClasses {
         if (fromJdk && !exported().contains(name.substring(0, Math.max(0, name.lastIndexOf('.'))))) {
             visible = false;
         }
-        return new JClass(name, flags, superName, interfaces, List.copyOf(members), outer, simple, visible);
+        String signature = m.findAttribute(Attributes.signature()).map(a -> a.signature().stringValue()).orElse(null);
+        return new JClass(name, flags, superName, interfaces, List.copyOf(members), outer, simple, visible, signature);
     }
 
     private static byte[] jdkBytes(String binaryName) {

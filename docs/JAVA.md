@@ -1,7 +1,7 @@
 # Calling Java from Seal: design
 
-**Status:** reviewed 2026-10-20; T1 is built (§8), and §10 records what building it settled; T2,
-Java's generics, is next. Seal uses Java's classes as it uses its own:
+**Status:** reviewed 2026-10-20; T1 and T2 are built (§8), and §10 records what building them
+settled; T3, handing Seal to Java, is next. Seal uses Java's classes as it uses its own:
 `import java.util.ArrayList;`, then `new ArrayList()` and `names.add(...)`, checked while compiling
 and compiled to the JVM's own calls. Values cross between the two by hand: a Seal value goes into
 Java through the class of the Java type it becomes (`JavaInt.of(5)`, `JavaString.of("Ada")`,
@@ -145,9 +145,15 @@ class Main
   them compile to nothing, or to the conversion a Seal argument gets: `JavaInt.of` of an
   `int<<64>>` narrows, and unsigned values go by their bits. A box calls Java's `valueOf`, an
   unboxing cast `intValue()` and the rest, and arrays are copied.
-- **Java's primitive values have no operators** in Seal (proposed): a cast makes them Seal's first,
-  `(int)list.size() + 1`, and a condition wants a `bit`, `while ((bit)it.hasNext())`. They can be
-  held in variables and fields, passed and returned.
+- **Java's operators on Java's primitives** (decided on review, 2026-10-21): `a + b` on two
+  `JavaInt`s is Java's `a + b`, a `JavaInt`; Java promotes as it does (a `JavaByte + JavaByte` is a
+  `JavaInt`, a `JavaInt + JavaLong` a `JavaLong`), and so do `-`, `*`, `/`, `%`, `&`, `|`, `^`, `~`,
+  `==`, `<` and the rest, compound assignments (which narrow back, `b += c` on bytes being
+  `b = (byte)(b + c)`) and `++`. `&&`, `||`, `!` and the bitwise operators take `JavaBoolean`s. A
+  comparison is a `JavaBoolean`, so a condition still wants a cast, `if ((bit)(a < b))`, as
+  `while ((bit)it.hasNext())`. **Java's values and Seal's don't mix:** a `JavaInt + int` is an
+  error, and so is `a + 1`: `JavaInt.of(1)` makes the 1 Java's, or `(int)a` the `a` Seal's. Seal's
+  `<<<` and `**` aren't Java's, and take no Java values.
 - **Casts out:** `(int)` of a `JavaInt`, `(int<<64>>)` of a `JavaLong`, and so on; also `(int)` of a
   `JavaIntBoxed`, which unboxes: a `null` box stops the program, as a null handle does. As in Java,
   a `JavaObject` casts to the Seal type of a box's primitive (`(int)o`, `(double)o`, `(bit)o`):
@@ -173,8 +179,10 @@ class Main
   `JavaArray<JavaInt>`, `array<string>` a `JavaArray<JavaString>`), `new JavaArray(n)` is one of
   Java's defaults for Java to fill (`JavaArray<JavaByte> buffer = new JavaArray(4096);`), and a
   cast copies one out (`(array<uint<<8>>>)buffer`). Both directions copy: an `array<T>` is a unique
-  (§21.3 of the spec), which Java can't keep. Indexing a `JavaArray` in place waits until a program
-  needs it.
+  (§21.3 of the spec), which Java can't keep. In place, as Java writes them (built in T2): `a[i]` is
+  an element, read and assigned (`a[i] += x`, `a[i]++`), by an `int` or a `JavaInt`; `a.length` its
+  length, a `JavaInt`; and for-each goes over one. `new JavaArray<JavaString>(0)` names the element
+  type where nothing else does (an argument).
 
 ### 3.2 Names and imports
 
@@ -227,7 +235,7 @@ class Main
 - `try (BufferedReader r = ...)` closes a Java `AutoCloseable`, and `for (T x : xs)` goes over a
   Java `Iterable`, its elements of its type argument (T2).
 
-### 4.1 Generics (T2)
+### 4.1 Generics (T2, built)
 
 - **A Java generic takes type arguments that are objects to Java:** Java's classes, `JavaString`,
   the boxes, and Seal's classes: `ArrayList<JavaString>`, `TreeMap<JavaString, JavaIntBoxed>`,
@@ -236,13 +244,25 @@ class Main
 - **Erased, as Java's own code is:** one `java.util.ArrayList` class whatever its arguments (not
   instantiated per type, as Seal's generics are), with a `checkcast` where an erased result comes
   back.
-- **Inferred** as Seal's are: `new TreeMap()` from the variable it initializes, a generic method
-  (`Collections.max(xs)`, `List.of(...)`, Fabric's `Registry.register(...)`) from its arguments and
-  the type wanted. Wildcards are read loosely: a `List<? extends Number>` gives `Number`s, a
-  `Comparator<? super T>` takes a `Comparator<T>`. Where Seal can't decide, a compile error asks
-  for a cast or a type argument; it never guesses.
-- **Before T2,** a generic class is used raw: its type variables are their bounds (`JavaObject`,
-  mostly), so `(JavaString)names.get(JavaInt.of(0))`. Whether raw use stays after T2 is §10.
+- **Inferred** as Java infers them: `new TreeMap()` from the variable it initializes, also through
+  a parent (`List<JavaString> l = new ArrayList()` makes an `ArrayList<JavaString>`, as Java's
+  `new ArrayList<>()`); a generic method's (`Collections.max(xs)`, `List.of(...)`, Fabric's
+  `Registry.register(...)`) from its arguments, then from the type wanted (`List<JavaString> l =
+  List.of()`), or given: `Collections.<JavaString>emptyList()`. Two arguments of different
+  classes make a `JavaObject`; one no argument decides is what it erases to.
+- **Wildcards** are Java's own: a type argument that is `? extends X` takes X and below, `? super X`
+  X and above (`addAll(Collection<? extends E>)` takes an `ArrayList<JavaString>` for a `List<JavaString>`).
+  Where a member's type is a wildcard, Seal reads it loosely: a `List<? extends Number>`'s element
+  is a `Number`, and its parameter takes one (where Java would take nothing but `null`); the JVM's
+  casts check what Java's own code doesn't.
+- **Raw types stay,** as Java has them (settled in T2): a generic class without its arguments
+  (`ArrayList`), whose type variables are their erasures (`JavaObject`, mostly) and whose parents
+  are raw too; it goes where a parameterized one is wanted, and back, unchecked, as in Java.
+- **For-each** goes over a Java `Iterable`, its elements of its type argument, and over a Java
+  array; **try-with-resources** closes a Java `AutoCloseable`, adding what its `close()` throws to
+  what is already on its way, as Java's does.
+- Bounds aren't checked (`Collections.sort` of a list of something not `Comparable`): the JVM's
+  cast finds it while the program runs.
 
 ## 5. Handing Seal to Java (T3, T4)
 
@@ -327,7 +347,7 @@ source beside Seal's for this, are set aside.
 | **R2**, **done** | §0: the library moves into packages | the suites pass with the library in packages |
 | **B1**, **B2**, **removed** | the string bridge: `JavaBridge`, `JavaObject.invoke`, Java's exceptions as `JavaThrownException`s, arrays copied; built 2026-10-19, removed 2026-10-20 for this design. Kept: `--classpath`, and what building it settled (§10) | |
 | **T1**, **done** | the class-path reader; Java's classes without generics (raw, §4.1): imports, constructors, methods, fields, statics, enum constants, overloads, varargs; `seal.java`'s types (the primitives, `JavaString`, the boxes, `JavaObject`, `JavaArray`) with their `of`s and casts; `instanceof`; Java's exceptions caught and thrown | a program using `java.time`, `java.util.Random`, `java.util.regex` and `java.nio.file` prints what the same Java program prints (`JavaInteropTest`, which compiles the Java program and compares); `examples/21-java` |
-| **T2** | Java's generics: type arguments, erasure and casts, inference, wildcards; for-each over an `Iterable`; `try` closing an `AutoCloseable` | a word count in a `TreeMap<JavaString, JavaIntBoxed>` |
+| **T2**, **done** | Java's generics: type arguments, erasure and casts, inference, wildcards; for-each over an `Iterable`; `try` closing an `AutoCloseable`. With it: Java's operators on Java's primitives, and Java arrays' elements in place | a word count in a `TreeMap<JavaString, JavaIntBoxed>` (`JavaInteropTest`) |
 | **T3** | Seal lambdas as Java's functional interfaces; Seal classes implementing Java interfaces, with bridges; Seal objects' `equals`, `hashCode` and `toString` | a Java `Thread` runs Seal code, a Seal `Comparator` sorts a Java list, a Java `HashMap` holds Seal keys |
 | **T4** | Seal classes extending Java classes: constructors, overrides, bridges, protected members | a Seal class extends a class from the test's jar, and its Java code calls the Seal overrides |
 | **T5** (rest of M6) | jars from `seal build`, the class-file target (Java 21, for Minecraft), then a Fabric mod: a Seal `ModInitializer` registering a block | the mod loads in a Fabric development run |
@@ -381,8 +401,9 @@ Settled while building the bridge, and kept:
 Proposed, and built so in T1 (to revisit on review):
 
 9. **No automatic boxing in overloads** (§4): a `JavaInt` never goes where an `Integer` is wanted.
-10. **Java's primitive values have no operators** in Seal (§3.1); a cast makes them Seal's. A
-    `switch` on one, and a condition that is a `JavaBoolean`, say which cast.
+10. **Superseded on review** (2026-10-21): Java's primitives have Java's operators, and Java's
+    values and Seal's don't mix (§3.1, item 20). A `switch` on one, and a condition that is a
+    `JavaBoolean`, still say which cast.
 11. **`java.lang.Object`, `String` and the boxes have one name each,** `seal.java`'s; importing them
     by Java's name is an error that names it, and `import java.lang.*;` doesn't bring them (§3.2).
 12. **A name a Java `*` import shares with `seal.lang`** is ambiguous where used (§3.2).
@@ -405,9 +426,20 @@ Settled while building T1:
     `JavaArray.of([1.5, 2.5])` takes the `array<double>`, as `1.5` is a `double` (a Seal rule, which
     the checker had for fixed arrays only).
 
+Settled while building T2:
+
+18. **Raw generic types stay,** as Java's (§4.1): T1's programs still compile, and a raw type goes
+    where a parameterized one is wanted, unchecked.
+19. **A `catch` of Java's `Throwable`, `Exception` or `RuntimeException`** doesn't catch a Seal
+    trap or `System.exit`. What the JVM raises at Seal's own code (a null handle, division by zero)
+    is a Java exception like any other, though, and such a `catch` does catch it.
+
+Decided on review:
+
+20. **Java's operators on Java's primitives** (2026-10-21): `JavaInt + JavaInt` is Java's, but
+    `JavaInt + int` isn't allowed, nor `JavaInt + 1`; a condition still wants `(bit)` (§3.1).
+
 Still to decide:
 
-18. **Raw generic types after T2:** still allowed, as Java allows them, or an error once type
-    arguments work (T2).
-19. **Handing Seal to Java through the compiler** (§5), rather than B2's `Proxy` plan or Java source
+21. **Handing Seal to Java through the compiler** (§5), rather than B2's `Proxy` plan or Java source
     beside Seal's: proposed, for T3.

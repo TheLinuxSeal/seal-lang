@@ -63,7 +63,8 @@ Point[x=3, y=9]  is 9.49 from the origin
   integers), `seal.util.function` and `seal.io` (files).
 - **Java's own classes,** imported and used as Seal's are: `import java.time.LocalDate;`, then
   `LocalDate.of(JavaInt.of(2026), JavaInt.of(1), JavaInt.of(1))`, checked while compiling and called
-  as the JVM calls them, with overloads chosen as Java chooses them. Values cross by hand, through
+  as the JVM calls them, with overloads chosen as Java chooses them, and generics
+  (`TreeMap<JavaString, JavaIntBoxed>`). Values cross by hand, through
   `seal.java`'s `JavaInt.of`, `JavaString.of` and casts; jars come from `--classpath`
   ([`docs/JAVA.md`](docs/JAVA.md)).
 

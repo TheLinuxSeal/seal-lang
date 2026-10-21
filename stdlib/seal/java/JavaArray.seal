@@ -1,12 +1,15 @@
 package seal.java;
 
 // Java's arrays (docs/JAVA.md §3.1): JavaArray<JavaByte> is a byte[], JavaArray<JavaString> a
-// String[]. JavaArray.of(xs) copies a Seal array into a new Java one; new JavaArray(n) is one of n
+// String[]. a[i] is an element, read and assigned in place, and a.length its length, a JavaInt, as
+// Java writes them. JavaArray.of(xs) copies a Seal array into a new Java one; new JavaArray(n) is one of n
 // of Java's defaults (0, false, null), for Java to fill: JavaArray<JavaByte> buffer = new JavaArray(4096);
 // and a cast copies one out into a new Seal array: (array<uint<<8>>>)buffer. Both directions copy,
 // as an array<T> is a unique, which Java can't keep.
 class JavaArray<T> extends(JavaObject)
 {
+    public JavaInt length;
+
     @jvm("JavaValues.bytesIn") public static JavaArray<JavaByte> of(array<int<<8>>> xs);
     @jvm("JavaValues.bytesIn") public static JavaArray<JavaByte> of(array<uint<<8>>> xs);
     @jvm("JavaValues.shortsIn") public static JavaArray<JavaShort> of(array<int<<16>>> xs);

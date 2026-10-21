@@ -207,7 +207,7 @@ public final class Checker {
      * object's type, or the class written before a static method's name), and, for a call through
      * varargs, how many arguments come before those put in the array (-1 for none).
      */
-    public record JavaCall(ClassInfo qualifier, int varargsFrom) {
+    public record JavaCall(ClassT qualifier, int varargsFrom) {
     }
 
     /**
@@ -645,6 +645,8 @@ public final class Checker {
     private final Set<String> notJava = new HashSet<>();
     /** The class-file member each of a Java class's members was made from. */
     private final Map<Member, JavaClasses.JMember> javaMembers = new IdentityHashMap<>();
+    /** What each type parameter of a Java class (by its header) or a Java method erases to (docs/JAVA.md §4.1). */
+    private final Map<Object, Map<String, TypeRef>> javaErasures = new IdentityHashMap<>();
     /** The class each member is declared in, as found. */
     private final Map<MemberInfo, ClassInfo> declaringCache = new IdentityHashMap<>();
     private final Set<Diagnostic> diagnostics = new LinkedHashSet<>();
@@ -1070,15 +1072,38 @@ public final class Checker {
         }
     }
 
-    /** A Java class's members, as declarations made from its class file: its public ones, of their erased types. */
+    /**
+     * A Java class's members, as declarations made from its class file: its public ones, of their
+     * generic types where it has their signatures (docs/JAVA.md §4.1), of their erased types where
+     * it has none; and its type parameters, with what each erases to.
+     */
     private ClassDecl javaDecl(JavaClasses.JClass jc, String name) {
         Pos p = new Pos(0, 0);
         boolean itf = jc.isInterface();
-        List<ExtendsClause> ext = jc.superName() == null ? List.of()
-                : List.of(new ExtendsClause(p, null, javaRef(jc.superName())));
-        List<TypeRef> itfs = jc.interfaces().stream().map(this::javaRef).toList();
+        java.lang.classfile.ClassSignature cs = null;
+        if (jc.signature() != null) {
+            try {
+                cs = java.lang.classfile.ClassSignature.parseFrom(jc.signature());
+            } catch (IllegalArgumentException e) {
+                cs = null; // a signature the JDK's parser can't read: the class as erased
+            }
+        }
+        List<ExtendsClause> ext;
+        List<TypeRef> itfs;
+        List<String> typeParams = List.of();
+        if (cs != null) {
+            typeParams = cs.typeParameters().stream().map(java.lang.classfile.Signature.TypeParam::identifier).toList();
+            ext = jc.superName() == null ? List.of() : List.of(new ExtendsClause(p, null, sigRef(cs.superclassSignature())));
+            itfs = cs.superinterfaceSignatures().stream().map(this::sigRef).toList();
+        } else {
+            ext = jc.superName() == null ? List.of() : List.of(new ExtendsClause(p, null, javaRef(jc.superName())));
+            itfs = jc.interfaces().stream().map(this::javaRef).toList();
+        }
         ClassHeader h = new ClassHeader(p, itf ? Kind.INTERFACE : Kind.CLASS,
-                !itf && (jc.flags() & JavaClasses.ABSTRACT) != 0, name, List.of(), null, ext, itfs);
+                !itf && (jc.flags() & JavaClasses.ABSTRACT) != 0, name, typeParams, null, ext, itfs);
+        if (cs != null) {
+            javaErasures.put(h, erasures(cs.typeParameters()));
+        }
         List<Member> members = new ArrayList<>();
         for (JavaClasses.JMember m : jc.members()) {
             if ((m.flags() & JavaClasses.PUBLIC) == 0 || (m.flags() & (JavaClasses.SYNTHETIC | JavaClasses.BRIDGE)) != 0
@@ -1090,7 +1115,15 @@ public final class Checker {
             int[] at = {0};
             Member made;
             if (m.isField()) {
-                made = new Field(p, mods, javaRef(m.descriptor(), at), m.name(), null, null);
+                TypeRef type = null;
+                if (m.signature() != null) {
+                    try {
+                        type = sigRef(java.lang.classfile.Signature.parseFrom(m.signature()));
+                    } catch (IllegalArgumentException e) {
+                        type = null;
+                    }
+                }
+                made = new Field(p, mods, type != null ? type : javaRef(m.descriptor(), at), m.name(), null, null);
             } else {
                 at[0] = 1;
                 List<Param> params = new ArrayList<>();
@@ -1099,13 +1132,84 @@ public final class Checker {
                 }
                 at[0]++;
                 TypeRef ret = javaRef(m.descriptor(), at);
-                made = m.isConstructor() ? new Constructor(p, mods, null, params, null)
-                        : new Method(p, mods, List.of(), ret, m.name(), null, params, null);
+                List<String> methodTypeParams = List.of();
+                Map<String, TypeRef> methodErasures = Map.of();
+                java.lang.classfile.MethodSignature ms = null;
+                if (m.signature() != null) {
+                    try {
+                        ms = java.lang.classfile.MethodSignature.parseFrom(m.signature());
+                    } catch (IllegalArgumentException e) {
+                        ms = null;
+                    }
+                }
+                // An enum's or an inner class's constructor has parameters its signature leaves out: as erased, then.
+                if (ms != null && ms.arguments().size() == params.size()) {
+                    for (int i = 0; i < params.size(); i++) {
+                        params.set(i, new Param(p, sigRef(ms.arguments().get(i)), "p" + i));
+                    }
+                    ret = sigRef(ms.result());
+                    methodTypeParams = ms.typeParameters().stream().map(java.lang.classfile.Signature.TypeParam::identifier).toList();
+                    methodErasures = erasures(ms.typeParameters());
+                }
+                if (m.isConstructor()) {
+                    made = new Constructor(p, mods, null, params, null);
+                } else {
+                    made = new Method(p, mods, methodTypeParams, ret, m.name(), null, params, null);
+                    if (!methodTypeParams.isEmpty()) {
+                        javaErasures.put(made, methodErasures);
+                    }
+                }
             }
             javaMembers.put(made, m);
             members.add(made);
         }
         return new ClassDecl(p, List.of(h), members);
+    }
+
+    /** What each type parameter erases to: its class bound, or else its first interface bound, as a raw type. */
+    private Map<String, TypeRef> erasures(List<java.lang.classfile.Signature.TypeParam> params) {
+        Map<String, TypeRef> out = new LinkedHashMap<>();
+        for (java.lang.classfile.Signature.TypeParam tp : params) {
+            java.lang.classfile.Signature.RefTypeSig bound = tp.classBound().orElse(
+                    tp.interfaceBounds().isEmpty() ? null : tp.interfaceBounds().get(0));
+            out.put(tp.identifier(), bound instanceof java.lang.classfile.Signature.ClassTypeSig c ? javaRef(classBinary(c))
+                    : bound instanceof java.lang.classfile.Signature.TypeVarSig v && out.containsKey(v.identifier())
+                    ? out.get(v.identifier()) : javaRef("java.lang.Object"));
+        }
+        return out;
+    }
+
+    /** The Seal type of a Java type from a generic signature: a class with its type arguments, a type variable, a wildcard. */
+    private TypeRef sigRef(java.lang.classfile.Signature s) {
+        Pos p = new Pos(0, 0);
+        return switch (s) {
+            case java.lang.classfile.Signature.BaseTypeSig b -> b.baseType() == 'V'
+                    ? new TypeRef(p, "void", List.of(), null, List.of())
+                    : new TypeRef(p, "seal.java." + new JavaPrimT(b.baseType()), List.of(), null, List.of());
+            case java.lang.classfile.Signature.TypeVarSig v -> new TypeRef(p, v.identifier(), List.of(), null, List.of());
+            case java.lang.classfile.Signature.ArrayTypeSig a ->
+                    new TypeRef(p, "seal.java.JavaArray", List.of(sigRef(a.componentSignature())), null, List.of());
+            case java.lang.classfile.Signature.ClassTypeSig c -> new TypeRef(p, javaRef(classBinary(c)).name(),
+                    c.typeArgs().stream().map(this::argRef).toList(), null, List.of());
+        };
+    }
+
+    /** A class in a signature by its binary name: java.util.Map$Entry for Map's Entry. */
+    private static String classBinary(java.lang.classfile.Signature.ClassTypeSig c) {
+        return c.outerType().map(o -> classBinary(o) + "$" + c.className()).orElse(c.className().replace('/', '.'));
+    }
+
+    /** A type argument: a type, or a wildcard, written ?, ?extends or ?super, which only Java's types have. */
+    private TypeRef argRef(java.lang.classfile.Signature.TypeArg a) {
+        Pos p = new Pos(0, 0);
+        if (!(a instanceof java.lang.classfile.Signature.TypeArg.Bounded b)) {
+            return new TypeRef(p, "?", List.of(), null, List.of());
+        }
+        return switch (b.wildcardIndicator()) {
+            case NONE -> sigRef(b.boundType());
+            case EXTENDS -> new TypeRef(p, "?extends", List.of(sigRef(b.boundType())), null, List.of());
+            case SUPER -> new TypeRef(p, "?super", List.of(sigRef(b.boundType())), null, List.of());
+        };
     }
 
     /** The Seal type of the Java type a descriptor names from {@code at[0]}, which moves past it. */
@@ -1129,6 +1233,41 @@ public final class Checker {
     private TypeRef javaRef(String binary) {
         String seal = javaSealName(binary);
         return new TypeRef(new Pos(0, 0), seal != null ? "seal.java." + seal : binary, List.of(), null, List.of());
+    }
+
+    /**
+     * Why a type can't be a Java generic's type argument, or null if it can: Java's generics hold
+     * objects (docs/JAVA.md §4.1), Java's and Seal's classes', not Java's primitives or Seal's values.
+     */
+    private String javaTypeArgument(Type t) {
+        if (t instanceof HandleT || t instanceof ParamT || t instanceof WildT || t.isError()) {
+            return null;
+        }
+        if (t instanceof JavaPrimT j) {
+            return "Java's generics hold objects, so a type argument is " + j + "Boxed (an " + boxName(j) + "), not " + j;
+        }
+        String of = javaOf(t);
+        if (of != null && of.startsWith("JavaString")) {
+            return "Java's generics hold Java's objects, so Seal's " + t + " is JavaString here";
+        }
+        JavaPrimT twin = unboxedAs(t);
+        return "Java's generics hold objects, so a type argument is one of Java's classes or Seal's, not " + t
+                + (twin != null ? "; Java's box of it is " + twin + "Boxed" : "");
+    }
+
+    /** java.lang.Integer for JavaInt. */
+    private static String boxName(JavaPrimT j) {
+        return switch (j.code()) {
+            case 'I' -> "Integer";
+            case 'C' -> "Character";
+            default -> Character.toUpperCase(j.javaName().charAt(0)) + j.javaName().substring(1);
+        };
+    }
+
+    /** seal.java's JavaObject as a value's type: java.lang.Object. */
+    private Type javaObjectHandle() {
+        ClassInfo o = classes.get("seal.java.JavaObject");
+        return o == null ? Type.ERROR : new HandleT(new ClassT(o, List.of(), List.of(), 0));
     }
 
     /** A Java class's one shape and its members, as declareHeaders and declareMembers give a Seal class's. */
@@ -2191,6 +2330,10 @@ public final class Checker {
         for (int i = 0; i < c.typeParams.size() && i < owner.typeArgs().size(); i++) {
             env.typeVars.put(c.typeParams.get(i), owner.typeArgs().get(i));
         }
+        if (c.java != null && owner.typeArgs().isEmpty() && javaErasures.get(c.decl.headers().get(0)) instanceof Map<String, TypeRef> erased) {
+            // A raw Java type (docs/JAVA.md §4.1): each type variable is what it erases to.
+            erased.forEach((name, ref) -> env.typeVars.put(name, quietly(() -> resolveType(ref, Env.empty(c), Opts.PLAIN))));
+        }
         if (owner.header() < 0 || owner.header() >= c.shapes.size()) {
             return env;
         }
@@ -2423,6 +2566,14 @@ public final class Checker {
                 }
                 return target.isError() ? target : new AddrT(target);
             }
+            case "?", "?extends", "?super": {
+                if (env.cls != null && env.cls.java != null) {
+                    // A wildcard of a Java signature (docs/JAVA.md §4.1); no program writes one.
+                    Type bound = n.equals("?") ? javaObjectHandle() : resolveType(ref.typeArgs().get(0), env, o.inner(false));
+                    return bound.isError() ? bound : new WildT(bound, n.equals("?") ? 0 : n.equals("?extends") ? 1 : 2);
+                }
+                break;
+            }
             case "handle": {
                 noValueArgs(ref);
                 if (ref.typeArgs().size() != 1) {
@@ -2484,7 +2635,8 @@ public final class Checker {
             return Type.ERROR;
         }
 
-        if (ref.typeArgs().size() != c.typeParams.size()) {
+        boolean raw = c.java != null && ref.typeArgs().isEmpty(); // a Java generic without its arguments, as Java allows
+        if (ref.typeArgs().size() != c.typeParams.size() && !raw) {
             report(ref.pos(), c.name + " takes " + c.typeParams.size() + " type argument"
                     + (c.typeParams.size() == 1 ? "" : "s") + ", not " + ref.typeArgs().size());
             return Type.ERROR;
@@ -2500,6 +2652,15 @@ public final class Checker {
         }
         if (targs.stream().anyMatch(Type::isError)) {
             return Type.ERROR;
+        }
+        if (c.java != null && (env.cls == null || env.cls.java == null)) {
+            for (int i = 0; i < targs.size(); i++) {
+                String why = javaTypeArgument(targs.get(i));
+                if (why != null) {
+                    report(ref.typeArgs().get(i).pos(), why);
+                    return Type.ERROR;
+                }
+            }
         }
         if (isJavaArray(c) && !isJavaValue(targs.get(0)) && !(targs.get(0) instanceof ParamT)) {
             report(ref.pos(), "JavaArray<T> is Java's T[], so T is one of Java's types (JavaByte, JavaString, java.time.LocalDate),"
@@ -3288,7 +3449,7 @@ public final class Checker {
 
     /** A generic class's fields with the actual type arguments, as Box<File>: none may have a destructor (§26). */
     private void validateClassInstance(ClassT t, Pos use) {
-        if (t.typeArgs().isEmpty() || !isConcrete(t) || !validated.add(t)) {
+        if (t.typeArgs().isEmpty() || isJavaType(t.cls()) || !isConcrete(t) || !validated.add(t)) {
             return;
         }
         for (MemberInfo m : t.cls().storedFields(t.header())) {
@@ -3364,6 +3525,9 @@ public final class Checker {
             if (p instanceof ClassT pc && isJavaType(pc.cls()) && !isJavaType(c)) {
                 return objectType(); // a Seal class can't extend a Java one yet (reported, docs/JAVA.md §5)
             }
+            if (p instanceof ClassT pc && isRawJava(t) && pc.cls().java != null) {
+                return new ClassT(pc.cls(), List.of(), List.of(), 0); // a raw type's parent is raw, as in Java
+            }
             return p instanceof ClassT pc && pc.cls().dynamic && !pc.cls().isInterface ? pc : null;
         } finally {
             file = saved;
@@ -3400,7 +3564,7 @@ public final class Checker {
         }
         ClassT t = sub;
         for (int i = 0; t != null && i < MAX_INSTANTIATION_DEPTH; i++) {
-            if (t.equals(sup) || (sup.cls().isInterface && implementsInterface(t, sup, 0))) {
+            if (sameInstance(t, sup) || (sup.cls().isInterface && implementsInterface(t, sup, 0))) {
                 return true;
             }
             t = parentOf(t);
@@ -3413,11 +3577,65 @@ public final class Checker {
             return false; // a cycle, reported elsewhere
         }
         for (ClassT i : interfacesOf(t)) {
-            if (i.equals(itf) || implementsInterface(i, itf, depth + 1)) {
+            if (sameInstance(i, itf) || implementsInterface(i, itf, depth + 1)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** A Java generic without its type arguments: ArrayList where an ArrayList<JavaString> would say them. */
+    private static boolean isRawJava(ClassT t) {
+        return t.cls().java != null && t.typeArgs().isEmpty() && !t.cls().typeParams.isEmpty();
+    }
+
+    /**
+     * Whether {@code t} is {@code sup}: the same type, or for one of Java's generics, the same class
+     * with arguments sup's take, as Java's wildcards do (List<JavaString> is a List<? extends
+     * JavaObject>); a raw one is any of its class, unchecked, as in Java (docs/JAVA.md §4.1).
+     */
+    private boolean sameInstance(ClassT t, ClassT sup) {
+        if (t.equals(sup)) {
+            return true;
+        }
+        if (t.cls() != sup.cls() || t.cls().java == null) {
+            return false;
+        }
+        if (t.typeArgs().isEmpty() || sup.typeArgs().isEmpty()) {
+            return true;
+        }
+        for (int i = 0; i < t.typeArgs().size() && i < sup.typeArgs().size(); i++) {
+            if (!contains(sup.typeArgs().get(i), t.typeArgs().get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Whether a type argument fits where another is wanted: the same type, or one the wanted wildcard takes. */
+    private boolean contains(Type wanted, Type arg) {
+        if (wanted.equals(arg)) {
+            return true;
+        }
+        if (!(wanted instanceof WildT w)) {
+            return false;
+        }
+        Type a = arg instanceof WildT aw ? aw.bound() : arg;
+        int kind = arg instanceof WildT aw ? aw.kind() : -1;
+        return switch (w.kind()) {
+            case 0 -> true;
+            case 1 -> kind != 2 && refSubtype(a, w.bound());
+            default -> (kind == -1 || kind == 2) && refSubtype(w.bound(), a);
+        };
+    }
+
+    /** Whether a reference type is another, or below it; any reference is below JavaObject, as a type argument. */
+    private boolean refSubtype(Type a, Type b) {
+        if (a.equals(b) || a instanceof NullT || (b instanceof HandleT bh && bh.target() instanceof ClassT bc && isJavaObject(bc.cls()))) {
+            return true;
+        }
+        return a instanceof HandleT ah && ah.target() instanceof ClassT ac && b instanceof HandleT bh && bh.target() instanceof ClassT bc
+                && isSubclass(ac, bc);
     }
 
     /**
@@ -3441,7 +3659,8 @@ public final class Checker {
             for (TypeRef r : refs) {
                 Type it = quietly(() -> resolveType(r, env, new Opts(false, true, false, null)));
                 if (it instanceof ClassT ic && ic.cls().isInterface && (isJavaType(c) || !isJavaType(ic.cls()))) {
-                    out.add(ic); // a Seal class can't implement a Java interface yet (reported, docs/JAVA.md §5)
+                    // A Seal class can't implement a Java interface yet (reported, docs/JAVA.md §5); a raw type's are raw.
+                    out.add(isRawJava(t) && ic.cls().java != null ? new ClassT(ic.cls(), List.of(), List.of(), 0) : ic);
                 }
             }
             return out;
@@ -3922,6 +4141,8 @@ public final class Checker {
         final Map<Expr, Expr> rewritten = new IdentityHashMap<>();
         final Map<IncDec, Assign> elementSteps = new IdentityHashMap<>();
         final Map<Expr, JavaCall> javaCalls = new IdentityHashMap<>();
+        /** The type each call's value goes to, where one is wanted. */
+        final Map<Call, Type> callExpected = new IdentityHashMap<>();
         /** Compound assignments computed in a wider type and narrowed back: i += 2.5 (§41.6). */
         final Map<Assign, Type> narrowed = new IdentityHashMap<>();
         /**
@@ -4322,10 +4543,10 @@ public final class Checker {
         if (t.isError()) {
             return null;
         }
-        if (isJavaValue(t)) {
-            report(items.pos(), "for-each over Java's " + (t instanceof HandleT h && h.target() instanceof ClassT ct ? ct.cls().name : t)
-                    + " comes with Java's generics, a later step (docs/JAVA.md §4.1);"
-                    + " until then, go through its iterator: while ((bit)it.hasNext()) { ... it.next() ... }");
+        ClassInfo iterable = isJavaValue(t) && javaElement(t) == null ? javaClass("java.lang.Iterable") : null;
+        if (iterable != null && !(t instanceof HandleT h && h.target() instanceof ClassT ct && asSuper(ct, iterable) != null)) {
+            report(items.pos(), "for-each goes over a Java Iterable or array, not " + (t instanceof HandleT h
+                    && h.target() instanceof ClassT ct ? ct.cls().name : t));
             return null;
         }
         boolean simple = isSimplePath(items);
@@ -4334,6 +4555,22 @@ public final class Checker {
         List<Stmt> out = new ArrayList<>();
         if (!simple) {
             out.add(new VarDecl(p, null, hidden, items)); // evaluated once
+        }
+        if (javaElement(t) != null) {
+            // Over a Java array: an index loop to its length, a JavaInt.
+            out.add(indexLoop(fe, source, new Cast(p, new TypeRef(p, "int", List.of(), null, List.of()),
+                    new Select(p, source, "length")), ""));
+            return new Block(p, out);
+        }
+        if (iterable != null) {
+            // Over a Java Iterable (docs/JAVA.md §4.1): its iterator, whose hasNext() is a JavaBoolean.
+            String it = "$iterator" + (++hiddenNames);
+            out.add(new VarDecl(p, null, it, call(p, source, "iterator")));
+            Block body = new Block(p, List.of(new VarDecl(p, fe.type(), fe.name(), call(p, new Name(p, it), "next")),
+                    fe.body()));
+            out.add(new While(p, new Cast(p, new TypeRef(p, "bit", List.of(), null, List.of()), call(p, new Name(p, it), "hasNext")),
+                    body));
+            return new Block(p, out);
         }
         switch (t) {
             case ArrayT at -> {
@@ -4406,7 +4643,9 @@ public final class Checker {
         }
         Block inner = tr.body();
         for (int i = tr.resources().size() - 1; i >= 0; i--) {
-            inner = closing(tr.resources().get(i), inner, closable);
+            VarDecl r = tr.resources().get(i);
+            boolean java = isJavaValue(quietly(() -> resolveType(r.type(), b.env, Opts.PLAIN)));
+            inner = closing(r, inner, closable, java);
         }
         if (tr.catches().isEmpty() && tr.finallyBlock() == null) {
             return inner;
@@ -4419,12 +4658,14 @@ public final class Checker {
      * try { body } catch (Exception $thrown) { $primary = $thrown; throw $thrown; }
      * finally { if (r != null) { if ($primary != null) { try { r.close(); } catch (Exception $later) { $primary.addSuppressed($later); } } else { r.close(); } } }
      */
-    private Block closing(VarDecl r, Block body, boolean closable) {
+    private Block closing(VarDecl r, Block body, boolean closable, boolean java) {
         Pos p = r.pos();
         String primary = "$primary" + (++hiddenNames);
         String thrown = "$thrown" + (++hiddenNames);
         String later = "$suppressed" + (++hiddenNames);
-        java.util.function.Supplier<TypeRef> exception = () -> new TypeRef(p, "Exception", List.of(), null, List.of());
+        // A Java resource's close() may throw any of Java's exceptions, as its body may (docs/JAVA.md §4.1).
+        java.util.function.Supplier<TypeRef> exception = () -> new TypeRef(p, java ? "java.lang.Throwable" : "Exception",
+                List.of(), null, List.of());
         java.util.function.Supplier<Block> close = () -> new Block(p, List.of(new ExprStmt(p, call(p, new Name(p, r.name()), "close"))));
         List<Stmt> fin = List.of();
         if (closable) {
@@ -5140,7 +5381,7 @@ public final class Checker {
                     : isJavaValue(to) && !isJavaValue(from) && javaOf(from) != null
                     ? "; Seal's " + from + " goes into Java by " + javaOf(from) + "(...) (docs/JAVA.md §3.1)"
                     : isJavaValue(from) && !isJavaValue(to) && !(to instanceof HandleT) ? "; a cast takes a Java value out: (" + to + ")x"
-                    : isJavaValue(from) && to instanceof HandleT th && th.target() instanceof ClassT tc
+                    : isJavaValue(from) && to instanceof HandleT th && th.target() instanceof ClassT tc && !isJavaType(tc.cls())
                     ? "; Java's objects aren't Seal's; a Seal object that went into Java comes back by a cast from a JavaObject,"
                     + " as (" + tc.cls().name + ")o (docs/JAVA.md §3.1)" : "";
             report(pos, what + ": expected " + to + ", found " + from + hint);
@@ -5181,7 +5422,12 @@ public final class Checker {
                 yield b.self.cls().dynamic ? new HandleT(b.self) : b.self; // a class: a handle; a struct: the value
             }
             case Select s -> checkSelect(b, s);
-            case Call c -> checkCall(b, c);
+            case Call c -> {
+                if (expected != null) {
+                    b.callExpected.put(c, expected); // a Java generic method's type arguments may come from it (docs/JAVA.md §4.1)
+                }
+                yield checkCall(b, c);
+            }
             case Index i -> checkIndex(b, i);
             case Slice s -> checkSlice(b, s);
             case Unary u -> checkUnary(b, u);
@@ -5768,17 +6014,18 @@ public final class Checker {
             }
         }
         if (isJavaType(cls)) {
-            MemberInfo f = javaField(cls, s.name(), staticAccess);
+            JavaFound f = javaField(cls, owner, s.name(), staticAccess);
             if (f == null) {
-                boolean method = !javaMethods(cls, s.name(), staticAccess).isEmpty();
+                boolean method = !javaMethods(cls, owner, s.name(), staticAccess, null).isEmpty();
                 report(s.pos(), method ? "method " + s.name() + " must be called: " + s.name() + "(...)"
                         : javaName(cls) + " has no " + (staticAccess ? "static " : "") + "field " + s.name()
-                        + (staticAccess && javaField(cls, s.name(), false) != null ? "; it is an instance field, of an object" : ""));
+                        + (staticAccess && javaField(cls, null, s.name(), false) != null ? "; it is an instance field, of an object" : ""));
                 return Type.ERROR;
             }
-            b.selected.put(s, f);
-            b.owners.put(s, f.member.modifiers().isStatic() ? null : owner);
-            return memberFieldType(f.member.modifiers().isStatic() ? null : owner, f, b.cls, (Field) f.member);
+            boolean isStatic = f.m().member.modifiers().isStatic();
+            b.selected.put(s, f.m());
+            b.owners.put(s, isStatic ? null : f.owner());
+            return javaCaptured(memberFieldType(isStatic ? null : f.owner(), f.m(), b.cls, (Field) f.m().member), true);
         }
         Found found = findMembers(b, owner, cls, s.name(), s.pos(), staticAccess);
         if (found == null) {
@@ -5884,18 +6131,22 @@ public final class Checker {
 
     private Type resolveCallOverload(Body b, Call c, Candidates cands, List<Type> argTypes) {
         if (cands.methods.stream().allMatch(m -> javaMembers.containsKey(m.member))) {
-            return resolveJava(b, cands.name, cands.owner, cands.qualifier, cands.methods, argTypes, c.pos(), c);
+            return resolveJava(b, cands.name, cands.owner, cands.qualifier, cands.methods,
+                    cands.javaOwners == null ? Map.of() : cands.javaOwners, argTypes, c.pos(), c);
         }
         List<MemberInfo> seal = cands.methods.stream().filter(m -> !javaMembers.containsKey(m.member)).toList();
         return resolveOverload(b, cands.name, cands.owner, seal, argTypes, c.pos(), cands.staticAccess,
                 c, cands.viaSuper ? CallKind.SUPER_METHOD : CallKind.METHOD);
     }
 
-    /** @param qualifier for a method of a Java class, the class the call goes through (docs/JAVA.md §4) */
+    /**
+     * @param qualifier  for a method of a Java class, the type the call goes through (docs/JAVA.md §4)
+     * @param javaOwners for those, the type each is found in, as the call's object sees it
+     */
     private record Candidates(String name, ClassT owner, List<MemberInfo> methods, boolean staticAccess,
-                              boolean viaSuper, ClassInfo qualifier) {
+                              boolean viaSuper, ClassT qualifier, Map<MemberInfo, ClassT> javaOwners) {
         Candidates(String name, ClassT owner, List<MemberInfo> methods, boolean staticAccess, boolean viaSuper) {
-            this(name, owner, methods, staticAccess, viaSuper, null);
+            this(name, owner, methods, staticAccess, viaSuper, null, null);
         }
     }
 
@@ -5979,13 +6230,15 @@ public final class Checker {
                     }
                 }
                 if (isJavaType(cls)) {
-                    List<MemberInfo> methods = javaMethods(cls, s.name(), staticAccess);
+                    Map<MemberInfo, ClassT> owners = new IdentityHashMap<>();
+                    List<MemberInfo> methods = javaMethods(cls, owner, s.name(), staticAccess, owners);
                     if (methods.isEmpty()) {
                         report(s.pos(), javaName(cls) + " has no " + (staticAccess ? "static " : "") + "method " + s.name()
                                 + javaNoMethod(cls, s.name(), staticAccess));
                         return null;
                     }
-                    return new Candidates(s.name(), owner, methods, staticAccess, false, cls);
+                    return new Candidates(s.name(), owner, methods, staticAccess, false,
+                            owner != null ? owner : new ClassT(cls, List.of(), List.of(), 0), owners);
                 }
                 Found f = findMembers(b, owner, cls, s.name(), s.pos(), staticAccess);
                 if (f == null) {
@@ -6021,18 +6274,15 @@ public final class Checker {
      * The methods of this name that a Java type has, as Java finds them: its own and those it
      * inherits from its parent and interfaces, each once (the lowest declaration of a signature);
      * java.lang.Object's for an interface; and seal.java's own, as JavaString's `of`. An interface's
-     * static methods are called through it alone, as in Java.
+     * static methods are called through it alone, as in Java. Into {@code owners}, if given, goes
+     * the type each is found in, as {@code owner} sees it: Collection<JavaString> for an
+     * ArrayList<JavaString>'s addAll (docs/JAVA.md §4.1).
      */
-    private List<MemberInfo> javaMethods(ClassInfo cls, String name, boolean staticOnly) {
+    private List<MemberInfo> javaMethods(ClassInfo cls, ClassT owner, String name, boolean staticOnly,
+                                         Map<MemberInfo, ClassT> owners) {
         List<MemberInfo> out = new ArrayList<>();
         Set<String> signatures = new HashSet<>();
-        Deque<ClassInfo> todo = new ArrayDeque<>(List.of(cls));
-        Set<ClassInfo> seen = new HashSet<>();
-        while (!todo.isEmpty()) {
-            ClassInfo c = todo.poll();
-            if (!seen.add(c)) {
-                continue;
-            }
+        javaSupertypes(cls, owner, (c, inst) -> {
             for (MemberInfo m : c.members.getOrDefault(name, List.of())) {
                 if (!(m.member instanceof Method md) || (staticOnly && !md.modifiers().isStatic())
                         || (c != cls && c.isInterface && md.modifiers().isStatic())) {
@@ -6046,49 +6296,95 @@ public final class Checker {
                         : jm.descriptor().substring(0, jm.descriptor().indexOf(')') + 1);
                 if (signatures.add(sig)) {
                     out.add(m);
+                    if (owners != null && inst != null) {
+                        owners.put(m, inst);
+                    }
                 }
             }
-            for (String parent : parentNames(c)) {
-                if (lookupClass(parent, c) instanceof ClassInfo p) {
-                    todo.add(p);
-                }
-            }
-            if (c.isInterface && todo.isEmpty() && classes.get("seal.java.JavaObject") instanceof ClassInfo object) {
-                todo.add(object); // an interface's objects are objects
-            }
-        }
+            return false;
+        });
         return out;
     }
 
+    /** A member of a Java type, and the type it is found in, as the type it was looked for in sees it. */
+    private record JavaFound(MemberInfo m, ClassT owner) {
+    }
+
     /** The field of this name a Java type has or inherits, the lowest one; null if none. */
-    private MemberInfo javaField(ClassInfo cls, String name, boolean staticOnly) {
-        Deque<ClassInfo> todo = new ArrayDeque<>(List.of(cls));
-        Set<ClassInfo> seen = new HashSet<>();
-        while (!todo.isEmpty()) {
-            ClassInfo c = todo.poll();
-            if (!seen.add(c)) {
-                continue;
-            }
+    private JavaFound javaField(ClassInfo cls, ClassT owner, String name, boolean staticOnly) {
+        JavaFound[] found = {null};
+        javaSupertypes(cls, owner, (c, inst) -> {
             for (MemberInfo m : c.members.getOrDefault(name, List.of())) {
                 if (m.member instanceof Field f && (!staticOnly || f.modifiers().isStatic())) {
-                    return m;
+                    found[0] = new JavaFound(m, inst);
+                    return true;
                 }
             }
-            for (String parent : parentNames(c)) {
-                if (lookupClass(parent, c) instanceof ClassInfo p) {
-                    todo.add(p);
+            return false;
+        });
+        return found[0];
+    }
+
+    /**
+     * Visits a Java type and those above it, nearest first, each once, with the type each is as
+     * {@code owner} sees it (null when there is no object: static members); then, for an
+     * interface, java.lang.Object. Stops when {@code visit} says so.
+     */
+    private void javaSupertypes(ClassInfo cls, ClassT owner, java.util.function.BiPredicate<ClassInfo, ClassT> visit) {
+        record Step(ClassInfo cls, ClassT inst) {
+        }
+        Deque<Step> todo = new ArrayDeque<>(List.of(new Step(cls, owner)));
+        Set<ClassInfo> seen = new HashSet<>();
+        boolean object = cls.isInterface;
+        while (!todo.isEmpty()) {
+            Step st = todo.poll();
+            if (!seen.add(st.cls()) || seen.size() > 4 * MAX_INSTANTIATION_DEPTH) {
+                continue;
+            }
+            if (visit.test(st.cls(), st.inst())) {
+                return;
+            }
+            if (st.inst() != null) {
+                ClassT parent = parentOf(st.inst());
+                if (parent != null) {
+                    todo.add(new Step(parent.cls(), parent));
                 }
+                for (ClassT i : interfacesOf(st.inst())) {
+                    todo.add(new Step(i.cls(), i));
+                }
+            } else {
+                for (String parent : parentNames(st.cls())) {
+                    if (lookupClass(parent, st.cls()) instanceof ClassInfo p) {
+                        todo.add(new Step(p, null));
+                    }
+                }
+            }
+            if (todo.isEmpty() && object && classes.get("seal.java.JavaObject") instanceof ClassInfo o) {
+                object = false; // an interface's objects are objects
+                todo.add(new Step(o, owner == null ? null : new ClassT(o, List.of(), List.of(), 0)));
             }
         }
-        return null;
+    }
+
+    /** The type {@code t} is as one of its parents or interfaces, of class {@code c} (List<JavaString> for an ArrayList<JavaString>); or null. */
+    private ClassT asSuper(ClassT t, ClassInfo c) {
+        ClassT[] found = {null};
+        javaSupertypes(t.cls(), t, (k, inst) -> {
+            if (k == c) {
+                found[0] = inst;
+                return true;
+            }
+            return false;
+        });
+        return found[0];
     }
 
     /** Why a Java type has no method so named, when there is more to say. */
     private String javaNoMethod(ClassInfo cls, String name, boolean staticOnly) {
-        if (staticOnly && !javaMethods(cls, name, false).isEmpty()) {
+        if (staticOnly && !javaMethods(cls, null, name, false, null).isEmpty()) {
             return "; it is an instance method, called on an object";
         }
-        if (javaField(cls, name, false) != null) {
+        if (javaField(cls, null, name, false) != null) {
             return "; " + name + " is a field, read without (...)";
         }
         return "";
@@ -6099,40 +6395,69 @@ public final class Checker {
      * arguments fit by Java's rules (an object of a subclass where its class is wanted, a primitive
      * widened), the most specific; if none fits, those taking varargs. Java's middle step, boxing,
      * never happens, as nothing crosses between Seal and Java by itself: a JavaInt doesn't go where
-     * an Integer is wanted, and a Seal int doesn't go where Java's int is.
+     * an Integer is wanted, and a Seal int doesn't go where Java's int is. A generic method's type
+     * arguments are given, or worked out from the arguments, then from the type wanted (§4.1).
+     *
+     * @param receiver  the object's type (the new one's, for a constructor); null for a static method
+     * @param qualifier the type the JVM's call names: the object's, or the class written
+     * @param owners    the type each method is found in, as the receiver sees it
      */
-    private Type resolveJava(Body b, String name, ClassT owner, ClassInfo qualifier, List<MemberInfo> methods,
-                             List<Type> args, Pos pos, Expr site) {
+    private Type resolveJava(Body b, String name, ClassT receiver, ClassT qualifier, List<MemberInfo> methods,
+                             Map<MemberInfo, ClassT> owners, List<Type> args, Pos pos, Expr site) {
         boolean ctor = methods.get(0).member instanceof Constructor;
-        record Fit(MemberInfo m, List<Type> params, boolean varargs) {
+        Type expected = site instanceof Call call ? b.callExpected.get(call) : null;
+        List<Type> explicit = new ArrayList<>();
+        if (site instanceof Call call) {
+            for (TypeRef t : call.typeArgs()) {
+                explicit.add(resolveType(t, b.env, Opts.PLAIN));
+            }
+            if (explicit.stream().anyMatch(Type::isError)) {
+                return Type.ERROR;
+            }
+        }
+        record Fit(MemberInfo m, ClassT owner, List<Type> params, boolean varargs, Map<String, CVal> bound) {
         }
         List<Fit> fits = new ArrayList<>();
+        String lastMismatch = null;
         for (int phase = 0; phase < 2 && fits.isEmpty(); phase++) {
             for (MemberInfo m : methods) {
                 boolean isStatic = m.member.modifiers().isStatic();
-                List<Type> ps = paramTypes(isStatic ? null : owner, m, Map.of());
-                if (phase == 0) {
+                ClassT mo = isStatic ? null : owners.getOrDefault(m, receiver);
+                boolean varargs = phase == 1;
+                if (varargs && !javaMembers.get(m.member).isVarargs()) {
+                    continue;
+                }
+                Map<String, CVal> bound = javaTypeArguments(m, mo, args, varargs, expected, explicit);
+                if (bound == null) {
+                    lastMismatch = name + " takes " + ((Method) m.member).typeParams().size() + " type argument(s), not "
+                            + explicit.size();
+                    continue;
+                }
+                List<Type> ps = paramTypes(mo, m, bound).stream().map(t -> javaCaptured(t, false)).toList();
+                if (!varargs) {
                     if (ps.size() == args.size() && javaFitAll(args, ps)) {
-                        fits.add(new Fit(m, ps, false));
+                        fits.add(new Fit(m, mo, ps, false, bound));
                     }
-                } else if (javaMembers.get(m.member).isVarargs() && args.size() >= ps.size() - 1) {
+                } else if (args.size() >= ps.size() - 1) {
                     Type element = javaElement(ps.get(ps.size() - 1));
                     List<Type> spread = new ArrayList<>(ps.subList(0, ps.size() - 1));
                     while (spread.size() < args.size()) {
                         spread.add(element);
                     }
                     if (element != null && javaFitAll(args, spread)) {
-                        fits.add(new Fit(m, spread, true));
+                        fits.add(new Fit(m, mo, spread, true, bound));
                     }
                 }
             }
         }
-        String what = ctor ? "the constructor of " + javaName(owner.cls()) : name;
+        String what = ctor ? "the constructor of " + javaName(receiver.cls()) : name;
         if (fits.isEmpty()) {
-            List<String> takes = methods.stream().map(m -> "(" + paramTypes(m.member.modifiers().isStatic() ? null : owner, m,
-                    Map.of()).stream().map(Type::toString).collect(Collectors.joining(", ")) + ")").distinct().toList();
+            List<String> takes = methods.stream().map(m -> "(" + paramTypes(m.member.modifiers().isStatic() ? null
+                    : owners.getOrDefault(m, receiver), m, Map.of()).stream().map(t -> javaCaptured(t, false).toString())
+                    .collect(Collectors.joining(", ")) + ")").distinct().toList();
             String given = "(" + args.stream().map(Type::toString).collect(Collectors.joining(", ")) + ")";
-            report(pos, (methods.size() == 1 ? what + " takes " + takes.get(0) + ", not " + given
+            report(pos, lastMismatch != null && methods.size() == 1 ? lastMismatch
+                    : (methods.size() == 1 ? what + " takes " + takes.get(0) + ", not " + given
                     : "no overload of " + what + " takes " + given + "; " + (ctor ? "they take " : "its overloads take ")
                     + (takes.size() > 6 ? String.join(", ", takes.subList(0, 6)) + ", ..." : String.join(", ", takes)))
                     + javaArgumentHint(args));
@@ -6153,12 +6478,104 @@ public final class Checker {
         boolean isStatic = chosen.m().member.modifiers().isStatic();
         CallKind kind = ctor ? CallKind.CONSTRUCTOR : isStatic ? CallKind.STATIC : CallKind.METHOD;
         if (site != null) {
-            b.calls.put(site, new CallInfo(kind, chosen.m(), isStatic ? null : owner, Map.of(), false, false));
-            ClassInfo q = qualifier != null ? qualifier : owner != null && !isStatic ? owner.cls() : declaringClass(chosen.m());
-            int fixed = paramTypes(isStatic ? null : owner, chosen.m(), Map.of()).size() - 1;
+            b.calls.put(site, new CallInfo(kind, chosen.m(), chosen.owner(), Map.copyOf(chosen.bound()), false, false));
+            ClassInfo declaring = declaringClass(chosen.m());
+            ClassT q = qualifier != null ? qualifier : receiver != null && !isStatic ? receiver
+                    : new ClassT(declaring, List.of(), List.of(), 0);
+            int fixed = paramTypes(chosen.owner(), chosen.m(), chosen.bound()).size() - 1;
             b.javaCalls.put(site, new JavaCall(q, chosen.varargs() ? fixed : -1));
         }
-        return ctor ? Type.VOID : returnTypeOf(isStatic ? null : owner, chosen.m(), Map.of());
+        return ctor ? Type.VOID : javaCaptured(returnTypeOf(chosen.owner(), chosen.m(), chosen.bound()), true);
+    }
+
+    /**
+     * A Java generic method's type arguments for a call (docs/JAVA.md §4.1): those given, in order;
+     * or worked out from the arguments (List.of(a, b) of two JavaStrings is a List<JavaString>), then
+     * from the type the call's value goes to (List<JavaString> l = List.of()); a type no argument
+     * decides is what it erases to. Null if the wrong number are given.
+     */
+    private Map<String, CVal> javaTypeArguments(MemberInfo m, ClassT owner, List<Type> args, boolean varargs, Type expected,
+                                                List<Type> explicit) {
+        if (!(m.member instanceof Method md) || md.typeParams().isEmpty()) {
+            return explicit.isEmpty() ? Map.of() : null;
+        }
+        Map<String, Type> found = new LinkedHashMap<>();
+        if (!explicit.isEmpty()) {
+            if (explicit.size() != md.typeParams().size()) {
+                return null;
+            }
+            for (int i = 0; i < explicit.size(); i++) {
+                found.put(md.typeParams().get(i), explicit.get(i));
+            }
+        } else {
+            List<Type> declared = paramTypes(owner, m, Map.of());
+            for (int i = 0; i < args.size() && !declared.isEmpty(); i++) {
+                Type p = !varargs || i < declared.size() - 1 ? (i < declared.size() ? declared.get(i) : null)
+                        : javaElement(declared.get(declared.size() - 1));
+                if (p != null) {
+                    inferJava(p, args.get(i), md.typeParams(), found);
+                }
+            }
+            if (expected != null && !found.keySet().containsAll(md.typeParams())) {
+                Map<String, Type> fromTarget = new LinkedHashMap<>();
+                inferJava(returnTypeOf(owner, m, Map.of()), expected, md.typeParams(), fromTarget);
+                fromTarget.forEach(found::putIfAbsent);
+            }
+        }
+        Map<String, CVal> out = new LinkedHashMap<>();
+        Map<String, TypeRef> erased = javaErasures.getOrDefault(md, Map.of());
+        ClassInfo declaring = declaringClass(m);
+        for (String tp : md.typeParams()) {
+            Type t = found.get(tp);
+            if (t == null) {
+                TypeRef e = erased.get(tp);
+                t = e == null ? javaObjectHandle() : quietly(() -> resolveType(e, Env.empty(declaring), Opts.PLAIN));
+            }
+            out.put(tp, new TypeV(t));
+        }
+        return out;
+    }
+
+    /** What an argument of type {@code a} says of the type variables in a parameter's type {@code p}. */
+    private void inferJava(Type p, Type a, List<String> vars, Map<String, Type> found) {
+        if (p instanceof ParamT pt && vars.contains(pt.name())) {
+            if (!(a instanceof HandleT)) {
+                return; // null, or no object: a JavaInt is no type argument
+            }
+            Type old = found.get(pt.name());
+            if (old == null || refSubtype(old, a)) {
+                found.put(pt.name(), a);
+            } else if (!refSubtype(a, old)) {
+                found.put(pt.name(), javaObjectHandle()); // two kinds of object: List.of(s, n) holds Objects
+            }
+            return;
+        }
+        if (p instanceof WildT w) {
+            inferJava(w.bound(), a instanceof WildT aw ? aw.bound() : a, vars, found);
+            return;
+        }
+        if (p instanceof HandleT ph && ph.target() instanceof ClassT pc && !pc.typeArgs().isEmpty()
+                && a instanceof HandleT ah && ah.target() instanceof ClassT ac) {
+            ClassT as = asSuper(ac, pc.cls());
+            if (as != null && as.typeArgs().size() == pc.typeArgs().size()) {
+                for (int i = 0; i < pc.typeArgs().size(); i++) {
+                    Type arg = as.typeArgs().get(i);
+                    inferJava(pc.typeArgs().get(i), arg instanceof WildT aw ? aw.bound() : arg, vars, found);
+                }
+            }
+        }
+    }
+
+    /**
+     * A member's type where it is a wildcard (a List<? extends Number>'s element): what it gives, its
+     * bound (or JavaObject for ? super), for a result; its bound, for a parameter, as Seal reads
+     * Java's wildcards loosely (docs/JAVA.md §4.1).
+     */
+    private Type javaCaptured(Type t, boolean result) {
+        if (t instanceof WildT w) {
+            return result && w.kind() == 2 ? javaObjectHandle() : w.bound();
+        }
+        return t;
     }
 
     private boolean javaFitAll(List<Type> args, List<Type> params) {
@@ -6191,8 +6608,11 @@ public final class Checker {
         if (a instanceof NullT) {
             return true;
         }
-        if (!(a instanceof HandleT ah && ah.target() instanceof ClassT ac) || !isJavaType(ac.cls())) {
+        if (!(a instanceof HandleT ah && ah.target() instanceof ClassT ac)) {
             return false;
+        }
+        if (!isJavaType(ac.cls()) || !isJavaType(pc.cls())) {
+            return !isJavaType(ac.cls()) && !isJavaType(pc.cls()) && isSubclass(ac, pc); // a Seal class, as a type argument
         }
         if (isJavaArray(ac.cls()) && isJavaArray(pc.cls())) {
             Type ae = ac.typeArgs().get(0);
@@ -6950,6 +7370,8 @@ public final class Checker {
             }
             if (target instanceof ClassT et && et.cls() == c) {
                 t = et;
+            } else if (c.java != null) {
+                t = javaNewType(c, target); // its type arguments from the type it goes to, else raw (docs/JAVA.md §4.1)
             } else if (c.typeParams.isEmpty() && c.shapes.stream().anyMatch(s -> s.binders.isEmpty())) {
                 t = new ClassT(c, List.of(), List.of(),
                         c.shapes.stream().filter(s -> s.binders.isEmpty()).findFirst().orElseThrow().index);
@@ -6969,7 +7391,7 @@ public final class Checker {
                 report(n.pos(), javaName(c) + " has no public constructor" + (makers.isEmpty() ? ""
                         : "; its static methods make them: " + String.join(", ", makers)));
             } else if (args.stream().noneMatch(Type::isError)) {
-                resolveJava(b, "new", t, c, c.constructors, args, n.pos(), n);
+                resolveJava(b, "new", t, t, c.constructors, Map.of(), args, n.pos(), n);
             }
             return new HandleT(t);
         }
@@ -6987,6 +7409,29 @@ public final class Checker {
             return new AddrT(t);
         }
         return t;
+    }
+
+    /**
+     * The type `new` makes of a Java class with no type arguments written: those the type it goes to
+     * says, through a parent if it is one (List<JavaString> l = new ArrayList() makes an
+     * ArrayList<JavaString>), as Java's new ArrayList<>(); raw if nothing says them (docs/JAVA.md §4.1).
+     */
+    private ClassT javaNewType(ClassInfo c, Type target) {
+        ClassT raw = new ClassT(c, List.of(), List.of(), 0);
+        if (c.typeParams.isEmpty() || !(target instanceof ClassT et) || et.typeArgs().isEmpty()) {
+            return raw;
+        }
+        ClassT self = new ClassT(c, c.typeParams.stream().map(tp -> (Type) new ParamT(tp)).toList(), List.of(), 0);
+        ClassT as = asSuper(self, et.cls());
+        if (as == null) {
+            return raw;
+        }
+        Map<String, Type> found = new LinkedHashMap<>();
+        inferJava(new HandleT(as), new HandleT(et), c.typeParams, found);
+        if (!found.keySet().containsAll(c.typeParams)) {
+            return raw;
+        }
+        return new ClassT(c, c.typeParams.stream().map(found::get).toList(), List.of(), 0);
     }
 
     /**
@@ -7020,6 +7465,15 @@ public final class Checker {
         if (t instanceof ParamT && u.op() != UnaryOp.ADDRESS_OF && u.op() != UnaryOp.DEREF) {
             // Checked when the class is instantiated.
             return u.op() == UnaryOp.NOT ? Type.BIT : t;
+        }
+        if (t instanceof JavaPrimT j && (u.op() == UnaryOp.NEG || u.op() == UnaryOp.BIT_NOT || u.op() == UnaryOp.NOT)) {
+            // As Java's: - and ~ on its numbers (a byte's in int), ! on a JavaBoolean (docs/JAVA.md §3.1).
+            boolean ok = u.op() == UnaryOp.NOT ? j.code() == 'Z' : u.op() == UnaryOp.NEG ? j.code() != 'Z' : "IJSBC".indexOf(j.code()) >= 0;
+            if (!ok) {
+                report(u.pos(), "operator " + u.op().symbol + " is not defined for " + t);
+                return Type.ERROR;
+            }
+            return u.op() == UnaryOp.NOT ? j : javaPromoted(j, j);
         }
         switch (u.op()) {
             case NEG, BIT_NOT: {
@@ -7205,10 +7659,7 @@ public final class Checker {
             return checkExpr(b, rewrite, null);
         }
         if (l instanceof JavaPrimT || r instanceof JavaPrimT) {
-            JavaPrimT j = (JavaPrimT) (l instanceof JavaPrimT ? l : r);
-            report(bin.pos(), "operator " + bin.op().symbol + ": " + j + " is Java's " + j.javaName() + ", which has no"
-                    + " operators in Seal; cast it to Seal's first, as (" + j.sealType() + ")x (docs/JAVA.md §3.1)");
-            return Type.ERROR;
+            return javaOperator(bin, b.written.getOrDefault(bin, bin.op().symbol), l, r);
         }
         l = defaultLiteral(b, bin.left(), l); // "abc" == s
         BinaryOp op = bin.op();
@@ -7322,6 +7773,64 @@ public final class Checker {
             }
             default -> throw new IllegalStateException();
         }
+    }
+
+    /**
+     * An operator on Java's primitives (docs/JAVA.md §3.1), as Java's: on two of Java's numbers, in
+     * the type Java promotes them to (a JavaByte + a JavaByte is a JavaInt, a JavaInt + a JavaLong a
+     * JavaLong), a comparison giving a JavaBoolean; on two JavaBooleans, &&, ||, &, |, ^, == and !=.
+     * Java's values and Seal's don't mix: a JavaInt + an int is an error, a literal's too.
+     */
+    private Type javaOperator(Binary bin, String symbol, Type l, Type r) {
+        BinaryOp op = bin.op();
+        if (!(l instanceof JavaPrimT lj) || !(r instanceof JavaPrimT rj)) {
+            JavaPrimT j = (JavaPrimT) (l instanceof JavaPrimT ? l : r);
+            String of = javaOf(l instanceof JavaPrimT ? r : l);
+            report(bin.pos(), "operator " + symbol + " on " + l + " and " + r + ": Java's values and Seal's don't mix;"
+                    + " make both Java's" + (of != null ? ", as " + of + "(...)" : "") + ", or both Seal's, as ("
+                    + j.sealType() + ")x (docs/JAVA.md §3.1)");
+            return Type.ERROR;
+        }
+        JavaPrimT bool = new JavaPrimT('Z');
+        if (lj.equals(bool) || rj.equals(bool)) {
+            if (lj.equals(rj) && Set.of(BinaryOp.AND, BinaryOp.OR, BinaryOp.BIT_AND, BinaryOp.BIT_OR, BinaryOp.BIT_XOR,
+                    BinaryOp.EQ, BinaryOp.NE).contains(op)) {
+                return bool;
+            }
+            report(bin.pos(), "operator " + symbol + " takes two of Java's numbers, or two JavaBooleans, not " + l + " and " + r);
+            return Type.ERROR;
+        }
+        JavaPrimT promoted = javaPromoted(lj, rj);
+        return switch (op) {
+            case EQ, NE, LT, GT, LE, GE -> bool;
+            case ADD, SUB, MUL, DIV, MOD -> promoted;
+            case BIT_AND, BIT_OR, BIT_XOR -> {
+                if (promoted.code() == 'F' || promoted.code() == 'D') {
+                    report(bin.pos(), "operator " + symbol + " takes integers, not " + l + " and " + r);
+                    yield Type.ERROR;
+                }
+                yield promoted;
+            }
+            case AND, OR -> {
+                report(bin.pos(), op.symbol + " takes two JavaBooleans, not " + l + " and " + r);
+                yield Type.ERROR;
+            }
+            default -> {
+                report(bin.pos(), "operator " + symbol + " isn't Java's, so it doesn't take " + l + " and " + r
+                        + "; cast them to Seal's first, as (" + lj.sealType() + ")x");
+                yield Type.ERROR;
+            }
+        };
+    }
+
+    /** Java's binary numeric promotion (JLS §5.6.2): double if either is, then float, then long, else int. */
+    private static JavaPrimT javaPromoted(JavaPrimT a, JavaPrimT b) {
+        for (char c : "DFJ".toCharArray()) {
+            if (a.code() == c || b.code() == c) {
+                return new JavaPrimT(c);
+            }
+        }
+        return new JavaPrimT('I');
     }
 
     /**
@@ -7888,6 +8397,10 @@ public final class Checker {
         Binary computed = new Binary(a.pos(), a.op(), a.target(), a.value());
         b.written.put(computed, a.op().symbol + "=");
         Type r = checkBinary(b, computed);
+        if (target instanceof JavaPrimT && r instanceof JavaPrimT && !r.equals(target)) {
+            b.narrowed.put(a, r); // b += c on JavaBytes is b = (byte)(b + c), as in Java
+            return target;
+        }
         if (narrowsBack(r, target)) {
             b.narrowed.put(a, r);
             narrowingCast(a, r, value, target);
@@ -7947,6 +8460,10 @@ public final class Checker {
             return false;
         }
         MemberInfo field = target instanceof Select s ? b.selected.get(s) : target instanceof Name n ? b.fieldOf.get(n) : null;
+        if (field != null && isJavaArray(declaringClass(field))) {
+            report(pos, "a Java array's length is fixed when it is made");
+            return false;
+        }
         if (field != null && javaMembers.get(field.member) instanceof JavaClasses.JMember jm && jm.isFinal()) {
             report(pos, "Java's field " + jm.name() + " is final, so it can't be assigned");
             return false;
@@ -8027,6 +8544,9 @@ public final class Checker {
             report(e.pos(), e.symbol() + " can't change a bit slice; write x[a..b] " + (e.op() == BinaryOp.ADD ? "+" : "-")
                     + "= 1");
             return Type.ERROR;
+        }
+        if (t instanceof JavaPrimT j && j.code() != 'Z') {
+            return t; // as Java's, in its own type: a JavaByte's wraps as a byte
         }
         if (!(t instanceof IntT || t instanceof FixedT || t instanceof FloatT || t instanceof DoubleT)) {
             report(e.pos(), e.symbol() + " needs a number or a char, not " + t);
@@ -8152,6 +8672,17 @@ public final class Checker {
         Type idx = checkExpr(b, i.index(), Type.INT);
         if (t.isError() || idx.isError()) {
             return Type.ERROR;
+        }
+        if (javaElement(t) != null) {
+            // An element of a Java array (docs/JAVA.md §3.1), by an int, Seal's or Java's.
+            if (!idx.isInteger() && !(idx instanceof JavaPrimT j && "ISBC".indexOf(j.code()) >= 0)) {
+                report(i.index().pos(), "a Java array's index is an int, not " + idx);
+                return Type.ERROR;
+            }
+            if (idx.isInteger()) {
+                requireConvertible(b, i.index(), idx, Type.INT, "index");
+            }
+            return javaElement(t);
         }
         if (!idx.isInteger()) {
             report(i.index().pos(), "index must be an integer, not " + idx);

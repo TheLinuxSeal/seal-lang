@@ -32,6 +32,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import io.github.thelinuxseal.seal.ast.Ast.*;
 import io.github.thelinuxseal.seal.check.AddressTaken;
@@ -1699,6 +1700,15 @@ final class JvmCode {
             scoped(finBlock);
         }
         c.goto_(after);
+        if (t.catches().stream().map(tb.catchTypes::get).anyMatch(ct -> ct != null && ct.cls().java != null
+                && Set.of("java.lang.Throwable", "java.lang.Exception", "java.lang.RuntimeException").contains(ct.cls().java.name()))) {
+            // A catch of Java's Throwable doesn't catch a fault or System.exit, which stop the program (docs/JAVA.md §10).
+            Label fault = c.newLabel();
+            c.exceptionCatch(start, bodyEnd, fault, JvmGen.TRAP);
+            c.exceptionCatch(start, bodyEnd, fault, ClassDesc.of(JvmGen.RUNTIME + "Exit"));
+            c.labelBinding(fault);
+            c.athrow();
+        }
         for (Catch cl : t.catches()) {
             ClassT ct = tb.catchTypes.get(cl);
             Label handler = c.newLabel();
@@ -1986,6 +1996,13 @@ final class JvmCode {
             }
             case Index ix when type(ix.target()) instanceof ArrayT at && at.size() != null -> {
                 loadFrom(elementMem(aggregateOf(ix.target()), at, ix.index()), t);
+                return t;
+            }
+            case Index ix when javaElement(type(ix.target())) != null -> {
+                // An element of a Java array (docs/JAVA.md §3.1).
+                value(ix.target(), null);
+                value(ix.index(), Type.INT);
+                c.arrayLoad(JvmGen.javaKind(t));
                 return t;
             }
             case Index ix when type(ix.target()) instanceof IntT it -> {
@@ -2430,9 +2447,17 @@ final class JvmCode {
             constant(ck.constFieldValue(ck.declaringClassOf(m), f), concrete(t), s.pos());
             return concrete(t);
         }
-        if (f.modifiers().isStatic() && ck.javaMember(f) != null && type(s.target()) instanceof ClassRefT cr) {
-            // ChronoUnit.DAYS: through the class written, as javac names it (docs/JAVA.md §4).
-            c.getstatic(ClassDesc.of(cr.cls().java.name()), f.name(), ClassDesc.ofDescriptor(ck.javaMember(f).descriptor()));
+        if (ck.javaMember(f) != null) {
+            // A Java field: ChronoUnit.DAYS through the class written, an object's through its type, as javac names them.
+            ClassDesc fd = ClassDesc.ofDescriptor(ck.javaMember(f).descriptor());
+            if (f.modifiers().isStatic()) {
+                ClassInfo through = type(s.target()) instanceof ClassRefT cr ? cr.cls() : ck.declaringClassOf(m);
+                c.getstatic(ClassDesc.of(through.java.name()), f.name(), fd);
+            } else {
+                Type target = value(s.target(), null);
+                c.getfield(g.desc(target, s.pos()), f.name(), fd);
+            }
+            javaResult(t, fd, s.pos());
             return t;
         }
         if (f.modifiers().isStatic()) {
@@ -2476,6 +2501,10 @@ final class JvmCode {
     /** A field of the object on the stack, of type `target`; a string's size and an array's len are their lengths. */
     private Type getField(Type target, MemberInfo m, Pos at) {
         Field f = (Field) m.member;
+        if (javaElement(target) != null && f.name().equals("length")) {
+            c.arraylength(); // a Java array's length, a JavaInt (docs/JAVA.md §3.1)
+            return new JavaPrimT('I');
+        }
         if (isString(target) && f.name().equals("size")) {
             c.invokevirtual(CD_String, "length", MethodTypeDesc.of(CD_int));
             return Type.INT;
@@ -2493,8 +2522,11 @@ final class JvmCode {
         }
         if (ck.javaMember(f) != null) {
             // A Java object's field, through the object's type, as javac names it (docs/JAVA.md §4).
-            c.getfield(g.desc(target, at), f.name(), ClassDesc.ofDescriptor(ck.javaMember(f).descriptor()));
-            return ck.fieldTypeOf(ct, m);
+            ClassDesc fd = ClassDesc.ofDescriptor(ck.javaMember(f).descriptor());
+            c.getfield(g.desc(target, at), f.name(), fd);
+            Type ft = ck.fieldTypeOf(ct, m);
+            javaResult(ft, fd, at);
+            return ft;
         }
         ClassT owner = g.declaringType(ct, m);
         Type ft = ck.fieldTypeOf(owner, m);
@@ -2881,6 +2913,9 @@ final class JvmCode {
         }
         Type lt = type(b.left());
         Type rt = type(b.right());
+        if (lt instanceof JavaPrimT lj && rt instanceof JavaPrimT rj) {
+            return javaBinary(b, lj, rj, (JavaPrimT) t);
+        }
         if ((b.op() == BinaryOp.ADD || b.op() == BinaryOp.SUB) && (lt instanceof AddrT || rt instanceof AddrT)) {
             if (lt instanceof AddrT && rt instanceof AddrT) {
                 // p - q: how many bits apart (§20).
@@ -3216,7 +3251,7 @@ final class JvmCode {
      * field. {@link #base} pushes what the place needs (nothing, or the object); {@link #get} and
      * {@link #put} use it up.
      */
-    private sealed interface Place permits LocalPlace, FieldPlace, StaticPlace, MemPlace {
+    private sealed interface Place permits LocalPlace, FieldPlace, StaticPlace, MemPlace, JavaElementPlace {
         Type type();
     }
 
@@ -3234,6 +3269,10 @@ final class JvmCode {
     }
 
     private record StaticPlace(MemberInfo field, Type type) implements Place {
+    }
+
+    /** An element of a Java array (docs/JAVA.md §3.1): the array and the index are its base. */
+    private record JavaElementPlace(Expr array, Expr index, Type type) implements Place {
     }
 
     /** The place an expression names, or null if it isn't one (a call's result, say). */
@@ -3275,6 +3314,9 @@ final class JvmCode {
             case Index ix when type(ix.target()) instanceof ArrayT at && at.size() != null && !tb.calls.containsKey(ix) -> {
                 return new MemPlace(elementMem(aggregateOf(ix.target()), at, ix.index()), type(ix));
             }
+            case Index ix when javaElement(type(ix.target())) != null -> {
+                return new JavaElementPlace(ix.target(), ix.index(), type(ix));
+            }
             case This th when thisLocal != null -> {
                 return new LocalPlace(thisLocal);
             }
@@ -3296,12 +3338,16 @@ final class JvmCode {
     }
 
     private int baseSize(Place p) {
-        return p instanceof FieldPlace ? 1 : p instanceof MemPlace ? 2 : 0;
+        return p instanceof FieldPlace ? 1 : p instanceof MemPlace || p instanceof JavaElementPlace ? 2 : 0;
     }
 
     private void base(Place p) {
         if (p instanceof MemPlace mp) {
             push(mp.mem());
+        }
+        if (p instanceof JavaElementPlace j) {
+            value(j.array(), null);
+            value(j.index(), Type.INT);
         }
         if (p instanceof FieldPlace f) {
             if (f.object() == null) {
@@ -3317,6 +3363,7 @@ final class JvmCode {
             case MemPlace mp -> loadPushed(mp.type());
             case LocalPlace l -> c.loadLocal(load(l.type()), l.local().slot());
             case FieldPlace f -> getField(f.objectType(), f.field(), pos);
+            case JavaElementPlace j -> c.arrayLoad(JvmGen.javaKind(j.type()));
             case StaticPlace s -> getStatic(s.field(), pos);
         }
     }
@@ -3326,6 +3373,7 @@ final class JvmCode {
             case MemPlace mp -> storePushed(mp.type());
             case LocalPlace l -> c.storeLocal(load(l.type()), l.local().slot());
             case FieldPlace f -> putField(f.objectType(), f.field(), pos);
+            case JavaElementPlace j -> c.arrayStore(JvmGen.javaKind(j.type()));
             case StaticPlace s -> putStatic(s.field(), pos);
         }
     }
@@ -3409,6 +3457,14 @@ final class JvmCode {
             if (a.op() == BinaryOp.SHIFT) {
                 value(a.value(), Type.INT);
                 shift(t);
+            } else if (t instanceof JavaPrimT jt) {
+                // In the type Java promotes to, then back to the target's, as Java's b += c is b = (byte)(b + c).
+                JavaPrimT wide = tb.narrowed.get(a) instanceof JavaPrimT w ? w : jt;
+                javaConvert(jt, wide);
+                value(a.value(), null);
+                javaConvert((JavaPrimT) type(a.value()), wide);
+                javaOperate(a.op(), wide, a.pos());
+                javaConvert(wide, jt);
             } else {
                 Type wide = tb.narrowed.get(a);
                 if (wide == null) {
@@ -3630,8 +3686,9 @@ final class JvmCode {
         if (keep && !i.prefix()) {
             keepUnderBase(p, t);
         }
-        constant(new IntV(BigInteger.ONE), t, i.pos());
-        arithmetic(i.op(), t, i.pos());
+        Type st = t instanceof JavaPrimT j ? j.sealType() : t; // a JavaByte steps as an int<<8>>, wrapping as Java's byte
+        constant(new IntV(BigInteger.ONE), st, i.pos());
+        arithmetic(i.op(), st, i.pos());
         if (keep && i.prefix()) {
             keepUnderBase(p, t);
         }
@@ -4166,9 +4223,10 @@ final class JvmCode {
         Pos at = call.pos();
         boolean isStatic = m.member.modifiers().isStatic();
         ClassT owner = isStatic ? null : ci.owner();
-        Type ret = ck.returnTypeOf(owner, m, Map.of());
+        Type ret = type(call);
         String name = ((Method) m.member).name();
-        MethodTypeDesc type = MethodTypeDesc.ofDescriptor(ck.javaMember(m.member).descriptor());
+        String descriptor = ck.javaMember(m.member).descriptor();
+        MethodTypeDesc type = MethodTypeDesc.ofDescriptor(descriptor);
         if (!isStatic) {
             Expr receiver = call.callee() instanceof Select s ? s.target() : null;
             if (receiver == null) {
@@ -4177,20 +4235,35 @@ final class JvmCode {
                 value(receiver, null);
             }
         }
-        pushJavaArgs(ck.paramTypes(owner, m, Map.of()), call.args(), java.varargsFrom(), at);
+        pushJavaArgs(ck.paramTypes(owner, m, ci.binders()), call.args(), java.varargsFrom(), at);
         ClassInfo declaring = ck.declaringClassOf(m);
+        ClassT through = java.qualifier();
         if (isStatic) {
             // An interface's static method is called through the interface itself.
-            ClassInfo through = declaring.isInterface ? declaring : java.qualifier();
-            c.invokestatic(ClassDesc.of(through.java.name()), name, type, through.isInterface);
-        } else if (owner.cls().isInterface && Checker.isJavaObject(declaring)) {
+            ClassInfo cls = declaring.isInterface ? declaring : through.cls();
+            c.invokestatic(ClassDesc.of(cls.java.name()), name, type, cls.isInterface);
+        } else if (through.cls().isInterface && Checker.isJavaObject(declaring)) {
             c.invokevirtual(CD_Object, name, type);
-        } else if (owner.cls().isInterface) {
-            c.invokeinterface(g.desc(new HandleT(owner), at), name, type);
+        } else if (through.cls().isInterface) {
+            c.invokeinterface(g.desc(new HandleT(through), at), name, type);
         } else {
-            c.invokevirtual(g.desc(new HandleT(owner), at), name, type);
+            c.invokevirtual(g.desc(new HandleT(through), at), name, type);
         }
+        javaResult(ret, type.returnType(), at);
         return ret;
+    }
+
+    /**
+     * A Java method's or field's value as its Seal type: an erased generic one (get() giving an
+     * Object where a List<JavaString>'s gives a JavaString) checked as that type (docs/JAVA.md §4.1).
+     */
+    private void javaResult(Type sealType, ClassDesc erased, Pos at) {
+        if (!(sealType instanceof VoidT) && kind(sealType) == TypeKind.REFERENCE) {
+            ClassDesc want = g.desc(sealType, at);
+            if (!want.equals(erased)) {
+                c.checkcast(want);
+            }
+        }
     }
 
     /**
@@ -4228,13 +4301,93 @@ final class JvmCode {
 
     /** Java's widening of a primitive on the stack (JLS §5.1.2): an int as a long, a long as a float. */
     private void javaWiden(JavaPrimT from, JavaPrimT to) {
-        TypeKind f = kind(from);
-        TypeKind t = kind(to);
-        if (f == t || (f != TypeKind.LONG && f != TypeKind.FLOAT && f != TypeKind.DOUBLE && t == TypeKind.INT)) {
-            return; // a byte, short or char is an int already
+        javaConvert(from, to);
+    }
+
+    /** A Java primitive on the stack as another, by Java's conversion (JLS §5.1): i2l, d2i, and i2b for a byte. */
+    private void javaConvert(JavaPrimT from, JavaPrimT to) {
+        if (from.equals(to)) {
+            return;
         }
-        TypeKind fk = f == TypeKind.LONG || f == TypeKind.FLOAT || f == TypeKind.DOUBLE ? f : TypeKind.INT;
-        c.conversion(fk, t);
+        TypeKind f = javaStack(from);
+        TypeKind t = javaStack(to);
+        if (f != t) {
+            c.conversion(f, t);
+        }
+        switch (to.code()) {
+            case 'B' -> c.i2b();
+            case 'S' -> c.i2s();
+            case 'C' -> c.i2c();
+            default -> { }
+        }
+    }
+
+    /** How the JVM's stack holds a Java primitive: a byte, short, char or boolean as an int. */
+    private static TypeKind javaStack(JavaPrimT t) {
+        return switch (t.code()) {
+            case 'J' -> TypeKind.LONG;
+            case 'F' -> TypeKind.FLOAT;
+            case 'D' -> TypeKind.DOUBLE;
+            default -> TypeKind.INT;
+        };
+    }
+
+    /**
+     * An operator on Java's primitives (docs/JAVA.md §3.1): both operands converted to the type Java
+     * promotes them to, then the operator in it, a comparison giving a JavaBoolean; && and || on
+     * JavaBooleans don't look at the right side when the left decides.
+     */
+    private Type javaBinary(Binary b, JavaPrimT lt, JavaPrimT rt, JavaPrimT t) {
+        BinaryOp op = b.op();
+        if (op == BinaryOp.AND || op == BinaryOp.OR) {
+            Label decided = c.newLabel();
+            Label end = c.newLabel();
+            value(b.left(), lt);
+            if (op == BinaryOp.AND) {
+                c.ifeq(decided);
+            } else {
+                c.ifne(decided);
+            }
+            value(b.right(), rt);
+            c.goto_(end);
+            c.labelBinding(decided);
+            c.loadConstant(op == BinaryOp.AND ? 0 : 1);
+            c.labelBinding(end);
+            return t;
+        }
+        JavaPrimT operands = lt.code() == 'Z' ? lt : promoted(lt, rt);
+        value(b.left(), lt);
+        javaConvert(lt, operands);
+        value(b.right(), rt);
+        javaConvert(rt, operands);
+        if (isComparison(op)) {
+            Label no = c.newLabel();
+            Label end = c.newLabel();
+            compareFalse(op, operands.sealType(), no);
+            c.iconst_1();
+            c.goto_(end);
+            c.labelBinding(no);
+            c.iconst_0();
+            c.labelBinding(end);
+            return t;
+        }
+        javaOperate(op, operands, b.pos());
+        return t;
+    }
+
+    /** The operator on two values of a Java primitive type on the stack, as Seal's number of the same values computes it. */
+    private void javaOperate(BinaryOp op, JavaPrimT t, Pos at) {
+        arithmetic(op == BinaryOp.AND ? BinaryOp.BIT_AND : op == BinaryOp.OR ? BinaryOp.BIT_OR : op, t.sealType(), at);
+    }
+
+    /** Java's binary numeric promotion (JLS §5.6.2): double if either is, then float, then long, else int. */
+    private static JavaPrimT promoted(JavaPrimT a, JavaPrimT b) {
+        for (char k : "DFJ".toCharArray()) {
+            if (a.code() == k || b.code() == k) {
+                return new JavaPrimT(k);
+            }
+        }
+        return new JavaPrimT('I');
     }
 
     /**
@@ -4320,6 +4473,11 @@ final class JvmCode {
     }
 
     private static final ClassDesc JAVA_VALUES = ClassDesc.of(JvmGen.RUNTIME + "JavaValues");
+
+    /** The element type of a JavaArray<T>, T; null for any other type. */
+    private static Type javaElement(Type t) {
+        return t instanceof HandleT h && h.target() instanceof ClassT ct && Checker.isJavaArray(ct.cls()) ? ct.typeArgs().get(0) : null;
+    }
 
     /** A lambda's object (§30.3): its class, made with the enclosing object and the copies it captures. */
     private Type closure(Lambda lam) {

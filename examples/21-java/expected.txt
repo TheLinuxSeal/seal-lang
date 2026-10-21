@@ -1,8 +1,11 @@
 == a java.util.TreeMap keeps its keys sorted ==
 {Ada=36, Grace=85, Linus=56}
-first Ada, Ada is 36, Bob is null
-== iterating a Java list ==
-RED GREEN BLUE 3 colors
+first Ada (3 letters), Ada is 36, Bob is null
+A=36 G=85 L=56 
+== a Java list, its type arguments worked out ==
+RED GREEN BLUE [blue, green, red], 3 colors
+== Java's numbers, with Java's operators ==
+5000000007 3 -56 true
 == java.time ==
 2026-01-01 to 2026-10-19: 291 days, a MONDAY
 == overloads, chosen as Java chooses them ==
@@ -10,10 +13,11 @@ A 65 [pi   |  3.14]
 [20, 40]
 == a seeded java.util.Random gives what Java's gives ==
 30 63 48 84 70 
-== a Seal object in a Java collection ==
-Ada true true
+== Seal objects in a Java collection ==
+Ada true Ada true
 == Java's exceptions, caught by their class ==
 NoSuchFileException: no-such-file.txt
-== arrays, copied in and out ==
+line one / line two
+== arrays, Java's own and copies ==
 8 bytes, the last 147
-apple fig pear | one two three 
+APPLE fig pear | 3 fruits | one two three 

@@ -1,16 +1,19 @@
 // Java's own classes (docs/JAVA.md), imported and used as Seal's are: checked while
-// compiling, and called as the JVM calls them. Seal's values go into Java by seal.java's
-// classes, JavaInt.of(5) and JavaString.of("Ada"), and come out by casts, (int)x and
-// (string)s. It runs on the JVM, Seal's backend; the deprecated VM (--vm) has no Java.
+// compiling, and called as the JVM calls them, generics and all. Seal's values go into Java
+// by seal.java's classes, JavaInt.of(5) and JavaString.of("Ada"), and come out by casts,
+// (int)x and (string)s. It runs on the JVM, Seal's backend; the deprecated VM (--vm) has no Java.
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
@@ -29,22 +32,36 @@ class Main
     static void main()
     {
         System.stdout.println("== a java.util.TreeMap keeps its keys sorted ==");
-        TreeMap ages = new TreeMap();
-        ages.put(JavaString.of("Grace"), JavaIntBoxed.of(85));     // Java's maps hold objects: an Integer
+        TreeMap<JavaString, JavaIntBoxed> ages = new TreeMap();    // Java's maps hold objects: an Integer
+        ages.put(JavaString.of("Grace"), JavaIntBoxed.of(85));
         ages.put(JavaString.of("Ada"), JavaIntBoxed.of(36));
         ages.put(JavaString.of("Linus"), JavaIntBoxed.of(56));
         System.stdout.println(ages);                                // a Java object's text is its toString()
         int ada = (int)ages.get(JavaString.of("Ada"));              // an Integer, unboxed by the cast
-        System.stdout.println("first " + ages.firstKey() + ", Ada is " + ada + ", Bob is " + ages.get(JavaString.of("Bob")));
-
-        System.stdout.println("== iterating a Java list ==");
-        List colors = List.of(JavaString.of("red"), JavaString.of("green"), JavaString.of("blue"));   // List.of(E...): varargs
-        Iterator it = colors.iterator();
-        while ((bit)it.hasNext()) {                                 // Java's boolean is a bit by a cast
-            string color = (string)it.next();
-            System.stdout.print(color.toUpper() + " ");
+        JavaString first = ages.firstKey();                         // the type argument's type: a JavaString
+        System.stdout.println("first " + first + " (" + first.length() + " letters), Ada is " + ada + ", Bob is "
+                + ages.get(JavaString.of("Bob")));
+        for (Map.Entry<JavaString, JavaIntBoxed> e : ages.entrySet()) {
+            System.stdout.print(e.getKey().charAt(JavaInt.of(0)) + "=" + (int)e.getValue() + " ");
         }
-        System.stdout.println((int)colors.size() + " colors");
+        System.stdout.println();
+
+        System.stdout.println("== a Java list, its type arguments worked out ==");
+        List<JavaString> colors = List.of(JavaString.of("red"), JavaString.of("green"), JavaString.of("blue"));   // varargs
+        for (JavaString color : colors) {
+            string c = (string)color;
+            System.stdout.print(c.toUpper() + " ");
+        }
+        ArrayList<JavaString> sorted = new ArrayList(colors);
+        Collections.sort(sorted);
+        System.stdout.println(sorted + ", " + (int)colors.size() + " colors");
+
+        System.stdout.println("== Java's numbers, with Java's operators ==");
+        JavaInt a = JavaInt.of(7);
+        JavaLong b = JavaLong.of(5000000000);
+        JavaByte small = JavaByte.of(100);
+        small += JavaByte.of(100);                                  // a byte wraps, as Java's does
+        System.stdout.println((a + b) + " " + (a / JavaInt.of(2)) + " " + small + " " + (bit)(a < JavaInt.of(10)));
 
         System.stdout.println("== java.time ==");
         LocalDate start = LocalDate.of(JavaInt.of(2026), JavaInt.of(1), JavaInt.of(1));
@@ -55,7 +72,7 @@ class Main
         System.stdout.println("== overloads, chosen as Java chooses them ==");
         System.stdout.println(JavaString.valueOf(JavaChar.of('A')) + " " + JavaString.valueOf(JavaInt.of(65)) + " "
                 + JavaString.format(JavaString.of("[%-5s|%6.2f]"), JavaString.of("pi"), JavaDoubleBoxed.of(3.14159)));
-        ArrayList numbers = new ArrayList();
+        ArrayList<JavaIntBoxed> numbers = new ArrayList();
         for (int n = 10; n <= 40; n += 10) {
             numbers.add(JavaIntBoxed.of(n));
         }
@@ -70,12 +87,15 @@ class Main
         }
         System.stdout.println();
 
-        System.stdout.println("== a Seal object in a Java collection ==");
+        System.stdout.println("== Seal objects in a Java collection ==");
         Tag tag = new Tag("Ada");
-        ArrayList tags = new ArrayList();
-        tags.add(JavaObject.of(tag));                               // a Seal object goes in as Java's Object
-        Tag back = (Tag)tags.get(JavaInt.of(0));                    // and comes back by a cast, checked
-        System.stdout.println(back.name + " " + (back == tag) + " " + (bit)tags.contains(JavaObject.of(tag)));
+        ArrayList<Tag> tags = new ArrayList();                      // a Seal class as the type argument
+        tags.add(tag);
+        Tag back = tags.get(JavaInt.of(0));
+        ArrayList<JavaObject> things = new ArrayList();
+        things.add(JavaObject.of(tag));                             // where Java wants an Object, by JavaObject.of
+        System.stdout.println(back.name + " " + (back == tag) + " " + ((Tag)things.get(JavaInt.of(0))).name + " "
+                + (bit)things.contains(JavaObject.of(tag)));
 
         System.stdout.println("== Java's exceptions, caught by their class ==");
         try {
@@ -83,18 +103,24 @@ class Main
         } catch (IOException e) {
             System.stdout.println(e.getClass().getSimpleName() + ": " + e.getMessage());
         }
+        try (BufferedReader r = new BufferedReader(new StringReader(JavaString.of("line one\nline two")))) {
+            System.stdout.println(r.readLine() + " / " + r.readLine());   // closed after, as Java's try closes it
+        }
 
-        System.stdout.println("== arrays, copied in and out ==");
+        System.stdout.println("== arrays, Java's own and copies ==");
         array<uint<<8>>> bytes = (array<uint<<8>>>)JavaString.of("Seal ✓").getBytes(JavaString.of("UTF-8"));
         System.stdout.println(bytes.length() + " bytes, the last " + bytes[bytes.length() - 1]);
         JavaArray<JavaString> fruits = JavaString.of("pear,apple,fig").split(JavaString.of(","));
         Arrays.sort(fruits);                                        // Java sorts its own array
-        array<string> sorted = (array<string>)fruits;
+        fruits[0] = fruits[0].toUpperCase();                        // an element, in place
+        for (JavaString f : fruits) {
+            System.stdout.print(f + " ");
+        }
         Matcher m = Pattern.compile(JavaString.of("[a-z]+")).matcher(JavaString.of("one, two; three"));
         string words = "";
         while ((bit)m.find()) {
             words += (string)m.group() + " ";
         }
-        System.stdout.println(sorted[0] + " " + sorted[1] + " " + sorted[2] + " | " + words);
+        System.stdout.println("| " + fruits.length + " fruits | " + words);
     }
 }

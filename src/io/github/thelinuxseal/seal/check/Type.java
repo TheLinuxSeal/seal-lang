@@ -258,6 +258,20 @@ public sealed interface Type {
         }
     }
 
+    /**
+     * A wildcard type argument of Java's generics (docs/JAVA.md §4.1): `?`, `? extends X` or
+     * `? super X`, as Java's signatures write them. Programs don't write them; Java's types have them.
+     *
+     * @param bound JavaObject for `?`
+     * @param kind  0 for `?`, 1 for `? extends`, 2 for `? super`
+     */
+    record WildT(Type bound, int kind) implements Type {
+        @Override
+        public String toString() {
+            return kind == 0 ? "?" : (kind == 1 ? "? extends " : "? super ") + bound;
+        }
+    }
+
     /** A class name used as a value, as in `Integer.toString(32)`. */
     record ClassRefT(ClassInfo cls) implements Type {
         @Override

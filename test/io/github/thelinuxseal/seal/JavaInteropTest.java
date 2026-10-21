@@ -121,10 +121,12 @@ public final class JavaInteropTest {
         try {
             sameAsJava();
             valuesInAndOut();
+            operators();
             choosingOverloads();
             fields();
             interfacesAndObjects();
             sealAndJavaTogether();
+            generics();
             exceptions();
             javaArrays();
             imports();
@@ -223,6 +225,50 @@ public final class JavaInteropTest {
                 l.add(JavaString.of("x"));
                 int n = (int)l.get(JavaInt.of(0));
                 """, "trap: cannot cast");
+    }
+
+    /** Java's own operators on Java's primitives, as Java's; but Java's values and Seal's don't mix. */
+    private static void operators() {
+        output("arithmetic, comparisons and logic on Java's primitives, as Java's", "", """
+                JavaInt a = JavaInt.of(7);
+                JavaInt b = JavaInt.of(2);
+                JavaByte x = JavaByte.of(100);
+                JavaLong big = JavaLong.of(5000000000);
+                System.stdout.println((a + b) + " " + (a - b) + " " + (a * b) + " " + (a / b) + " " + (a % b) + " " + (-a) + " " + (~b));
+                System.stdout.println((x + x) + " " + (a + big) + " " + (a / JavaDouble.of(2.0)) + " " + (a & b) + " " + (a | b) + " " + (a ^ b)
+                        + " " + (JavaInt.of(2147483647) + JavaInt.of(1)) + " " + (JavaChar.of('a') + JavaInt.of(1)));
+                JavaBoolean t = JavaBoolean.of(true);
+                JavaBoolean f = JavaBoolean.of(false);
+                System.stdout.println((a < b) + " " + (a >= b) + " " + (a == JavaInt.of(7)) + " " + (x != JavaByte.of(100)) + " "
+                        + (t && f) + " " + (t || f) + " " + (!t) + " " + (t ^ f) + " " + (t == f));
+                if ((bit)(a > b && t)) {
+                    System.stdout.println("a > b");
+                }
+                """, "9 5 14 3 1 -7 -3\n200 5000000007 3.5 2 7 5 -2147483648 98\nfalse true true false false true false true false\na > b\n");
+        output("compound assignments and ++ narrow back, as Java's", "", """
+                JavaInt a = JavaInt.of(7);
+                JavaByte x = JavaByte.of(100);
+                JavaChar c = JavaChar.of('a');
+                JavaDouble d = JavaDouble.of(1.5);
+                a += JavaInt.of(2);
+                x += JavaByte.of(100);                    // (byte)200, as Java's b += c is b = (byte)(b + c)
+                a++;
+                x++;
+                c++;
+                d *= JavaDouble.of(4.0);
+                System.stdout.println(a + " " + x + " " + c + " " + d);
+                """, "10 -55 b 6.0\n");
+        compileError("a JavaInt and an int don't mix", "", "JavaInt a = JavaInt.of(1);\nint b = 2;\nJavaInt c = a + b;",
+                "operator + on JavaInt and int: Java's values and Seal's don't mix; make both Java's, as JavaInt.of(...), or"
+                        + " both Seal's, as (int)x");
+        compileError("nor a JavaInt and a literal", "", "JavaInt a = JavaInt.of(1);\na += 1;",
+                "operator += on JavaInt and integer constant 1: Java's values and Seal's don't mix");
+        compileError("a comparison of Java's values is a JavaBoolean", "", "if (JavaInt.of(1) < JavaInt.of(2)) { }",
+                "condition must be a bit, not JavaBoolean; Java's boolean is a bit by a cast: (bit)x");
+        compileError("a JavaBoolean isn't a number", "", "JavaInt c = JavaInt.of(1) + JavaBoolean.of(true);",
+                "operator + takes two of Java's numbers, or two JavaBooleans, not JavaInt and JavaBoolean");
+        compileError("Seal's <<< isn't Java's", "", "JavaInt c = JavaInt.of(1) <<< JavaInt.of(2);",
+                "operator <<< isn't Java's, so it doesn't take JavaInt and JavaInt");
     }
 
     private static void choosingOverloads() {
@@ -338,6 +384,105 @@ public final class JavaInteropTest {
                 "Pair", "import seal.java.*;\nstruct Pair { public JavaInt a; public JavaString b; }");
     }
 
+    /** Java's generics (docs/JAVA.md §4.1), T2: type arguments, inference, wildcards, for-each, resources. */
+    private static void generics() {
+        output("T2's word count: a TreeMap<JavaString, JavaIntBoxed>, and for-each over a Java array and a Set",
+                "import java.util.Map;\nimport java.util.TreeMap;", """
+                string text = "the cat and the dog and the bird";
+                TreeMap<JavaString, JavaIntBoxed> counts = new TreeMap();
+                for (JavaString w : JavaString.of(text).split(JavaString.of(" "))) {
+                    counts.put(w, JavaIntBoxed.of((int)counts.getOrDefault(w, JavaIntBoxed.of(0)) + 1));
+                }
+                for (Map.Entry<JavaString, JavaIntBoxed> e : counts.entrySet()) {
+                    System.stdout.println(e.getKey() + ": " + (int)e.getValue());
+                }
+                """, "and: 2\nbird: 1\ncat: 1\ndog: 1\nthe: 3\n");
+        output("type arguments from the arguments, the target and the parents; wildcards; Seal classes as type arguments",
+                "import java.util.ArrayList;\nimport java.util.Arrays;\nimport java.util.Collections;\nimport java.util.List;\n"
+                + "import java.util.HashMap;\nimport java.util.Optional;", """
+                List<JavaString> words = Arrays.asList(JavaString.of("pear"), JavaString.of("fig"), JavaString.of("apple"));
+                ArrayList<JavaString> copy = new ArrayList(words);
+                copy.addAll(List.of(JavaString.of("kiwi")));           // addAll(Collection<? extends E>)
+                Collections.sort(copy);
+                JavaString first = copy.get(JavaInt.of(0));
+                List<JavaString> none = List.of();
+                List<JavaString> made = new ArrayList();               // an ArrayList<JavaString>, from its target
+                System.stdout.println(JavaString.join(JavaString.of("+"), words) + " " + Collections.max(words) + " " + copy + " "
+                        + first.toUpperCase() + " " + (int)none.size() + " " + Collections.<JavaString>emptyList() + made);
+                ArrayList<Point> points = new ArrayList();
+                points.add(new Point(3));
+                Point p = points.get(JavaInt.of(0));                   // a Seal object, as its own type
+                HashMap<JavaString, ArrayList<JavaString>> groups = new HashMap();
+                for (JavaString w : copy) {
+                    JavaString key = JavaString.valueOf(w.charAt(JavaInt.of(0)));
+                    if (groups.get(key) == null) {
+                        groups.put(key, new ArrayList());
+                    }
+                    groups.get(key).add(w);
+                }
+                Optional<JavaString> some = Optional.of(JavaString.of("here"));
+                Optional<JavaString> nothing = Optional.empty();
+                System.stdout.println(p.x + " " + groups.get(JavaString.of("p")) + " " + some.get() + " " + (bit)nothing.isPresent()
+                        + " " + nothing.orElse(JavaString.of("default")));
+                """, "pear+fig+apple pear [apple, fig, kiwi, pear] APPLE 0 [][]\n3 [pear] here false default\n",
+                "Point", "class Point { public int x; public new(int x) { this.x = x; } }");
+        output("raw types, as in T1, and raw to parameterized, unchecked as in Java", "import java.util.ArrayList;\nimport java.util.List;", """
+                ArrayList untyped = new ArrayList();
+                untyped.add(JavaString.of("u"));
+                List<JavaString> typed = untyped;
+                JavaObject o = untyped.get(JavaInt.of(0));
+                System.stdout.println(typed.get(JavaInt.of(0)).length() + " " + o);
+                """, "1 u\n");
+        output("a Java array's elements, read and assigned in place, and its length", "import java.util.Arrays;\nimport java.util.ArrayList;", """
+                JavaArray<JavaInt> nums = JavaArray.of([5, 6, 7]);
+                nums[1]++;
+                nums[2] += JavaInt.of(10);
+                nums[0] = nums[0] * JavaInt.of(2);
+                int total = 0;
+                for (JavaInt n : nums) {
+                    total += (int)n;
+                }
+                ArrayList<JavaString> l = new ArrayList();
+                l.add(JavaString.of("x"));
+                JavaArray<JavaString> arr = l.toArray(new JavaArray<JavaString>(0));
+                System.stdout.println(total + " " + Arrays.toString(nums) + " " + nums.length + " " + arr[0] + arr.length);
+                """, "34 [10, 7, 17] 3 x1\n");
+        output("try-with-resources closes a Java AutoCloseable", "import java.io.BufferedReader;\nimport java.io.StringReader;", """
+                try (BufferedReader r = new BufferedReader(new StringReader(JavaString.of("one\\ntwo")))) {
+                    System.stdout.println(r.readLine() + "|" + r.readLine() + "|" + r.readLine());
+                }
+                """, "one|two|null\n");
+        output("a catch of Java's Throwable doesn't catch System.exit", "import java.lang.Throwable as JavaThrowable;", """
+                try {
+                    System.stdout.println("before");
+                    System.exit(3);
+                } catch (JavaThrowable t) {
+                    System.stdout.println("caught");
+                }
+                """, "before\n");
+        compileError("Java's generics hold objects: JavaIntBoxed", "import java.util.ArrayList;", "ArrayList<JavaInt> l = null;",
+                "Java's generics hold objects, so a type argument is JavaIntBoxed (an Integer), not JavaInt");
+        compileError("not Seal's numbers", "import java.util.ArrayList;", "ArrayList<int> l = null;",
+                "not int; Java's box of it is JavaIntBoxed");
+        compileError("a Seal string is JavaString there", "import java.util.ArrayList;", "ArrayList<string> l = null;",
+                "Seal's string is JavaString here");
+        compileError("an element of another type", "import java.util.ArrayList;",
+                "ArrayList<JavaString> l = new ArrayList();\nl.add(JavaIntBoxed.of(1));",
+                "no overload of add takes (handle<JavaIntBoxed>)");
+        compileError("type arguments are checked", "import java.util.ArrayList;",
+                "ArrayList<JavaString> l = new ArrayList<JavaIntBoxed>();",
+                "expected handle<ArrayList<handle<JavaString>>>, found handle<ArrayList<handle<JavaIntBoxed>>>");
+        compileError("an element is its type argument's", "import java.util.ArrayList;",
+                "ArrayList<JavaString> l = new ArrayList();\nfor (JavaIntBoxed x : l) { }",
+                "initializer of x: expected handle<JavaIntBoxed>, found handle<JavaString>");
+        compileError("for-each needs an Iterable or array", "import java.time.LocalDate;",
+                "for (JavaObject o : LocalDate.now()) { }", "for-each goes over a Java Iterable or array, not LocalDate");
+        compileError("the number of type arguments", "import java.util.Collections;",
+                "Collections.<JavaString, JavaString>emptyList();", "emptyList takes 1 type argument(s), not 2");
+        compileError("a Java array's length is fixed", "", "JavaArray<JavaInt> a = new JavaArray(2);\na.length = JavaInt.of(3);",
+                "a Java array's length is fixed when it is made");
+    }
+
     private static void exceptions() {
         output("Java's exceptions are caught by their class, and finally runs", "import java.nio.file.Files;\n"
                 + "import java.nio.file.Path;\nimport java.io.IOException;\nimport java.lang.IllegalStateException as JavaIllegalState;", """
@@ -421,8 +566,6 @@ public final class JavaInteropTest {
     private static void compileErrors() {
         compileError("a misspelled method", "import java.time.LocalDate;", "LocalDate.now().plusDayz(JavaLong.of(1));",
                 "Java's java.time.LocalDate has no method plusDayz");
-        compileError("Java's primitives have no operators", "", "JavaInt a = JavaInt.of(1);\nJavaInt b = a + a;",
-                "operator +: JavaInt is Java's int, which has no operators in Seal; cast it to Seal's first, as (int)x");
         compileError("a JavaBoolean is a bit by a cast", "import java.util.ArrayList;", "if (new ArrayList().isEmpty()) { }",
                 "condition must be a bit, not JavaBoolean; Java's boolean is a bit by a cast: (bit)x");
         compileError("a Seal object needs JavaObject.of", "import java.util.ArrayList;", "new ArrayList().add(new Point());",
@@ -435,10 +578,6 @@ public final class JavaInteropTest {
                 "a cast takes a Java value out: (string)x");
         compileError("a class without a public constructor", "import java.time.LocalDate;", "new LocalDate();",
                 "Java's java.time.LocalDate has no public constructor; its static methods make them: LocalDate.now(...)");
-        compileError("Java's generics come later", "import java.util.ArrayList;", "ArrayList<JavaString> l = null;",
-                "ArrayList takes 0 type arguments, not 1");
-        compileError("for-each over Java's Iterables comes with them", "import java.util.ArrayList;",
-                "for (JavaObject o : new ArrayList()) { }", "for-each over Java's ArrayList comes with Java's generics");
         compileError("lambdas as Java's interfaces come later", "import java.util.ArrayList;", "new ArrayList().forEach(x -> { });",
                 "a lambda goes where Java wants an interface in a later step");
         compileError("so do Seal classes extending Java's", "import java.util.ArrayList;", "",
