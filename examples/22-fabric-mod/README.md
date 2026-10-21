@@ -11,11 +11,11 @@ to `Hooks.savingSettings`, Seal code, at the start of Minecraft's
 classes it calls; `resources/sealmod.mixins.json` names it, and `fabric.mod.json` names that.
 
 ```sh
-./fabric/run.sh
+./examples/22-fabric-mod/run.sh
 ```
 
-downloads Fabric's server launcher, Minecraft 26.3's server and Fabric API into `fabric/server/`
-(the first time), builds the mod with
+downloads Fabric's server launcher, Minecraft 26.3's server and Fabric API into `server/` in this
+folder (the first time), builds the mod with
 
 ```sh
 seal build --library --jar mods/sealmod.jar --resources sealmod/resources --classpath MINECRAFT_JARS sealmod/src
@@ -29,4 +29,4 @@ Seal mixin: Minecraft is saving server.properties, for the world "world" on port
 ```
 
 The server then stops at Minecraft's EULA, which the script doesn't accept for you: to run the
-server on, read https://aka.ms/MinecraftEULA and set `eula=true` in `fabric/server/eula.txt`.
+server on, read https://aka.ms/MinecraftEULA and set `eula=true` in `server/eula.txt`.

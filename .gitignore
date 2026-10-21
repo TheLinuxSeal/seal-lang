@@ -6,4 +6,4 @@ out/
 result
 result-*
 .direnv/
-fabric/server/
+examples/22-fabric-mod/server/

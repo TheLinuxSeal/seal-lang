@@ -3,9 +3,9 @@
 # 26.3 (docs/JAVA.md, T5 and §11).
 #
 # The first run downloads Fabric's server launcher, Minecraft's server (through the launcher) and
-# Fabric API into fabric/server/. Minecraft's server then stops, as its EULA (eula.txt) isn't accepted:
-# Fabric has already loaded the mod by then, which prints what it registered. To run the server on,
-# read https://aka.ms/MinecraftEULA and set eula=true in fabric/server/eula.txt yourself.
+# Fabric API into server/, beside this script. Minecraft's server then stops, as its EULA (eula.txt)
+# isn't accepted: Fabric has already loaded the mod by then, which prints what it registered. To run
+# the server on, read https://aka.ms/MinecraftEULA and set eula=true in server/eula.txt yourself.
 set -euo pipefail
 here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 minecraft=26.3
@@ -37,7 +37,7 @@ fi
 # The mod compiles against Minecraft's own classes, under their own names (Minecraft is no longer
 # obfuscated), with its libraries and Fabric's loader, for ModInitializer and Mixin's annotations.
 classpath="versions/$minecraft/server-$minecraft.jar:$(find libraries -name '*.jar' | sort | tr '\n' ':')"
-"$here/../seal" build --library --jar mods/sealmod.jar --resources "$here/sealmod/resources" \
+"$here/../../seal" build --library --jar mods/sealmod.jar --resources "$here/sealmod/resources" \
     --classpath "$classpath" "$here/sealmod/src"
 echo "Built mods/sealmod.jar; starting the server"
 java -jar fabric-server-launch.jar nogui

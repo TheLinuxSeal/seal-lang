@@ -68,9 +68,9 @@ Point[x=3, y=9]  is 9.49 from the origin
   (`class Worker extends(Thread)`). Values cross by hand, through
   `seal.java`'s `JavaInt.of`, `JavaString.of` and casts; jars come from `--classpath`
   ([`docs/JAVA.md`](docs/JAVA.md)). A program's own `.java` files sit beside its `.seal` files
-  and compile with it, so a mod's Mixins are Java that calls its Seal code. [`fabric/`](fabric)
-  is a Minecraft mod written in Seal, with a mixin: `fabric/run.sh` builds it and runs it in
-  Fabric's server.
+  and compile with it, so a mod's Mixins are Java that calls its Seal code.
+  [`examples/22-fabric-mod`](examples/22-fabric-mod) is a Minecraft mod written in Seal, with a
+  mixin: its `run.sh` builds it and runs it in Fabric's server.
 
 The full language is described in [`SPEC.md`](SPEC.md).
 
@@ -120,8 +120,8 @@ seal build [options] PATH...   write the class files, for java to run
 ## Examples
 
 [`examples/`](examples) has 21 programs, each with the output it should give, from the basics to
-generics, fixed point, files, packages, static imports, pure functions and Java's own classes. [`examples/README.md`](examples/README.md)
-says what each one shows.
+generics, fixed point, files, packages, static imports, pure functions and Java's own classes, and a
+Minecraft mod. [`examples/README.md`](examples/README.md) says what each one shows.
 
 ## Status
 

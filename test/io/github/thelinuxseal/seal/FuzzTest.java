@@ -57,7 +57,8 @@ public final class FuzzTest {
         List<Program> programs = new ArrayList<>();
         for (String root : List.of("examples", "test/fuzz")) {
             try (Stream<Path> dirs = Files.list(Path.of(root))) {
-                for (Path dir : dirs.filter(Files::isDirectory).sorted().toList()) {
+                // Not the Minecraft mod, which runs with its run.sh and compiles against Minecraft's classes.
+                for (Path dir : dirs.filter(Files::isDirectory).filter(d -> !Files.exists(d.resolve("run.sh"))).sorted().toList()) {
                     Map<String, String> files = new LinkedHashMap<>();
                     Main.readSources(dir, files);
                     List<String> mutable = files.keySet().stream().filter(f -> f.endsWith("Main.seal")).toList();

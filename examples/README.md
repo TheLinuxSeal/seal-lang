@@ -42,7 +42,8 @@ Each directory is a complete program. Run one with:
 ```
 
 `expected.txt` in each directory is the program's output; `ExamplesTest` checks
-that every example still produces it.
+that every example still produces it. The Minecraft mod, 22, runs in Minecraft instead, through
+its own `run.sh`.
 
 | Example | Shows |
 |---|---|
@@ -67,3 +68,4 @@ that every example still produces it.
 | [19-static-imports](19-static-imports/space/Main.seal) | `import static`: all of `Math` with `*` (`sqrt`, `sin`, `pow`, `PI`), one library constant, every constant of a program's own class, single methods; a class's own method and a local variable coming before imported ones |
 | [20-pure-functions](20-pure-functions) | `static pure` methods that run while compiling: a counter typed `uint<<Bits.needed(1000)>>`, its width a `size` the method gives, an array sized by the primes a sieve finds, `const` fields worked out by calls, a `Ring<<N>>` whose capacity is worked out for each `N`, arrays made and sorted while compiling; every operator in a compile-time value, `**` (a power), `?:` and casts among them |
 | [21-java](21-java/Main.seal) | Java's own classes, imported and used as Seal's: a `TreeMap<JavaString, JavaIntBoxed>` and its entries, a `List<JavaString>` whose type arguments `List.of` works out, for-each over Java's collections and arrays, Java's operators on `JavaInt` and the others, `java.time` dates and an enum constant, overloads chosen as Java chooses (`valueOf(char)` and `valueOf(int)`, `remove(int)` and `remove(Object)`), varargs, values in by `JavaInt.of` and `JavaString.of` and out by casts, a seeded `java.util.Random`, Seal objects in Java lists, Seal lambdas as Java's `Runnable` and `Comparator` (a Java `Thread` runs one), a Java `HashSet` finding Seal objects by their `==` and `hash()`, a Seal class extending `ArrayList` whose `add` Java's `Collections.addAll` calls, catching an `IOException`, try-with-resources closing a Java reader, arrays in and out and in place, `java.util.regex`; on the JVM only |
+| [22-fabric-mod](22-fabric-mod) | a Minecraft mod in Seal, for Fabric and Minecraft 26.3: a Seal class implementing Fabric's `ModInitializer`, a Seal class extending Minecraft's `Block` registered in Minecraft's registries, and a mixin in Java (`SettingsMixin.java`) that calls the mod's Seal code; built with `seal build --library --jar`. It runs in Minecraft, not on its own: its `run.sh` downloads a Fabric server, builds the mod and starts it, so it has no `expected.txt` |

@@ -1,7 +1,7 @@
 # Calling Java from Seal: design
 
 **Status:** reviewed 2026-10-20; T1 to T5 are built (§8), and §10 records what building them
-settled: a Fabric mod written in Seal loads in Minecraft 26.3 (`fabric/`). Its Mixins are Java, a
+settled: a Fabric mod written in Seal loads in Minecraft 26.3 (`examples/22-fabric-mod`). Its Mixins are Java, a
 program's own `.java` files beside its `.seal` ones (§11), built too. Seal uses Java's classes as it uses its own:
 `import java.util.ArrayList;`, then `new ArrayList()` and `names.add(...)`, checked while compiling
 and compiled to the JVM's own calls. Values cross between the two by hand: a Seal value goes into
@@ -370,8 +370,8 @@ source beside Seal's for this, are set aside.
 | **T2**, **done** | Java's generics: type arguments, erasure and casts, inference, wildcards; for-each over an `Iterable`; `try` closing an `AutoCloseable`. With it: Java's operators on Java's primitives, and Java arrays' elements in place | a word count in a `TreeMap<JavaString, JavaIntBoxed>` (`JavaInteropTest`) |
 | **T3**, **done** | Seal lambdas as Java's functional interfaces; Seal classes implementing Java interfaces, with bridges; Seal objects' `equals`, `hashCode` and `toString` | a Java `Thread` runs Seal code, a Seal `Comparator` sorts a Java list, a Java `HashMap` holds Seal keys (`JavaInteropTest`) |
 | **T4**, **done** | Seal classes extending Java classes: constructors, overrides, bridges, protected members | a Seal class extends a class from the test's class folder, and its Java code calls the Seal overrides (`JavaInteropTest`) |
-| **T5**, **done** | jars from `seal build` (`--jar`, `--resources`), libraries (`--library`), static fields set up when Java calls first, then a Fabric mod: a Seal `ModInitializer` registering a Seal `Block` | the mod loads in Fabric's server for Minecraft 26.3 and registers its block (`fabric/run.sh`) |
-| **Mixins**, **done** | a program's own `.java` files, compiled by the JDK's `javac` before Seal's code or after it (§11); the mod gets a mixin | the mod's mixin, in Java, runs in Minecraft's code and calls the mod's Seal code (`fabric/run.sh`); `CliTest` |
+| **T5**, **done** | jars from `seal build` (`--jar`, `--resources`), libraries (`--library`), static fields set up when Java calls first, then a Fabric mod: a Seal `ModInitializer` registering a Seal `Block` | the mod loads in Fabric's server for Minecraft 26.3 and registers its block (`examples/22-fabric-mod/run.sh`) |
+| **Mixins**, **done** | a program's own `.java` files, compiled by the JDK's `javac` before Seal's code or after it (§11); the mod gets a mixin | the mod's mixin, in Java, runs in Minecraft's code and calls the mod's Seal code (`examples/22-fabric-mod/run.sh`); `CliTest` |
 
 ## 9. What will be hard
 
@@ -484,7 +484,7 @@ Settled while building T5:
 26. **No Java 21 target, and no remapping:** Minecraft moved to Java 25 with 26.1 and stopped
     obfuscating its code, so a Seal mod compiles against Minecraft's own classes, under Mojang's
     names, and Seal's class files load as they are. The development run is Fabric's own server
-    launcher with the mod in `mods/`, no Gradle; `fabric/run.sh` sets it up. Registering a block
+    launcher with the mod in `mods/`, no Gradle; `examples/22-fabric-mod/run.sh` sets it up. Registering a block
     needs Fabric API beside the mod, which keeps Minecraft's registries open while mods start.
 27. **A library's static fields are set up all at once,** the first time Java's code touches one of
     its classes, by a `$Seal` class in the first class's package, so Seal's order of setting them
@@ -536,7 +536,7 @@ and a `.java` file. `javac`'s errors are its own, at their lines, and stop the b
 
 **Mixins** are Java files of the second part: Mixin copies a mixin's bytecode into the class it
 targets, as that class loads, and wants a Java class with its annotations for that; what the
-mixin does is the mod's own code, in Seal. `fabric/sealmod` has one:
+mixin does is the mod's own code, in Seal. `examples/22-fabric-mod/sealmod` has one:
 
 ```java
 @Mixin(DedicatedServerSettings.class)

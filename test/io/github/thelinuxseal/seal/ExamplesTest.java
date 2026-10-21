@@ -24,8 +24,13 @@ public final class ExamplesTest {
         try (Stream<Path> s = Files.list(Path.of("examples"))) {
             dirs = s.filter(Files::isDirectory).sorted().toList();
         }
+        List<String> skipped = new ArrayList<>();
         for (Path dir : dirs) {
             Path expectedFile = dir.resolve("expected.txt");
+            if (!Files.exists(expectedFile) && Files.exists(dir.resolve("run.sh"))) {
+                skipped.add(dir.getFileName().toString()); // runs its own way: the Minecraft mod, in Minecraft
+                continue;
+            }
             if (!Files.exists(expectedFile)) {
                 failures.add(dir + ": no expected.txt");
                 continue;
@@ -44,7 +49,8 @@ public final class ExamplesTest {
                         + (errText.isEmpty() ? "" : "\n    stderr: " + errText.strip()));
             }
         }
-        System.out.println(passed + " passed, " + failures.size() + " failed");
+        System.out.println(passed + " passed, " + failures.size() + " failed"
+                + (skipped.isEmpty() ? "" : "  (" + String.join(", ", skipped) + " run with run.sh, not here)"));
         failures.forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);
