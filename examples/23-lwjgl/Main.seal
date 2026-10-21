@@ -1,0 +1,82 @@
+// A window drawn with OpenGL, through LWJGL (docs/JAVA.md): GLFW's and OpenGL's calls, made from
+// Seal as Java's code makes them, through static imports. Seal lambdas are GLFW's callbacks, a
+// JavaArray<JavaInt> is the int[] GLFW puts the window's size in, and Java's values come out to
+// Seal's by casts. run.sh fetches LWJGL and runs it.
+//
+// Escape closes the window, space pauses the spinning, and the up and down arrows change its speed.
+import static org.lwjgl.glfw.GLFW.*;
+import static org.lwjgl.system.MemoryUtil.NULL;
+import org.lwjgl.glfw.Callbacks;
+import org.lwjgl.glfw.GLFWErrorCallback;
+import org.lwjgl.opengl.GL;
+import seal.java.*;
+
+class Main {
+    static int main() {
+        // GLFW's errors as they happen: a Seal lambda as its GLFWErrorCallbackI, invoke(int, long).
+        glfwSetErrorCallback((error, description) ->
+                System.stderr.println("GLFW error " + error + ": " + GLFWErrorCallback.getDescription(description)));
+        if (!(bit)glfwInit()) {
+            System.stderr.println("GLFW couldn't start: the window needs a display");
+            return 1;
+        }
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);          // shown once it has something to show
+        JavaLong window = glfwCreateWindow(JavaInt.of(800), JavaInt.of(600), JavaString.of("Seal and LWJGL"), NULL, NULL);
+        if ((bit)(window == NULL)) {
+            glfwTerminate();
+            return 1;
+        }
+
+        Scene scene = new Scene();
+        glfwSetKeyCallback(window, (w, key, scancode, action, mods) -> {
+            if ((bit)(action == GLFW_RELEASE)) {
+                return;                                     // a press, or a key held down
+            }
+            if ((bit)(key == GLFW_KEY_ESCAPE)) {
+                glfwSetWindowShouldClose(w, JavaBoolean.of(true));
+            } else if ((bit)(key == GLFW_KEY_SPACE)) {
+                scene.togglePause();
+            } else if ((bit)(key == GLFW_KEY_UP)) {
+                scene.faster();
+            } else if ((bit)(key == GLFW_KEY_DOWN)) {
+                scene.slower();
+            }
+        });
+
+        glfwMakeContextCurrent(window);
+        glfwSwapInterval(JavaInt.of(1));                   // a frame each time the screen refreshes
+        glfwShowWindow(window);
+        GL.createCapabilities();                           // OpenGL's calls, for this window
+
+        JavaArray<JavaInt> width = new JavaArray(1);       // Java's int[], for GLFW to fill
+        JavaArray<JavaInt> height = new JavaArray(1);
+        double start = (double)glfwGetTime();
+        double last = start;
+        double counted = start;
+        int frames = 0;
+        int framesCounted = 0;
+        while (!(bit)glfwWindowShouldClose(window)) {
+            double now = (double)glfwGetTime();
+            scene.update(now - last);
+            last = now;
+            glfwGetFramebufferSize(window, width, height);
+            scene.draw((int)width[0], (int)height[0]);
+            glfwSwapBuffers(window);
+            glfwPollEvents();
+            frames++;
+            if (now - counted >= 1.0) {
+                glfwSetWindowTitle(window, JavaString.of("Seal and LWJGL: " + (frames - framesCounted)
+                        + " frames a second, " + scene.describe()));
+                counted = now;
+                framesCounted = frames;
+            }
+        }
+
+        Callbacks.glfwFreeCallbacks(window);
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        glfwSetErrorCallback(null).free();
+        System.stdout.printf("drew %d frames in %.1f seconds%n", frames, last - start);
+        return 0;
+    }
+}

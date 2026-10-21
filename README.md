@@ -120,8 +120,8 @@ seal build [options] PATH...   write the class files, for java to run
 ## Examples
 
 [`examples/`](examples) has 21 programs, each with the output it should give, from the basics to
-generics, fixed point, files, packages, static imports, pure functions and Java's own classes, and a
-Minecraft mod. [`examples/README.md`](examples/README.md) says what each one shows.
+generics, fixed point, files, packages, static imports, pure functions and Java's own classes, and
+two that use Java libraries: a Minecraft mod, and a window drawn with OpenGL through LWJGL. [`examples/README.md`](examples/README.md) says what each one shows.
 
 ## Status
 

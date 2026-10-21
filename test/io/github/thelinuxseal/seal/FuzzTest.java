@@ -57,7 +57,7 @@ public final class FuzzTest {
         List<Program> programs = new ArrayList<>();
         for (String root : List.of("examples", "test/fuzz")) {
             try (Stream<Path> dirs = Files.list(Path.of(root))) {
-                // Not the Minecraft mod, which runs with its run.sh and compiles against Minecraft's classes.
+                // Not the examples that run with their own run.sh, which compile against jars it fetches.
                 for (Path dir : dirs.filter(Files::isDirectory).filter(d -> !Files.exists(d.resolve("run.sh"))).sorted().toList()) {
                     Map<String, String> files = new LinkedHashMap<>();
                     Main.readSources(dir, files);

@@ -1,0 +1,83 @@
+import static org.lwjgl.opengl.GL11.*;
+import seal.java.*;
+
+// What the window shows: a triangle spinning in the middle, and a ring of squares turning the
+// other way, each its own color. It is drawn with OpenGL 1.1's calls, as Java's code makes
+// them; Seal's numbers go in through JavaDouble.of, where they are written.
+class Scene {
+    const int SQUARES = 12;
+    const double SIDE = 0.06;      // half a square's side
+
+    double angle = 0.0;            // the triangle's, in degrees
+    double speed = 90.0;           // degrees a second; below 0, it spins the other way
+    bit paused = false;
+
+    public void togglePause() { paused = !paused; }
+    public void faster() { speed += 30.0; }
+    public void slower() { speed -= 30.0; }
+
+    public string describe() {
+        return paused ? "paused" : "spinning at " + (int)speed + " degrees a second";
+    }
+
+    public void update(double seconds) {
+        if (!paused) {
+            angle += speed * seconds;
+            while (angle >= 360.0) { angle -= 360.0; }
+            while (angle < 0.0) { angle += 360.0; }
+        }
+    }
+
+    public void draw(int width, int height) {
+        if (height == 0) {
+            return;                // a minimized window has nothing to draw on
+        }
+        glViewport(JavaInt.of(0), JavaInt.of(0), JavaInt.of(width), JavaInt.of(height));
+        glClearColor(JavaFloat.of(0.08), JavaFloat.of(0.09), JavaFloat.of(0.14), JavaFloat.of(1.0));
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        // -1 to 1 up the window, and as far across as keeps squares square.
+        double aspect = (double)width / height;
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        glOrtho(JavaDouble.of(-aspect), JavaDouble.of(aspect), JavaDouble.of(-1.0), JavaDouble.of(1.0),
+                JavaDouble.of(-1.0), JavaDouble.of(1.0));
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
+
+        glPushMatrix();
+        glRotated(JavaDouble.of(angle), JavaDouble.of(0.0), JavaDouble.of(0.0), JavaDouble.of(1.0));
+        glBegin(GL_TRIANGLES);
+        color(1.0, 0.35, 0.3);
+        vertex(0.0, 0.5);
+        color(0.3, 1.0, 0.45);
+        vertex(-0.433, -0.25);
+        color(0.3, 0.5, 1.0);
+        vertex(0.433, -0.25);
+        glEnd();
+        glPopMatrix();
+
+        glBegin(GL_QUADS);
+        for (int i = 0; i < SQUARES; i++) {
+            double around = 2 * Math.PI * i / SQUARES - angle * Math.PI / 180;   // radians, against the triangle
+            double x = 0.75 * Math.cos(around);
+            double y = 0.75 * Math.sin(around);
+            hue((double)i / SQUARES);
+            vertex(x - SIDE, y - SIDE);
+            vertex(x + SIDE, y - SIDE);
+            vertex(x + SIDE, y + SIDE);
+            vertex(x - SIDE, y + SIDE);
+        }
+        glEnd();
+    }
+
+    static void vertex(double x, double y) { glVertex2d(JavaDouble.of(x), JavaDouble.of(y)); }
+
+    static void color(double r, double g, double b) { glColor3d(JavaDouble.of(r), JavaDouble.of(g), JavaDouble.of(b)); }
+
+    // A color around the color wheel, h from 0 to 1.
+    static void hue(double h) {
+        double t = 2 * Math.PI * h;
+        color(0.55 + 0.45 * Math.cos(t), 0.55 + 0.45 * Math.cos(t - 2 * Math.PI / 3), 0.55 + 0.45 * Math.cos(t + 2 * Math.PI / 3));
+    }
+}

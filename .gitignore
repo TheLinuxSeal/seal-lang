@@ -7,3 +7,5 @@ result
 result-*
 .direnv/
 examples/22-fabric-mod/server/
+examples/23-lwjgl/lib/
+examples/23-lwjgl/build/

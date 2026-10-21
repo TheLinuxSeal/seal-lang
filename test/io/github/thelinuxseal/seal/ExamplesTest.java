@@ -28,7 +28,7 @@ public final class ExamplesTest {
         for (Path dir : dirs) {
             Path expectedFile = dir.resolve("expected.txt");
             if (!Files.exists(expectedFile) && Files.exists(dir.resolve("run.sh"))) {
-                skipped.add(dir.getFileName().toString()); // runs its own way: the Minecraft mod, in Minecraft
+                skipped.add(dir.getFileName().toString()); // runs its own way: the Minecraft mod, the LWJGL window
                 continue;
             }
             if (!Files.exists(expectedFile)) {
