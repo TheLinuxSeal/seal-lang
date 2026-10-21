@@ -567,6 +567,15 @@ public final class JavaInteropTest {
                     public JavaInt compare(JavaString a, JavaString b) { return a.length() - b.length(); }
                 }
                 """);
+        output("method references as Java's interfaces", "import java.util.ArrayList;", """
+                ArrayList<JavaString> names = new ArrayList();
+                names.add(JavaString.of("bo"));
+                names.add(JavaString.of("Ada"));
+                names.sort(JavaString::compareToIgnoreCase);           // an instance method, on the first parameter
+                names.forEach(System.stdout::println);                // Seal's println, on System.stdout
+                names.replaceAll(JavaString::toUpperCase);
+                System.stdout.println(names + " " + names.stream().map(JavaString::toLowerCase).toList());
+                """, "Ada\nbo\n[ADA, BO] [ada, bo]\n");
         output("a Seal Comparable in a TreeSet, through the bridge javac would write", "import java.util.TreeSet;", """
                 TreeSet<Version> versions = new TreeSet();
                 versions.add(new Version(3));
@@ -757,6 +766,15 @@ public final class JavaInteropTest {
                 System.stdout.println(parts.length() + " " + parts[2] + " " + Arrays.toString(filled) + " " + nines[0] + nines[1]
                         + " " + Arrays.toString(JavaArray.of([3.5, 1.5])) + " " + Arrays.toString(JavaArray.of([true, false])));
                 """, "3 195 -61 hé\n3 c [9, 9, 9, 9] 19 [3.5, 1.5] [true, false]\n");
+        output("JavaArray.of(xs, convert): what convert makes of each element, of a fixed array too", "import java.util.Arrays;", """
+                array<int><<4>> squares = [0, 1, 4, 9];
+                array<string> names = ["ada", "bo"];
+                array<double> none = new array<double>(0);
+                System.stdout.println(Arrays.toString(JavaArray.of(squares, JavaInt::of)) + " "
+                        + Arrays.toString(JavaArray.of(squares, JavaLong::of)) + " "
+                        + Arrays.toString(JavaArray.of(names, n -> JavaString.of(n.toUpper()))) + " "
+                        + (int)JavaArray.of(none, JavaDouble::of).length);
+                """, "[0, 1, 4, 9] [0, 1, 4, 9] [ADA, BO] 0\n");
         compileError("a Java array's elements are Java's types", "", "JavaArray<int> a = null;",
                 "JavaArray<T> is Java's T[], so T is one of Java's types");
         compileError("new JavaArray(n) needs the type it makes", "", "JavaObject o = new JavaArray(3);",

@@ -2088,6 +2088,9 @@ final class JvmCode {
             case Lambda lam -> {
                 return closure(lam);
             }
+            case io.github.thelinuxseal.seal.ast.Ast.MethodRef r -> {
+                return closure(tb.methodRefs.get(r)); // the lambda it is (§30.3)
+            }
             case SwitchExpr se -> {
                 return switchExpr(se, t);
             }
@@ -2103,6 +2106,7 @@ final class JvmCode {
             case StringLit s -> "a string here";
             case New n -> "new here";
             case Lambda l -> "a lambda";
+            case io.github.thelinuxseal.seal.ast.Ast.MethodRef r -> "a method reference";
             case Index i -> "indexing";
             case Slice s -> "a bit slice";
             case InstanceOf i -> "instanceof";

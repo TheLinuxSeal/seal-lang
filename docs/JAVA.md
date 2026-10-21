@@ -178,8 +178,10 @@ class Main {
   `array<int<<8>>>` or `array<uint<<8>>>`, by its bits, is a `JavaArray<JavaByte>`, `array<int>` a
   `JavaArray<JavaInt>`, `array<string>` a `JavaArray<JavaString>`), `new JavaArray(n)` is one of
   Java's defaults for Java to fill (`JavaArray<JavaByte> buffer = new JavaArray(4096);`), and a
-  cast copies one out (`(array<uint<<8>>>)buffer`). Both directions copy: an `array<T>` is a unique
-  (§21.3 of the spec), which Java can't keep. In place, as Java writes them (built in T2): `a[i]` is
+  cast copies one out (`(array<uint<<8>>>)buffer`). `JavaArray.of(xs, convert)` makes a new one
+  of what a function makes of each element, of any array, fixed ones too:
+  `JavaArray.of(xs, JavaInt::of)` (built 2026-10-21). Both directions copy: an `array<T>` is a
+  unique (§21.3 of the spec), which Java can't keep. In place, as Java writes them (built in T2): `a[i]` is
   an element, read and assigned (`a[i] += x`, `a[i]++`), by an `int` or a `JavaInt`; `a.length` its
   length, a `JavaInt`; and for-each goes over one. `new JavaArray<JavaString>(0)` names the element
   type where nothing else does (an argument).
@@ -281,6 +283,8 @@ source beside Seal's for this, are set aside.
   parameters, and gives a value if the lambda does (`submit(() -> x)` is `submit(Callable)`,
   `submit(() -> println(x))` `submit(Runnable)`, as Java chooses); a generic method's type
   arguments may come from what it gives (`stream.map(s -> s.toUpperCase())` is a `Stream<JavaString>`).
+  A method reference is the lambda it stands for (§30.3 of the spec), so it goes there too:
+  `names.sort(JavaString::compareToIgnoreCase)`, `names.forEach(System.stdout::println)`.
 - **Implementing a Java interface:**
   `class Version implements(Comparable<Version>) { public JavaInt compareTo(Version o) { ... } }`.
   For a generic interface, the backend also writes the erased bridge the JVM calls

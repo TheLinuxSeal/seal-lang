@@ -31,7 +31,7 @@ public enum TokenKind {
     DOUBLE_GT, // >>
 
     // Punctuation
-    SEMICOLON, COMMA, DOT, DOT_DOT, AT, COLON, QUESTION,
+    SEMICOLON, COMMA, DOT, DOT_DOT, AT, COLON, COLON_COLON, QUESTION,
 
     // Operators
     PLUS, MINUS, STAR, SLASH, PERCENT,

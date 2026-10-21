@@ -1657,6 +1657,64 @@ public final class LanguageTest {
                 """, "Main", main("")), "a lambda in a struct method can't use its fields or methods");
         compileError("an explicit parameter type must match", files("Main", main("Function<int, int> f = (bit b) -> 1;")),
                 "lambda parameter b is bit, but Function.apply passes int");
+        output("method references", files("Main", """
+                import seal.util.List;
+                import seal.util.function.BiFunction;
+                import seal.util.function.Function;
+                import seal.util.function.Supplier;
+                class Main {
+                    class Box {
+                        public int v;
+                        public new(int v) { this.v = v; }
+                        public int twice() { return v * 2; }
+                        public int plus(int x) { return v + x; }
+                        public static int square(int x) { return x * x; }
+                    }
+                    int base = 100;
+                    int add(int x) { return base + x; }
+                    Function<int, int> adder() { return this::add; }
+                    static int byLength(string a, string b) { return a.length() - b.length(); }
+                    static <T, R> List<R> mapAll(List<T> xs, Function<T, R> f) {
+                        List<R> out = new List();
+                        for (T x : xs) { out.add(f.apply(x)); }
+                        return out;
+                    }
+                    static int main() {
+                        Function<int, Box> make = Box::new;                     // a constructor
+                        Box b = make.apply(21);
+                        Function<Box, int> twice = Box::twice;                  // an instance method, on the first parameter
+                        BiFunction<Box, int, int> plus = Box::plus;
+                        Function<int, int> square = Box::square;                // a static method
+                        Supplier<int> bound = b::twice;                         // on b, copied when it is made
+                        b = new Box(1);
+                        System.stdout.print("" + twice.apply(make.apply(4)) + " " + plus.apply(b, 1) + " " + square.apply(9) + " "
+                                + bound.get() + " " + new Main().adder().apply(5) + " ");
+                        List<string> names = new List();
+                        names.add("carol"); names.add("al"); names.add("bob");
+                        names.sort(Main::byLength);
+                        names.forEach(System.stdout::print);                    // on System.stdout
+                        List<int> nums = new List();
+                        nums.add(7); nums.add(42);
+                        List<string> texts = mapAll(nums, Integer::toString);   // R is what Integer.toString gives
+                        System.stdout.println(" " + texts.get(1) + texts.get(1).length());
+                        return 0;
+                    }
+                }
+                """), "8 2 81 42 105 albobcarol 422\n");
+        compileError("a method reference needs a functional interface", files("Main", main("int f = Integer::toString;")),
+                "a method reference needs a functional interface type (an interface with one method), not int");
+        compileError("a method reference's result of the wrong type", files("Main", main("Function<int, int> f = Integer::toString;")),
+                "result of Integer::toString: expected int, found string");
+        compileError("before :: goes a type, a variable or this", files("Main", main("Supplier<int> s = (1 + 2)::abs;")),
+                "before :: goes a type, a variable or this; for anything else, use a lambda");
+        compileError("a method reference to a method that isn't there", files("Main", main("Function<int, int> f = Integer::nothing;")),
+                "Integer has no method nothing");
+        compileError("a static and an instance method a reference could be", files("Box", """
+                class Box { public static int count(Box b) { return 1; } public int count() { return 2; } }
+                """, "Main", main("Function<Box, int> f = Box::count;")),
+                "Box::count is ambiguous here: Box has a static count taking 1 and an instance one taking 0; use a lambda");
+        compileError("::new needs a type", files("Main", main("string s = \"a\"; Function<int, string> f = s::new;")),
+                "::new makes an object of the type before it, as in Box::new; s is a value");
         String res = """
                 unique Res {
                     public int id;

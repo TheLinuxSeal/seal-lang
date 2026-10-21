@@ -42,6 +42,8 @@ public final class LexerTest {
         kinds("a - -b", IDENTIFIER, MINUS, MINUS, IDENTIFIER);
         kinds("n-->0", IDENTIFIER, MINUS_MINUS, GT, INT_LITERAL);
         kinds("x -= 1 -> y", IDENTIFIER, MINUS_ASSIGN, INT_LITERAL, ARROW, IDENTIFIER);
+        kinds("JavaInt::of; a ? b : c", IDENTIFIER, COLON_COLON, IDENTIFIER, SEMICOLON, IDENTIFIER, QUESTION, IDENTIFIER,
+                COLON, IDENTIFIER);
 
         // Address operators and `&&`.
         kinds("addr<int> p = *x;", ADDR, LT, INT, GT, IDENTIFIER, ASSIGN, STAR, IDENTIFIER, SEMICOLON);

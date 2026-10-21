@@ -1441,6 +1441,24 @@ names.forEach(n -> System.stdout.println(n));
 * In a class method, a lambda can use the object's fields and methods; it keeps a reference to the object. In a struct or unique method it can't, since there is no shared object to keep.
 * At run time a lambda is a class object, freed like any other, whose class implements the interface. `instanceof` and casts work on it. Each evaluation of a lambda expression creates a new object.
 
+**Method references.** `X::m` names a method where a lambda would call it, as in Java. It is short for the lambda that calls it, with as many parameters as the interface's method takes:
+
+```text
+Function<int, JavaInt> in = JavaInt::of;        // a static method:        x -> JavaInt.of(x)
+Function<Box, int> twice = Box::twice;          // an instance method:     b -> b.twice()
+BiFunction<Box, int, int> plus = Box::plus;     //   on the first one:     (b, x) -> b.plus(x)
+Supplier<int> bound = box::twice;               // on a variable:          () -> box.twice()
+Function<int, int> adder = this::add;           // on this:                x -> this.add(x)
+Function<int, Box> make = Box::new;             // a constructor:          x -> new Box(x)
+
+names.forEach(System.stdout::println);
+JavaArray<JavaInt> ints = JavaArray.of(xs, JavaInt::of);
+```
+
+* Before `::` goes a type, a variable (a local, a parameter or a field, also dotted, `System.stdout`), or `this`. Anything else is an error that suggests a lambda: a lambda would compute it again each time it is called.
+* With a type, `X::m` calls a static `m` that takes all the parameters, or an instance `m` of the first parameter that takes the rest. If `X` has both, the reference is ambiguous, as in Java (`JavaIntBoxed::toString` for a `Function<JavaIntBoxed, JavaString>`, Java's `Integer::toString`), and a lambda says which.
+* It is checked, captures and runs as that lambda does: a variable is copied when the reference is made, so `box::twice` keeps calling the box it was made with; a field is read when it is called, as in a lambda that names it; and overloads of `m` are chosen for the parameters' types. Errors name the reference: `result of Integer::toString: expected int, found string`.
+
 The standard library defines the common functional interfaces:
 
 | Interface | Method |

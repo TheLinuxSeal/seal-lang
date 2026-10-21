@@ -201,11 +201,18 @@ public sealed interface Type {
     /**
      * A lambda passed as an argument, before the call is resolved: it fits any functional
      * interface whose method takes as many parameters, and is checked once the call is known.
+     * A method reference ({@code ref}, with no {@code lambda}) is one that takes as many as the
+     * interface's method does.
      */
-    record LambdaT(io.github.thelinuxseal.seal.ast.Ast.Lambda lambda) implements Type {
+    record LambdaT(io.github.thelinuxseal.seal.ast.Ast.Lambda lambda, io.github.thelinuxseal.seal.ast.Ast.MethodRef ref)
+            implements Type {
+        LambdaT(io.github.thelinuxseal.seal.ast.Ast.Lambda lambda) {
+            this(lambda, null);
+        }
+
         @Override
         public String toString() {
-            return "lambda";
+            return ref != null ? "method reference" : "lambda";
         }
     }
 

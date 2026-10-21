@@ -259,6 +259,8 @@ public final class Checker {
         /** Statements to generate in place of others: xs[i] += v on an object element (§46). */
         public final Map<Stmt, Stmt> statementSteps;
         public final Map<Lambda, LambdaInfo> lambdas;
+        /** The lambda each method reference is, to generate in its place (§30.3). */
+        public final Map<MethodRef, Lambda> methodRefs;
         /** The class each catch clause catches. */
         public final Map<Catch, ClassT> catchTypes;
         /** Expressions to generate in place of others: 5 + "x" is "" + 5 + "x". */
@@ -293,6 +295,7 @@ public final class Checker {
             this.assertions = b.assertions;
             this.statementSteps = b.statementSteps;
             this.lambdas = b.lambdas;
+            this.methodRefs = b.methodRefs;
             this.catchTypes = b.catchTypes;
             this.rewritten = b.rewritten;
             this.elementSteps = b.elementSteps;
@@ -4276,6 +4279,8 @@ public final class Checker {
         /** The lambdas being checked, innermost first, collecting what they capture. */
         final Deque<LambdaCtx> lambdaCtx = new ArrayDeque<>();
         final Map<Lambda, LambdaInfo> lambdas = new IdentityHashMap<>();
+        /** The lambda each method reference became, once the type it goes to was known. */
+        final Map<MethodRef, Lambda> methodRefs = new IdentityHashMap<>();
         final Deque<Map<String, Type>> scopes = new ArrayDeque<>();
         /** Resolved types of expressions, for lvalue analysis. */
         final Map<Expr, Type> types = new IdentityHashMap<>();
@@ -5169,7 +5174,7 @@ public final class Checker {
             case DoubleT d -> from instanceof IntConstT || from instanceof FloatConstT || widens(from, d);
             case AddrT a -> from instanceof NullT;
             case HandleT h -> (from instanceof LambdaT lt && functionalMethod(h) instanceof Impl fn
-                        && ((Method) fn.member().member).params().size() == lt.lambda().params().size())
+                        && (lt.ref() != null || ((Method) fn.member().member).params().size() == lt.lambda().params().size()))
                     || from instanceof NullT
                     || (from instanceof HandleT fh && fh.target() instanceof ClassT fc
                         && h.target() instanceof ClassT tc && isSubclass(fc, tc));
@@ -5532,7 +5537,7 @@ public final class Checker {
             report(pos, what + ": the array literal has " + ac.elements().size() + " elements, but " + to
                     + " holds " + at.size().intValue());
         } else if (from instanceof LambdaT) {
-            report(pos, what + ": a lambda needs a functional interface type (an interface with one method), not " + to);
+            report(pos, what + ": a " + from + " needs a functional interface type (an interface with one method), not " + to);
         } else if (from instanceof VoidT) {
             report(pos, what + ": expression has no value");
         } else {
@@ -5567,6 +5572,7 @@ public final class Checker {
             case InstanceOf io -> checkInstanceOf(b, io);
             case Conditional c -> checkConditional(b, c, expected);
             case Lambda lam -> checkLambda(b, lam, expected);
+            case MethodRef r -> checkMethodRef(b, r, expected);
             case BoolLit bl -> Type.BIT;
             case NullLit n -> Type.NULL;
             case Name n -> checkName(b, n);
@@ -5800,8 +5806,9 @@ public final class Checker {
             if (lam.expr() != null) {
                 Type t = checkExpr(b, lam.expr(), ret instanceof VoidT ? null : ret);
                 if (!(ret instanceof VoidT)) {
-                    requireConvertible(b, lam.expr(), t, ret, "lambda result");
-                    requireNotCopied(b, lam.expr(), ret, "lambda result");
+                    String what = resultOf(b, lam);
+                    requireConvertible(b, lam.expr(), t, ret, what);
+                    requireNotCopied(b, lam.expr(), ret, what);
                 } else if (t instanceof LambdaT) {
                     report(lam.expr().pos(), "a lambda here needs a functional interface type");
                 }
@@ -5860,7 +5867,11 @@ public final class Checker {
             if (lambdaParams.stream().anyMatch(t -> mentionsBinder(t, sig.binders.keySet(), bound))) {
                 continue; // its parameter types aren't known yet
             }
-            Type result = lambdaResultType(b, lt.lambda(), lambdaParams);
+            Lambda lam = lambdaFor(b, lt, lambdaParams.size());
+            if (lam == null) {
+                continue;
+            }
+            Type result = lambdaResultType(b, lam, lambdaParams);
             Type declared = returnTypeOf(fn.owner(), fn.member(), Map.of());
             if (result != null) {
                 unify(declared, result, sig.binders.keySet(), bound);
@@ -5941,8 +5952,168 @@ public final class Checker {
         for (int i = 0; i < args.size() && i < ps.size(); i++) {
             if (args.get(i) instanceof Lambda lam) {
                 b.types.put(lam, checkLambda(b, lam, ps.get(i)));
+            } else if (args.get(i) instanceof MethodRef r) {
+                b.types.put(r, checkMethodRef(b, r, ps.get(i)));
             }
         }
+    }
+
+    /**
+     * A method reference (§30.3): the lambda it is, with as many parameters as the functional
+     * interface it goes to takes, checked as that lambda.
+     */
+    private Type checkMethodRef(Body b, MethodRef r, Type expected) {
+        if (expected == null || expected instanceof LambdaT) {
+            return new LambdaT(null, r); // an argument: made a lambda once the call is resolved
+        }
+        Impl fn = functionalMethod(expected);
+        if (fn == null) {
+            report(r.pos(), "a method reference needs a functional interface type (an interface with one method), not "
+                    + expected + "; e.g. Function<int, JavaInt> f = JavaInt::of;");
+            return Type.ERROR;
+        }
+        RefLambda made = refLambda(b, r, ((Method) fn.member().member).params().size());
+        if (made.lambda() == null) {
+            if (made.error() != null) {
+                report(r.pos(), made.error());
+            } else {
+                checkExpr(b, r.target(), null); // what is wrong before the ::
+            }
+            return Type.ERROR;
+        }
+        b.methodRefs.put(r, made.lambda());
+        return checkLambda(b, made.lambda(), expected);
+    }
+
+    /** What a lambda's result is called in errors: the method reference's it stands for, if it does. */
+    private static String resultOf(Body b, Lambda lam) {
+        for (Map.Entry<MethodRef, Lambda> e : b.methodRefs.entrySet()) {
+            if (e.getValue() == lam) {
+                return "result of " + dottedName(e.getKey().target()) + "::" + e.getKey().name();
+            }
+        }
+        return "lambda result";
+    }
+
+    /** The lambda a lambda argument is when it takes n parameters: itself, or a method reference's; null if none. */
+    private Lambda lambdaFor(Body b, LambdaT lt, int n) {
+        if (lt.ref() == null) {
+            return lt.lambda().params().size() == n ? lt.lambda() : null;
+        }
+        return refLambda(b, lt.ref(), n).lambda();
+    }
+
+    /** The lambda a method reference is with some number of parameters, or why there is none. */
+    record RefLambda(Lambda lambda, String error) {
+    }
+
+    /**
+     * The lambdas a method reference is with each number of parameters, made once each: the same
+     * lambda each time its method's body is typed, as the backend types it again (§30.3).
+     */
+    private final Map<MethodRef, Map<Integer, RefLambda>> refLambdas = new IdentityHashMap<>();
+
+    private RefLambda refLambda(Body b, MethodRef r, int n) {
+        Map<Integer, RefLambda> made = refLambdas.computeIfAbsent(r, k -> new HashMap<>());
+        RefLambda found = made.get(n);
+        if (found == null) {
+            found = makeRefLambda(b, r, n);
+            made.put(n, found);
+        }
+        return found;
+    }
+
+    /**
+     * X::m with a type X is (a, b) -> X.m(a, b) if X has a static m taking two, or (a, b) -> a.m(b)
+     * if it has an instance m taking one; both is ambiguous, as in Java. x::m with a variable or
+     * this is (a, b) -> x.m(a, b), and X::new is (a, b) -> new X(a, b). Its parameters are named
+     * $0, $1 and so on, which no Seal name is.
+     */
+    private RefLambda makeRefLambda(Body b, MethodRef r, int n) {
+        Pos pos = r.pos();
+        List<Param> params = new ArrayList<>();
+        List<Expr> args = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            params.add(new Param(pos, null, "$" + i));
+            args.add(new Name(pos, "$" + i));
+        }
+        Expr receiver = copyReceiver(r.target());
+        if (receiver == null) {
+            return new RefLambda(null, "before :: goes a type, a variable or this; for anything else, use a lambda,"
+                    + " as in x -> make().m(x)");
+        }
+        Type target = quietly(() -> checkExpr(b, r.target(), null));
+        if (target.isError()) {
+            return new RefLambda(null, null);
+        }
+        Expr body;
+        if (r.name().equals("new")) {
+            if (!(target instanceof ClassRefT)) {
+                return new RefLambda(null, "::new makes an object of the type before it, as in Box::new; "
+                        + dottedName(receiver) + " is a value");
+            }
+            body = new New(pos, new TypeRef(pos, dottedName(receiver), List.of(), null, List.of()), args);
+        } else if (target instanceof ClassRefT cr) {
+            List<Method> methods = methodsNamed(b, cr.cls(), r.name(), pos);
+            String type = isJavaType(cr.cls()) ? javaName(cr.cls()) : cr.cls().name;
+            if (methods.isEmpty()) {
+                return new RefLambda(null, type + " has no method " + r.name());
+            }
+            boolean asStatic = methods.stream().anyMatch(m -> m.modifiers().isStatic() && takes(m, n));
+            boolean asInstance = n > 0 && methods.stream().anyMatch(m -> !m.modifiers().isStatic() && takes(m, n - 1));
+            if (asStatic && asInstance) {
+                return new RefLambda(null, type + "::" + r.name() + " is ambiguous here: " + type + " has a static "
+                        + r.name() + " taking " + n + " and an instance one taking " + (n - 1) + "; use a lambda");
+            }
+            if (asInstance || (!asStatic && methods.stream().noneMatch(m -> m.modifiers().isStatic()))) {
+                body = new Call(pos, new Select(pos, args.get(0), r.name()), args.subList(1, n));
+            } else {
+                body = new Call(pos, new Select(pos, receiver, r.name()), args);
+            }
+        } else {
+            body = new Call(pos, new Select(pos, receiver, r.name()), args);
+        }
+        return new RefLambda(new Lambda(pos, params, body, null), null);
+    }
+
+    /**
+     * A fresh copy of what goes before ::, for the lambda to check as its own: a name, `this`, or
+     * a dotted name of them. Null for anything else, which a lambda would run each time it is called.
+     */
+    private static Expr copyReceiver(Expr e) {
+        return switch (e) {
+            case Name n -> new Name(n.pos(), n.name());
+            case This t -> new This(t.pos());
+            case Select s -> copyReceiver(s.target()) instanceof Expr target ? new Select(s.pos(), target, s.name()) : null;
+            default -> null;
+        };
+    }
+
+    private static String dottedName(Expr e) {
+        return switch (e) {
+            case Select s -> dottedName(s.target()) + "." + s.name();
+            case Name n -> n.name();
+            default -> "this";
+        };
+    }
+
+    /** The methods of this name a type has, static and instance, its parents' too. */
+    private List<Method> methodsNamed(Body b, ClassInfo cls, String name, Pos pos) {
+        List<MemberInfo> found;
+        if (isJavaType(cls)) {
+            found = javaMethods(cls, null, name, false, null);
+        } else {
+            ClassT self = cls.shapes.isEmpty() ? null : selfType(cls, 0);
+            Found f = quietly(() -> findMembers(b, self, cls, name, pos, false));
+            found = f == null ? List.of() : f.members;
+        }
+        return found.stream().filter(m -> m.member instanceof Method).map(m -> (Method) m.member).toList();
+    }
+
+    /** Whether a method takes n arguments: as many parameters, or a Java varargs method's. */
+    private boolean takes(Method m, int n) {
+        return m.params().size() == n
+                || (javaMembers.get(m) instanceof JavaClasses.JMember jm && jm.isVarargs() && n >= m.params().size() - 1);
     }
 
     private ClassT selfOrDeclaring(MemberInfo m) {
@@ -6985,7 +7156,8 @@ public final class Checker {
                 if (lps.stream().anyMatch(Checker::mentionsTypeParam) || !mentionsTypeParam(fret)) {
                     continue;
                 }
-                Type result = lambdaResultType(b, lt.lambda(), lps);
+                Lambda lam = lambdaFor(b, lt, lps.size());
+                Type result = lam == null ? null : lambdaResultType(b, lam, lps);
                 if (result != null) {
                     inferJava(fret, result, md.typeParams(), found);
                 }
@@ -7128,19 +7300,27 @@ public final class Checker {
             // A lambda goes where Java wants an interface with one abstract method that takes as many parameters,
             // returning a value if the lambda gives one, and nothing if it can (docs/JAVA.md §5).
             Impl fn = functionalMethod(p);
-            if (fn == null || ((Method) fn.member().member).params().size() != lt.lambda().params().size()) {
+            if (fn == null) {
+                return false;
+            }
+            int n = ((Method) fn.member().member).params().size();
+            Lambda lam = lt.ref() == null ? lt.lambda() : javaCallBody == null ? null : lambdaFor(javaCallBody, lt, n);
+            if (lam == null) {
+                return lt.ref() != null; // a method reference, checked once the call is known
+            }
+            if (lam.params().size() != n) {
                 return false;
             }
             if (returnTypeOf(fn.owner(), fn.member(), Map.of()) instanceof VoidT) {
-                return voidCompatible(lt.lambda());
+                return voidCompatible(lam);
             }
-            if (lt.lambda().expr() != null && javaCallBody != null) {
+            if (lam.expr() != null && javaCallBody != null) {
                 // x -> println(x) gives nothing, so it is no Callable's: what the expression gives decides.
                 List<Type> lps = paramTypes(fn.owner(), fn.member(), Map.of());
                 return lps.stream().anyMatch(Checker::mentionsTypeParam)
-                        || !(lambdaResultType(javaCallBody, lt.lambda(), lps) instanceof VoidT);
+                        || !(lambdaResultType(javaCallBody, lam, lps) instanceof VoidT);
             }
-            return valueCompatible(lt.lambda());
+            return valueCompatible(lam);
         }
         if (!(a instanceof HandleT ah && ah.target() instanceof ClassT ac)) {
             return false;

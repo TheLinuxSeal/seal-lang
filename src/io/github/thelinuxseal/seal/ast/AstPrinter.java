@@ -193,6 +193,7 @@ public final class AstPrinter {
                     + n.args().stream().map(a -> " " + print(a)).collect(Collectors.joining()) + ")";
             case Lambda l -> "(lambda (" + l.params().stream().map(p -> (p.type() == null ? "" : print(p.type()) + " ") + p.name())
                     .collect(Collectors.joining(" ")) + ") " + (l.expr() != null ? print(l.expr()) : print(l.block())) + ")";
+            case MethodRef r -> "(:: " + print(r.target()) + " " + r.name() + ")";
             case Conditional c -> "(? " + print(c.cond()) + " " + print(c.then()) + " " + print(c.otherwise()) + ")";
             case SwitchExpr sw -> "(switch-expr " + print(sw.subject()) + sw.cases().stream().map(c -> " (" + (c.isDefault()
                     ? "default" : "case " + c.labels().stream().map(AstPrinter::print).collect(Collectors.joining(" ")))

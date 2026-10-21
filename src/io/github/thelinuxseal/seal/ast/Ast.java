@@ -302,13 +302,14 @@ public final class Ast {
             case Cast c -> List.of(c.operand());
             case InstanceOf i -> List.of(i.operand());
             case Lambda l -> List.of(); // its body is a function of its own
+            case MethodRef r -> List.of(); // as a lambda's
             case New n -> n.args();
             case NewArray n -> List.of(n.count());
         };
     }
 
     public sealed interface Expr permits IntLit, FloatLit, StringLit, ArrayLit, BoolLit, NullLit, Name, SuperRef, This, Select,
-            Call, Index, Slice, Unary, IncDec, Binary, Conditional, Assign, Cast, InstanceOf, Lambda, New, NewArray, SizeOf,
+            Call, Index, Slice, Unary, IncDec, Binary, Conditional, Assign, Cast, InstanceOf, Lambda, MethodRef, New, NewArray, SizeOf,
             AlignOf, SwitchExpr {
         Pos pos();
     }
@@ -441,6 +442,14 @@ public final class Ast {
      * A parameter's type is null when it comes from the interface.
      */
     public record Lambda(Pos pos, List<Param> params, Expr expr, Block block) implements Expr {
+    }
+
+    /**
+     * `JavaInt::of`, `name::length`, `this::add`, `Box::new`: a method reference (§30.3), the
+     * lambda that calls the method with its parameters, as many as the interface it goes to takes.
+     * {@code target} is a type's name, a variable or `this`; {@code name} is "new" for a constructor.
+     */
+    public record MethodRef(Pos pos, Expr target, String name) implements Expr {
     }
 
     /** `new Array(args)`. The shape comes from the declared type (§7). */

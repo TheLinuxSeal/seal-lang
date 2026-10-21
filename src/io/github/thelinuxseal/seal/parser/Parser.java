@@ -1488,6 +1488,10 @@ public final class Parser {
                     continue;
                 }
                 expr = new Select(expr.pos(), expr, check(DELETE) ? advance().text() : expectIdent("member name after '.'"));
+            } else if (check(COLON_COLON)) {
+                // A method reference, JavaInt::of or Box::new (§30.3): it ends the postfix chain, as in Java.
+                advance();
+                return new MethodRef(expr.pos(), expr, check(NEW) ? advance().text() : expectIdent("method name after '::'"));
             } else if (check(PLUS_PLUS) || check(MINUS_MINUS)) {
                 expr = new IncDec(expr.pos(), advance().kind() == PLUS_PLUS ? BinaryOp.ADD : BinaryOp.SUB, false, expr);
             } else if (check(LPAREN)) {

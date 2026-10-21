@@ -755,6 +755,7 @@ final class PureEval {
             case NullLit n -> "null";
             case This t -> "this";
             case Lambda l -> "a lambda";
+            case MethodRef r -> "a method reference";
             case New n -> "new";
             case NewArray n -> "addresses";
             case InstanceOf i -> "instanceof";

@@ -137,6 +137,9 @@ public final class ParserTest {
         expr("() -> { f(); }", "(lambda () (block (call f)))");
         expr("(int a, List<int> b) -> a", "(lambda (int a List<int> b) a)");
         expr("f(x -> x, y)", "(call f (lambda (x) x) y)");
+        expr("JavaInt::of", "(:: JavaInt of)");
+        expr("f(Box::new, this::add, seal.java.JavaInt::of)",
+                "(call f (:: Box new) (:: this add) (:: (. (. seal java) JavaInt) of))");
         expr("(a) - b", "(- a b)");
         stmt("switch (x) { case a -> f(); }", "(switch x (case a -> (call f)))");
         expr("x instanceof Shape", "(instanceof x Shape)");

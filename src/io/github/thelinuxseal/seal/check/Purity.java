@@ -160,6 +160,10 @@ final class Purity {
                 expr(l.expr());
                 stmt(l.block());
             }
+            case MethodRef r when tb.methodRefs.get(r) instanceof Lambda l -> {
+                l.params().forEach(param -> given.add(param.name()));
+                expr(l.expr()); // the lambda it is
+            }
             case SwitchExpr se -> se.cases().forEach(c -> {
                 c.labels().forEach(this::expr);
                 c.body().forEach(this::stmt);

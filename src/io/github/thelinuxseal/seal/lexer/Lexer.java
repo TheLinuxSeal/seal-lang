@@ -124,7 +124,7 @@ public final class Lexer {
             case '[' -> emit(TokenKind.LBRACKET);
             case ']' -> emit(TokenKind.RBRACKET);
             case ';' -> emit(TokenKind.SEMICOLON);
-            case ':' -> emit(TokenKind.COLON);
+            case ':' -> emit(match(':') ? TokenKind.COLON_COLON : TokenKind.COLON);
             case '?' -> emit(TokenKind.QUESTION);
             case ',' -> emit(TokenKind.COMMA);
             case '@' -> emit(TokenKind.AT);
