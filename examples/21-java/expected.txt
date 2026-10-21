@@ -18,6 +18,7 @@ Ada true Ada true
 == Seal code handed to Java ==
 a Java thread runs a Seal lambda
 [Ada, Linus, Grace] [ADA, LINUS, GRACE] [(1, 2)]
+[HELLO, FROM, JAVA] [JAVA, FROM, HELLO] 3
 == Java's exceptions, caught by their class ==
 NoSuchFileException: no-such-file.txt
 line one / line two

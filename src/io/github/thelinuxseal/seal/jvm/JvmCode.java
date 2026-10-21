@@ -360,6 +360,11 @@ final class JvmCode {
             c.invokespecial(jc.superclass, "<init>", MethodTypeDesc.of(CD_void));
             return;
         }
+        if (parent.cls().java != null) {
+            // A Java parent's constructor that takes nothing (the checker made sure it has one, docs/JAVA.md §5).
+            c.invokespecial(jc.superclass, "<init>", MethodTypeDesc.of(CD_void));
+            return;
+        }
         MemberInfo noArgs = null;
         for (MemberInfo m : parent.cls().constructors) {
             if (m.existsIn(parent.header()) && ((Constructor) m.member).params().isEmpty()) {
@@ -2850,6 +2855,12 @@ final class JvmCode {
             javaCast(cast.operand(), from, to);
             return to;
         }
+        if (isString(to) && from instanceof HandleT) {
+            // An object of a Seal class extending a Java one: Java's toString() (docs/JAVA.md §5).
+            value(cast.operand(), from);
+            c.invokestatic(CD_String, "valueOf", MethodTypeDesc.of(CD_String, CD_Object));
+            return to;
+        }
         if (from instanceof IntConstT || from instanceof FloatConstT) {
             if (to instanceof IntT && from instanceof FloatConstT) {
                 double d = ((FloatV) ck.constantIn(tb, cast.operand())).value();
@@ -4233,6 +4244,14 @@ final class JvmCode {
     private Type javaCall(Call call, CallInfo ci, Checker.JavaCall java) {
         MemberInfo m = ci.member();
         Pos at = call.pos();
+        if (ci.kind() == CallKind.SUPER_CONSTRUCTOR) {
+            // super(...) of a Seal class extending a Java one: the Java constructor the checker chose (docs/JAVA.md §5).
+            c.aload(0);
+            pushJavaArgs(ck.paramTypes(ci.owner(), m, Map.of()), call.args(), java.varargsFrom(), at);
+            c.invokespecial(g.desc(new HandleT(ci.owner()), at), "<init>",
+                    MethodTypeDesc.ofDescriptor(ck.javaMember(m.member).descriptor()));
+            return Type.VOID;
+        }
         boolean isStatic = m.member.modifiers().isStatic();
         ClassT owner = isStatic ? null : ci.owner();
         Type ret = type(call);
@@ -4241,7 +4260,7 @@ final class JvmCode {
         MethodTypeDesc type = MethodTypeDesc.ofDescriptor(descriptor);
         if (!isStatic) {
             Expr receiver = call.callee() instanceof Select s ? s.target() : null;
-            if (receiver == null) {
+            if (receiver == null || receiver instanceof SuperRef) {
                 loadThis(at);
             } else {
                 value(receiver, null);
@@ -4250,7 +4269,9 @@ final class JvmCode {
         pushJavaArgs(ck.paramTypes(owner, m, ci.binders()), call.args(), java.varargsFrom(), at);
         ClassInfo declaring = ck.declaringClassOf(m);
         ClassT through = java.qualifier();
-        if (isStatic) {
+        if (java.special()) {
+            c.invokespecial(g.desc(new HandleT(through), at), name, type, through.cls().isInterface); // super.m(): the parent's own
+        } else if (isStatic) {
             // An interface's static method is called through the interface itself.
             ClassInfo cls = declaring.isInterface ? declaring : through.cls();
             c.invokestatic(ClassDesc.of(cls.java.name()), name, type, cls.isInterface);

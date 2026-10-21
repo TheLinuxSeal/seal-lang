@@ -1,6 +1,6 @@
 // Java's own classes (docs/JAVA.md), imported and used as Seal's are: checked while
 // compiling, and called as the JVM calls them, generics and all; and Seal's lambdas and
-// classes handed to Java as its interfaces. Seal's values go into Java by seal.java's classes,
+// classes handed to Java as its interfaces, or extending its classes. Seal's values go into Java by seal.java's classes,
 // JavaInt.of(5) and JavaString.of("Ada"), and come out by casts, (int)x and (string)s. It runs
 // on the JVM, Seal's backend; the deprecated VM (--vm) has no Java.
 import java.io.BufferedReader;
@@ -30,6 +30,13 @@ class Main
     {
         public string name;
         public new(string name) { this.name = name; }
+    }
+
+    // A Seal class extending Java's ArrayList: Java's own methods, and the add it overrides, which
+    // Java's code calls too.
+    class Shouting extends(ArrayList<JavaString>)
+    {
+        public JavaBoolean add(JavaString s) { return super.add(s.toUpperCase()); }
     }
 
     // Java's HashSet finds it by its ==, hashed by its hash(), and prints it by its cast to string.
@@ -122,6 +129,10 @@ class Main
         points.add(new Point(1, 2));
         points.add(new Point(1, 2));                                // the same point: Java asks Seal's ==
         System.stdout.println(people + " " + shouting + " " + points);
+        Shouting loud = new Shouting();
+        loud.add(JavaString.of("hello"));
+        Collections.addAll(loud, JavaString.of("from"), JavaString.of("java"));   // Java's code, calling Seal's add
+        System.stdout.println(loud + " " + loud.reversed() + " " + (int)loud.size());
 
         System.stdout.println("== Java's exceptions, caught by their class ==");
         try {

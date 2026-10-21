@@ -1780,7 +1780,7 @@ public final class CodeGen {
             }
             List<Expr> java = new ArrayList<>(t.javaCalls.keySet());
             t.types.forEach((e, type) -> {
-                if (Checker.isJavaValue(type)) {
+                if (Checker.isJavaValue(type) || (type instanceof HandleT h && h.target() instanceof ClassT ct && ck.extendsJava(ct.cls()))) {
                     java.add(e);
                 }
             });

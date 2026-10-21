@@ -1,7 +1,7 @@
 # Calling Java from Seal: design
 
-**Status:** reviewed 2026-10-20; T1, T2 and T3 are built (§8), and §10 records what building
-them settled; T4, Seal classes extending Java's, is next. Seal uses Java's classes as it uses its own:
+**Status:** reviewed 2026-10-20; T1 to T4 are built (§8), and §10 records what building them
+settled; T5, a Fabric mod, is next. Seal uses Java's classes as it uses its own:
 `import java.util.ArrayList;`, then `new ArrayList()` and `names.add(...)`, checked while compiling
 and compiled to the JVM's own calls. Values cross between the two by hand: a Seal value goes into
 Java through the class of the Java type it becomes (`JavaInt.of(5)`, `JavaString.of("Ada")`,
@@ -264,7 +264,7 @@ class Main
 - Bounds aren't checked (`Collections.sort` of a list of something not `Comparable`): the JVM's
   cast finds it while the program runs.
 
-## 5. Handing Seal to Java (T3 built, T4)
+## 5. Handing Seal to Java (T3 and T4 built)
 
 Through the compiler, which knows Java's interfaces once it reads them (built in T3). B2's plan, an
 `implement` making a `java.lang.reflect.Proxy` whose calls went to a handler, and the idea of Java
@@ -288,10 +288,17 @@ source beside Seal's for this, are set aside.
   error, as for Seal's interfaces; the interface's default methods are inherited; and a Seal
   interface may extend a Java one. Fabric starts a mod by creating the class `fabric.mod.json`
   names, `class MyMod implements(ModInitializer)`, with its constructor that takes nothing.
-- **Extending a Java class** (T4): `class Worker extends(Thread)`. Its constructors call a Java one
-  with `super(...)` (or the one that takes nothing); it overrides Java's methods, with bridges where
-  generics need them, and reaches protected members; a `final` class can't be extended, and
-  abstract methods must be implemented.
+- **Extending a Java class** (built in T4): `class Worker extends(Thread)`. Its constructors call a
+  Java one, public or protected, with `super(...)`, chosen as Java chooses, or else the one that
+  takes nothing (an error if there is none); it overrides Java's methods, with javac's bridges where
+  their JVM descriptors differ (a generic parent's `put(Object)` calling `put(JavaString)`, a
+  `byte` parameter, which a `JavaByte` holds as an int), and Java's code calls the overrides;
+  `super.m()` calls the parent's own. It reaches the parent's protected members, which no other
+  code does; a `final` class can't be extended, nor a `final` method overridden, an override returns
+  what Java's returns, and abstract methods must be implemented (Java's own and defaults count, as
+  List's `reversed()` for a class extending `ArrayList`). Its objects are Java's: they go where Java
+  wants its parent or an `Object` as they are, and without a cast of its own, its cast to `string`
+  is Java's `toString()`.
 - **Seal objects as Java objects** (built in T3): a Seal class gets `equals(Object)` from its `==`
   (`@overload(Operator.EQUALS)`, true for an object of its parameter's class that == calls equal),
   `hashCode()` from its `hash()` (its low 32 bits), and `toString()` from its cast to `string`, so
@@ -361,7 +368,7 @@ source beside Seal's for this, are set aside.
 | **T1**, **done** | the class-path reader; Java's classes without generics (raw, §4.1): imports, constructors, methods, fields, statics, enum constants, overloads, varargs; `seal.java`'s types (the primitives, `JavaString`, the boxes, `JavaObject`, `JavaArray`) with their `of`s and casts; `instanceof`; Java's exceptions caught and thrown | a program using `java.time`, `java.util.Random`, `java.util.regex` and `java.nio.file` prints what the same Java program prints (`JavaInteropTest`, which compiles the Java program and compares); `examples/21-java` |
 | **T2**, **done** | Java's generics: type arguments, erasure and casts, inference, wildcards; for-each over an `Iterable`; `try` closing an `AutoCloseable`. With it: Java's operators on Java's primitives, and Java arrays' elements in place | a word count in a `TreeMap<JavaString, JavaIntBoxed>` (`JavaInteropTest`) |
 | **T3**, **done** | Seal lambdas as Java's functional interfaces; Seal classes implementing Java interfaces, with bridges; Seal objects' `equals`, `hashCode` and `toString` | a Java `Thread` runs Seal code, a Seal `Comparator` sorts a Java list, a Java `HashMap` holds Seal keys (`JavaInteropTest`) |
-| **T4** | Seal classes extending Java classes: constructors, overrides, bridges, protected members | a Seal class extends a class from the test's jar, and its Java code calls the Seal overrides |
+| **T4**, **done** | Seal classes extending Java classes: constructors, overrides, bridges, protected members | a Seal class extends a class from the test's class folder, and its Java code calls the Seal overrides (`JavaInteropTest`) |
 | **T5** (rest of M6) | jars from `seal build`, the class-file target (Java 21, for Minecraft), then a Fabric mod: a Seal `ModInitializer` registering a block | the mod loads in a Fabric development run |
 
 ## 9. What will be hard
@@ -460,3 +467,11 @@ Settled while building T3:
     though Java's generics take one as itself where a type argument is its class: `map.put(point, v)`
     on a `HashMap<Point, ...>`, but `map.get(JavaObject.of(point))`, as `get` takes an `Object`.
 23. **Static fields when Java calls first** wait for T5, which has a Fabric mod to start that way.
+
+Settled while building T4:
+
+24. **A protected Java member is a subclass's alone:** code of the Seal class below it (and of the
+    types nested in that class) uses it, other code gets an error saying it is protected. Java also
+    lets its package see one, which Seal's code never shares.
+25. **Two arguments of different classes infer their nearest common type,** as Java's do:
+    `List.of(square, circle)` is a `List<Shape>` (§4.1), where T2 made it a `List<JavaObject>`.

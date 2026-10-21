@@ -65,7 +65,8 @@ Point[x=3, y=9]  is 9.49 from the origin
   `LocalDate.of(JavaInt.of(2026), JavaInt.of(1), JavaInt.of(1))`, checked while compiling and called
   as the JVM calls them, with overloads chosen as Java chooses them, and generics
   (`TreeMap<JavaString, JavaIntBoxed>`); Seal lambdas and classes go where Java wants its
-  interfaces (`names.sort((a, b) -> a.compareTo(b))`). Values cross by hand, through
+  interfaces (`names.sort((a, b) -> a.compareTo(b))`), and Seal classes extend Java's
+  (`class Worker extends(Thread)`). Values cross by hand, through
   `seal.java`'s `JavaInt.of`, `JavaString.of` and casts; jars come from `--classpath`
   ([`docs/JAVA.md`](docs/JAVA.md)).
 

@@ -41,7 +41,48 @@ public final class JavaInteropTest {
     private static JavaClasses classPath;
 
     /** Java classes on the programs' class path: fields, overloads, varargs, exceptions; and Same, a Java program. */
-    private static final Map<String, String> DEMO = Map.of("demo/Tools.java", """
+    private static final Map<String, String> DEMO = Map.of("demo/Shape.java", """
+            package demo;
+
+            /** For Seal classes to extend (T4): protected members, an abstract method, Java code calling the overrides. */
+            public abstract class Shape {
+                protected String name;
+                private final int sides;
+
+                protected Shape(String name, int sides) { this.name = name; this.sides = sides; }
+
+                public abstract double area();
+
+                protected String unit() { return "cm"; }
+
+                public final int sides() { return sides; }
+
+                public void scale(byte times) { }
+
+                public String describe() { return name + " with " + sides + " sides: " + area() + " " + unit() + "2"; }
+
+                public static String describeAll(java.util.List<? extends Shape> shapes) {
+                    StringBuilder out = new StringBuilder();
+                    for (Shape s : shapes) { out.append(s.describe()).append("; "); }
+                    return out.toString();
+                }
+            }
+            """, "demo/Box.java", """
+            package demo;
+
+            /** A generic class to extend, whose show() calls the get() a subclass may override. */
+            public class Box<T> {
+                protected T held;
+                public Box() { }
+                public void put(T t) { held = t; }
+                public T get() { return held; }
+                public String show() { return "[" + get() + "]"; }
+            }
+            """, "demo/Sealed.java", """
+            package demo;
+
+            public final class Sealed { }
+            """, "demo/Tools.java", """
             package demo;
 
             public class Tools {
@@ -128,6 +169,7 @@ public final class JavaInteropTest {
             sealAndJavaTogether();
             generics();
             sealIntoJava();
+            extendingJava();
             exceptions();
             javaArrays();
             imports();
@@ -575,6 +617,107 @@ public final class JavaInteropTest {
                 + "    public int compare(JavaString a, JavaString b) { return 0; }\n}");
     }
 
+    /** Seal classes extending Java classes (docs/JAVA.md §5), T4. */
+    private static void extendingJava() {
+        output("T4: Seal classes extend classes from the test's class folder, and its Java code calls the Seal overrides",
+                "import demo.Box;\nimport demo.Shape;\nimport java.lang.Thread;\nimport java.util.List;", """
+                Square sq = new Square(2.0);
+                System.stdout.println(sq.describe());                     // Java's describe() calls Seal's area() and unit()
+                sq.scale(JavaByte.of(3));
+                Shape s = sq;
+                System.stdout.println(s.describe() + " " + (int)s.sides() + " " + sq.label());
+                System.stdout.println(Shape.describeAll(List.of(new Square(1.0), new Circle(1.0))));   // a List<Shape>
+                Labels l = new Labels();
+                l.put(JavaString.of("hi"));
+                Box<JavaString> b = l;
+                b.put(JavaString.of("via java"));                         // Box.put(Object), bridged to Labels.put
+                System.stdout.println(l.get() + " " + l.show());
+                Worker w = new Worker("the docs");
+                w.start();
+                w.join();
+                Thread t = w;
+                System.stdout.println((bit)(t instanceof Worker) + " " + ((Worker)t).job);
+                """, "square with 4 sides: 4.0 m2\nsquare with 4 sides: 36.0 m2 4 square!\n"
+                + "square with 4 sides: 1.0 m2; circle with 0 sides: 3.0 incm2; \nVIA JAVA [VIA JAVA]\nworking on the docs: true\ntrue the docs\n",
+                "Square", """
+                import demo.Shape;
+                import seal.java.*;
+                class Square extends(Shape)
+                {
+                    double side;
+                    public new(double side) { super(JavaString.of("square"), JavaInt.of(4)); this.side = side; }
+                    public JavaDouble area() { return JavaDouble.of(side * side); }
+                    public JavaString unit() { return JavaString.of("m"); }        // overrides a protected method
+                    public void scale(JavaByte times) { side = side * (int)times; } // Java's scale(byte), bridged
+                    public string label() { return (string)name + "!"; }           // the parent's protected field
+                }
+                """, "Circle", """
+                import demo.Shape;
+                import seal.java.*;
+                class Circle extends(Shape)
+                {
+                    double r;
+                    public new(double r) { super(JavaString.of("circle"), JavaInt.of(0)); this.r = r; }
+                    public JavaDouble area() { return JavaDouble.of(3.0 * r * r); }
+                    public JavaString unit() { return JavaString.of("in").concat(super.unit()); }   // the parent's own
+                }
+                """, "Labels", """
+                import demo.Box;
+                import seal.java.*;
+                class Labels extends(Box<JavaString>)
+                {
+                    public void put(JavaString t) { super.put(t.toUpperCase()); }
+                }
+                """, "Worker", """
+                import java.lang.Thread;
+                import seal.java.*;
+                class Worker extends(Thread)
+                {
+                    public string job;
+                    public new(string job) { this.job = job; }   // Thread's constructor that takes nothing
+                    public void run() { System.stdout.println("working on " + job + ": " + getName().startsWith(JavaString.of("Thread"))); }
+                }
+                """);
+        output("a Seal class extending a JDK collection, its defaults inherited", "", """
+                Names n = new Names();
+                n.add(JavaString.of("ada"));
+                n.add(JavaString.of("bo"));
+                System.stdout.println(n + " " + n.reversed() + " " + (int)n.size());
+                """, "[ADA, BO] [BO, ADA] 2\n", "Names", """
+                import java.util.ArrayList;
+                import seal.java.*;
+                class Names extends(ArrayList<JavaString>)
+                {
+                    public JavaBoolean add(JavaString s) { return super.add(s.toUpperCase()); }
+                }
+                """);
+        compileError("a final class can't be extended", "", "", "Java's demo.Sealed is final, so a class can't extend it",
+                "A", "import demo.Sealed;\nclass A extends(Sealed) { }");
+        compileError("a parent without a constructor that takes nothing needs super(...)", "", "",
+                "Java's demo.Shape has no constructor that takes nothing, so each constructor of C calls one of its others first",
+                "C", "import demo.Shape;\nimport seal.java.*;\nclass C extends(Shape) { public JavaDouble area() { return JavaDouble.of(1.0); } }");
+        compileError("abstract methods must be implemented", "", "", "B must implement Shape.area(), or be declared `abstract class B`",
+                "B", "import demo.Shape;\nimport seal.java.*;\nclass B extends(Shape) { public new() { super(JavaString.of(\"b\"), JavaInt.of(1)); } }");
+        compileError("a final method can't be overridden", "", "", "sides overrides Java's demo.Shape.sides, which is final",
+                "D", "import demo.Shape;\nimport seal.java.*;\nclass D extends(Shape)\n{\n"
+                + "    public new() { super(JavaString.of(\"d\"), JavaInt.of(1)); }\n"
+                + "    public JavaDouble area() { return JavaDouble.of(1.0); }\n"
+                + "    public JavaInt sides() { return JavaInt.of(9); }\n}");
+        compileError("an override returns what Java's returns", "", "",
+                "E.unit returns string, but Java's demo.Shape.unit, which it overrides, returns handle<JavaString>",
+                "E", "import demo.Shape;\nimport seal.java.*;\nclass E extends(Shape)\n{\n"
+                + "    public new() { super(JavaString.of(\"e\"), JavaInt.of(1)); }\n"
+                + "    public JavaDouble area() { return JavaDouble.of(1.0); }\n"
+                + "    public string unit() { return \"x\"; }\n}");
+        compileError("protected members are for the classes below", "import demo.Box;",
+                "Box<JavaString> b = new Box();\nJavaString h = b.held;",
+                "the field held of Java's demo.Box is protected, so only code of a class below it can use it");
+        compileError("super.m() of an abstract method", "", "", "area is abstract in Java's demo.Shape; there is no implementation to call",
+                "F", "import demo.Shape;\nimport seal.java.*;\nclass F extends(Shape)\n{\n"
+                + "    public new() { super(JavaString.of(\"f\"), JavaInt.of(1)); }\n"
+                + "    public JavaDouble area() { return super.area(); }\n}");
+    }
+
     private static void exceptions() {
         output("Java's exceptions are caught by their class, and finally runs", "import java.nio.file.Files;\n"
                 + "import java.nio.file.Path;\nimport java.io.IOException;\nimport java.lang.IllegalStateException as JavaIllegalState;", """
@@ -670,9 +813,6 @@ public final class JavaInteropTest {
                 "a cast takes a Java value out: (string)x");
         compileError("a class without a public constructor", "import java.time.LocalDate;", "new LocalDate();",
                 "Java's java.time.LocalDate has no public constructor; its static methods make them: LocalDate.now(...)");
-        compileError("so do Seal classes extending Java's", "import java.util.ArrayList;", "",
-                "a Seal class extending Java's java.util.ArrayList comes in a later step", "Mine",
-                "import java.util.ArrayList;\nclass Mine extends(ArrayList) { }");
         compileError("a switch on a JavaInt needs a cast", "", "switch (JavaInt.of(1)) { default -> { } }",
                 "not JavaInt; JavaInt is Java's int, which a cast makes Seal's: switch ((int)x)");
     }

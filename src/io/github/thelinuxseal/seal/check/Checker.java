@@ -205,9 +205,13 @@ public final class Checker {
     /**
      * A call of a Java method or constructor (docs/JAVA.md §4): the class the JVM's call names (the
      * object's type, or the class written before a static method's name), and, for a call through
-     * varargs, how many arguments come before those put in the array (-1 for none).
+     * varargs, how many arguments come before those put in the array (-1 for none); {@code special}
+     * for super.m() in a Seal class extending a Java one, which calls the parent's own (§5).
      */
-    public record JavaCall(ClassT qualifier, int varargsFrom) {
+    public record JavaCall(ClassT qualifier, int varargsFrom, boolean special) {
+        public JavaCall(ClassT qualifier, int varargsFrom) {
+            this(qualifier, varargsFrom, false);
+        }
     }
 
     /**
@@ -843,6 +847,7 @@ public final class Checker {
             file = c.file;
             checkAbstractMembers(c);
             checkImplements(c);
+            checkJavaOverrides(c);
             checkVirtualFieldTypes(c);
         }
         checkInlineCycles(order);
@@ -1000,10 +1005,31 @@ public final class Checker {
     public record JavaImpl(JavaClasses.JMember java, ClassT implOwner, MemberInfo impl) {
     }
 
-    /** The abstract methods of the Java interfaces {@code t} implements, each with the method of t (or a parent) that implements it. */
+    /**
+     * The methods of Java's that {@code t}'s objects answer with a Seal method of t (or a Seal parent):
+     * the abstract methods of the Java interfaces it implements, and the methods of a Java class above
+     * it that a Seal method overrides (docs/JAVA.md §5).
+     */
     public List<JavaImpl> javaImplementations(ClassT t) {
         List<JavaImpl> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
+        int depth = 0;
+        for (ClassT p = parentOf(t); p != null && depth++ < MAX_INSTANTIATION_DEPTH; p = parentOf(p)) {
+            if (p.cls().java == null) {
+                continue;
+            }
+            for (MemberInfo m : p.cls().all) {
+                if (!(m.member instanceof Method md) || !(javaMembers.get(md) instanceof JavaClasses.JMember jm) || jm.isStatic()
+                        || jm.isFinal() || !seen.add(jm.name() + jm.descriptor())) {
+                    continue;
+                }
+                ClassT owner = p;
+                Impl impl = quietly(() -> findImplementation(t, md.name(), paramTypes(owner, m, Map.of())));
+                if (impl != null && !isJavaType(impl.owner().cls()) && ((Method) impl.member().member).body() != null) {
+                    out.add(new JavaImpl(jm, impl.owner(), impl.member()));
+                }
+            }
+        }
         for (ClassT i : allInterfacesOf(t)) {
             if (i.cls().java == null) {
                 continue;
@@ -1031,6 +1057,32 @@ public final class Checker {
     /** Whether a method is a class's == (§48), which Java's equals(Object) gives (docs/JAVA.md §5). */
     public static boolean isEqualsOperator(Method md) {
         return overloads(md, "==") && md.params().size() == 1 && !md.modifiers().isStatic();
+    }
+
+    /** An object of a Seal class extending a Java one that has no cast to string of its own: its text is Java's toString(). */
+    private boolean javaTextOnly(Type t) {
+        if (!(t instanceof HandleT h && h.target() instanceof ClassT ct) || !extendsJava(ct.cls())) {
+            return false;
+        }
+        ClassT owner = operatorOwner(ct, CAST);
+        return owner == null || owner.cls().all.stream().noneMatch(m -> isStringCast(owner, m));
+    }
+
+    /** Whether a Seal class has a Java class above it (docs/JAVA.md §5): its objects are Java's too. */
+    public boolean extendsJava(ClassInfo c) {
+        return !isJavaType(c) && c.dynamic && !c.isInterface && inheritsFromJava(c, 0);
+    }
+
+    private boolean inheritsFromJava(ClassInfo c, int depth) {
+        for (Shape s : c.shapes) {
+            for (ExtendsClause e : s.header.extendsClauses()) {
+                ClassInfo p = lookupClass(e.parent().name(), c);
+                if (p != null && (p.java != null || (depth < MAX_INSTANTIATION_DEPTH && inheritsFromJava(p, depth + 1)))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** One of Java's values: of one of Java's primitive types, or a reference to a Java object. */
@@ -1149,9 +1201,9 @@ public final class Checker {
         }
         List<Member> members = new ArrayList<>();
         for (JavaClasses.JMember m : jc.members()) {
-            if ((m.flags() & JavaClasses.PUBLIC) == 0 || (m.flags() & (JavaClasses.SYNTHETIC | JavaClasses.BRIDGE)) != 0
-                    || m.name().equals("<clinit>")) {
-                continue;
+            if ((m.flags() & (JavaClasses.PUBLIC | JavaClasses.PROTECTED)) == 0
+                    || (m.flags() & (JavaClasses.SYNTHETIC | JavaClasses.BRIDGE)) != 0 || m.name().equals("<clinit>")) {
+                continue; // a protected one is a Seal subclass's alone (javaAccessible)
             }
             Modifiers mods = new Modifiers(List.of(), Access.PUBLIC, List.of(), m.isStatic(), false,
                     (m.flags() & JavaClasses.ABSTRACT) != 0);
@@ -1920,9 +1972,10 @@ public final class Checker {
                     }
                 }
                 Type parent = resolveType(e.parent(), env, new Opts(false, true, false, null));
-                if (parent instanceof ClassT pc && isJavaType(pc.cls())) {
-                    report(e.parent().pos(), "a Seal class extending " + javaName(pc.cls()) + " comes in a later step"
-                            + " (docs/JAVA.md §5)");
+                if (parent instanceof ClassT pc && pc.cls().java != null && !pc.cls().isInterface) {
+                    checkJavaParent(c, pc, e.parent().pos()); // a Java class (docs/JAVA.md §5)
+                } else if (parent instanceof ClassT pc && isJavaArray(pc.cls())) {
+                    report(e.parent().pos(), "a Java array's class can't be extended");
                 } else if (parent instanceof ClassT pc && pc.cls().isInterface) {
                     report(e.parent().pos(), pc.cls().name + " is an interface; use implements(" + pc.cls().name
                             + ") instead of extends");
@@ -3565,9 +3618,6 @@ public final class Checker {
         file = c.file;
         try {
             Type p = quietly(() -> resolveType(chosen.parent(), env, new Opts(false, true, false, null)));
-            if (p instanceof ClassT pc && isJavaType(pc.cls()) && !isJavaType(c)) {
-                return objectType(); // a Seal class can't extend a Java one yet (reported, docs/JAVA.md §5)
-            }
             if (p instanceof ClassT pc && isRawJava(t) && pc.cls().java != null) {
                 return new ClassT(pc.cls(), List.of(), List.of(), 0); // a raw type's parent is raw, as in Java
             }
@@ -4085,6 +4135,10 @@ public final class Checker {
                             .map(t -> t instanceof HandleT h ? h.target().toString() : t.toString()) // as written: Animal
                             .collect(Collectors.joining(", ", "(", ")"));
                     Impl impl = findImplementation(self, md.name(), params);
+                    if ((impl == null || ((Method) impl.member.member).body() == null) && javaMembers.containsKey(md)
+                            && javaProvides(self, md.name(), params)) {
+                        continue; // a Java class or interface above has a method doing it: ArrayList's, List's default reversed()
+                    }
                     if (impl == null || ((Method) impl.member.member).body() == null) {
                         if (!c.isAbstract && reported.add(sig)) {
                             report(s.header.pos(), c.name + " must implement " + owner.cls().name + "." + sig
@@ -6142,6 +6196,11 @@ public final class Checker {
         }
         if (isJavaType(cls)) {
             JavaFound f = javaField(cls, owner, s.name(), staticAccess);
+            if (f != null && !javaAccessible(b.cls, f.m())) {
+                report(s.pos(), "the field " + s.name() + " of " + javaName(declaringClass(f.m())) + " is protected, so only code of a"
+                        + " class below it can use it");
+                return Type.ERROR;
+            }
             if (f == null) {
                 boolean method = !javaMethods(cls, owner, s.name(), staticAccess, null).isEmpty();
                 report(s.pos(), method ? "method " + s.name() + " must be called: " + s.name() + "(...)"
@@ -6165,6 +6224,11 @@ public final class Checker {
         MemberInfo m = found.members.get(0);
         if (m.member instanceof Method) {
             report(s.pos(), "method " + s.name() + " must be called: " + s.name() + "(...)");
+            return Type.ERROR;
+        }
+        if (!javaAccessible(b.cls, m)) {
+            report(s.pos(), "the field " + s.name() + " of " + javaName(declaringClass(m)) + " is protected, so only code of a"
+                    + " class below it can use it");
             return Type.ERROR;
         }
         if (found.owner != null && found.owner.cls().isVirtual((Field) m.member) && !viaSuper) {
@@ -6221,6 +6285,20 @@ public final class Checker {
             if (parent == null) {
                 return Type.ERROR;
             }
+            if (parent.cls().java != null) {
+                // A Java parent's constructor, public or protected, as Java chooses (docs/JAVA.md §5).
+                List<MemberInfo> ctors = parent.cls().constructors;
+                if (ctors.isEmpty()) {
+                    report(c.pos(), javaName(parent.cls()) + " has no constructor a subclass can call");
+                    return Type.ERROR;
+                }
+                resolveJava(b, "super", parent, parent, ctors, Map.of(), argTypes, c.pos(), c);
+                if (b.calls.get(c) instanceof CallInfo ci) {
+                    b.calls.put(c, new CallInfo(CallKind.SUPER_CONSTRUCTOR, ci.member(), ci.owner(), ci.binders(), false, false));
+                }
+                checkLambdaArgs(b, c, c.args());
+                return Type.VOID;
+            }
             resolveConstructor(b, parent, argTypes, c.pos(), c, CallKind.SUPER_CONSTRUCTOR);
             checkLambdaArgs(b, c, c.args());
             return Type.VOID;
@@ -6258,8 +6336,16 @@ public final class Checker {
 
     private Type resolveCallOverload(Body b, Call c, Candidates cands, List<Type> argTypes) {
         if (cands.methods.stream().allMatch(m -> javaMembers.containsKey(m.member))) {
-            return resolveJava(b, cands.name, cands.owner, cands.qualifier, cands.methods,
+            Type r = resolveJava(b, cands.name, cands.owner, cands.qualifier, cands.methods,
                     cands.javaOwners == null ? Map.of() : cands.javaOwners, argTypes, c.pos(), c);
+            if (cands.viaSuper && b.javaCalls.get(c) instanceof JavaCall jc) {
+                b.javaCalls.put(c, new JavaCall(jc.qualifier(), jc.varargsFrom(), true)); // super.m(): the parent's, not an override
+                if (b.calls.get(c) instanceof CallInfo ci && ((Method) ci.member().member).modifiers().isAbstract()) {
+                    report(c.pos(), cands.name + " is abstract in " + javaName(declaringClass(ci.member()))
+                            + "; there is no implementation to call");
+                }
+            }
+            return r;
         }
         List<MemberInfo> seal = cands.methods.stream().filter(m -> !javaMembers.containsKey(m.member)).toList();
         return resolveOverload(b, cands.name, cands.owner, seal, argTypes, c.pos(), cands.staticAccess,
@@ -6305,6 +6391,10 @@ public final class Checker {
                     }
                     report(n.pos(), n.name() + " is a field, not a method");
                     return null;
+                }
+                if (javaMembers.containsKey(f.members.get(0).member)) {
+                    // A method a Seal class inherits from its Java parent (docs/JAVA.md §5), on this.
+                    return javaInherited(b, n.name(), b.self, f, b.isStatic, false, n.pos());
                 }
                 return new Candidates(n.name(), f.owner, f.members, b.isStatic, false);
             }
@@ -6359,12 +6449,18 @@ public final class Checker {
                 if (isJavaType(cls)) {
                     Map<MemberInfo, ClassT> owners = new IdentityHashMap<>();
                     List<MemberInfo> methods = javaMethods(cls, owner, s.name(), staticAccess, owners);
+                    boolean any = !methods.isEmpty();
+                    methods.removeIf(m -> !javaAccessible(b.cls, m));
+                    if (methods.isEmpty() && any) {
+                        report(s.pos(), "`" + s.name() + "` of " + javaName(cls) + " is protected, so only code of a class below it can call it");
+                        return null;
+                    }
                     if (methods.isEmpty()) {
                         report(s.pos(), javaName(cls) + " has no " + (staticAccess ? "static " : "") + "method " + s.name()
                                 + javaNoMethod(cls, s.name(), staticAccess));
                         return null;
                     }
-                    return new Candidates(s.name(), owner, methods, staticAccess, false,
+                    return new Candidates(s.name(), owner, methods, staticAccess, s.target() instanceof SuperRef,
                             owner != null ? owner : new ClassT(cls, List.of(), List.of(), 0), owners);
                 }
                 Found f = findMembers(b, owner, cls, s.name(), s.pos(), staticAccess);
@@ -6374,6 +6470,10 @@ public final class Checker {
                 }
                 if (f.error) {
                     return null;
+                }
+                if (f.members.get(0).member instanceof Method && javaMembers.containsKey(f.members.get(0).member)) {
+                    // A method a Seal class inherits from its Java parent (docs/JAVA.md §5).
+                    return javaInherited(b, s.name(), owner, f, staticAccess, false, s.pos());
                 }
                 if (!(f.members.get(0).member instanceof Method)) {
                     if (isComponent(cls, f.members.get(0)) && c.args().isEmpty()) {
@@ -6504,6 +6604,153 @@ public final class Checker {
             return false;
         });
         return found[0];
+    }
+
+    /**
+     * The candidates for a call of a method a Seal class inherits from its Java parent (docs/JAVA.md
+     * §5): all of Java's of that name the parent has, as Java finds them, through the Seal class's
+     * type; the protected ones only for code of a class below the one declaring them.
+     */
+    private Candidates javaInherited(Body b, String name, ClassT owner, Found f, boolean staticOnly, boolean viaSuper, Pos pos) {
+        Map<MemberInfo, ClassT> owners = new IdentityHashMap<>();
+        ClassT javaOwner = f.owner != null ? f.owner : null;
+        ClassInfo javaCls = f.owner != null ? f.owner.cls() : declaringClass(f.members.get(0));
+        List<MemberInfo> methods = javaMethods(javaCls, javaOwner, name, staticOnly, owners);
+        methods.removeIf(m -> !javaAccessible(b.cls, m));
+        if (methods.isEmpty()) {
+            report(pos, "`" + name + "` of " + javaName(javaCls) + " is protected, so only code of a class below it can call it");
+            return null;
+        }
+        return new Candidates(name, javaOwner, methods, staticOnly, viaSuper,
+                owner != null ? owner : new ClassT(javaCls, List.of(), List.of(), 0), owners);
+    }
+
+    /** Whether code of {@code from} may use a Java member: a public one, or a protected one in a class below the one declaring it. */
+    private boolean javaAccessible(ClassInfo from, MemberInfo m) {
+        JavaClasses.JMember jm = javaMembers.get(m.member);
+        if (jm == null || (jm.flags() & JavaClasses.PROTECTED) == 0) {
+            return true;
+        }
+        ClassInfo declaring = declaringClass(m);
+        for (ClassInfo c = from; c != null; c = c.outer) {
+            if (inheritsFrom(c, declaring, 0)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether a class is, or is below, another, by the names of its parents. */
+    private boolean inheritsFrom(ClassInfo c, ClassInfo ancestor, int depth) {
+        if (c == ancestor) {
+            return true;
+        }
+        if (depth > MAX_INSTANTIATION_DEPTH) {
+            return false;
+        }
+        for (String parent : parentNames(c)) {
+            if (lookupClass(parent, c) instanceof ClassInfo p && inheritsFrom(p, ancestor, depth + 1)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether a Java class or interface above {@code self} has a method of this name and these
+     * parameter types that isn't abstract: one Java's code already implements an interface's with.
+     */
+    private boolean javaProvides(ClassT self, String name, List<Type> params) {
+        boolean[] found = {false};
+        List<ClassT> starts = new ArrayList<>(allInterfacesOf(self));
+        int depth = 0;
+        for (ClassT p = parentOf(self); p != null && depth++ < MAX_INSTANTIATION_DEPTH; p = parentOf(p)) {
+            if (p.cls().java != null) {
+                starts.add(0, p);
+                break;
+            }
+        }
+        for (ClassT start : starts) {
+            if (start.cls().java == null || found[0]) {
+                continue;
+            }
+            javaSupertypes(start.cls(), start, (k, inst) -> {
+                for (MemberInfo m : k.members.getOrDefault(name, List.of())) {
+                    if (m.member instanceof Method md && !md.modifiers().isStatic() && javaMembers.get(md) instanceof JavaClasses.JMember jm
+                            && (jm.flags() & JavaClasses.ABSTRACT) == 0 && paramTypes(inst, m, Map.of()).equals(params)) {
+                        found[0] = true;
+                        return true;
+                    }
+                }
+                return false;
+            });
+        }
+        return found[0];
+    }
+
+    /**
+     * A Seal class's Java parent (docs/JAVA.md §5): a public class that isn't final, with a constructor
+     * that takes nothing if one of the Seal class's constructors doesn't call another with super(...).
+     */
+    private void checkJavaParent(ClassInfo c, ClassT parent, Pos pos) {
+        JavaClasses.JClass jc = parent.cls().java;
+        if ((jc.flags() & JavaClasses.FINAL) != 0) {
+            report(pos, javaName(parent.cls()) + " is final, so a class can't extend it");
+            return;
+        }
+        boolean needsNoArgs = c.constructors.isEmpty() || c.constructors.stream().anyMatch(k -> {
+            List<Stmt> body = ((Constructor) k.member).body() == null ? List.of() : ((Constructor) k.member).body().stmts();
+            return body.isEmpty() || !(body.get(0) instanceof ExprStmt es && es.expr() instanceof Call call && call.callee() instanceof SuperRef);
+        });
+        if (needsNoArgs && parent.cls().constructors.stream().noneMatch(k -> ((Constructor) k.member).params().isEmpty())) {
+            report(pos, javaName(parent.cls()) + " has no constructor that takes nothing, so each constructor of " + c.name
+                    + " calls one of its others first, with super(...)");
+        }
+    }
+
+    /**
+     * A Seal class's methods that override its Java parent's (docs/JAVA.md §5): not a final one, nor
+     * a static one, and returning what Java's returns.
+     */
+    private void checkJavaOverrides(ClassInfo c) {
+        for (Shape s : c.shapes) {
+            ClassT self = selfType(c, s.index);
+            ClassT parent = parentOf(self);
+            ClassT javaParent = parent;
+            for (int depth = 0; javaParent != null && javaParent.cls().java == null; depth++) {
+                javaParent = depth < MAX_INSTANTIATION_DEPTH ? parentOf(javaParent) : null; // stops at a cycle, reported elsewhere
+            }
+            if (javaParent == null) {
+                continue;
+            }
+            for (MemberInfo m : c.all) {
+                if (!(m.member instanceof Method md) || md.modifiers().isStatic() || !m.existsIn(s.index) || md.name().contains(" ")) {
+                    continue;
+                }
+                List<Type> params = paramTypes(self, m, Map.of());
+                ClassT start = javaParent;
+                javaSupertypes(start.cls(), start, (k, inst) -> {
+                    for (MemberInfo jm : k.members.getOrDefault(md.name(), List.of())) {
+                        if (!(jm.member instanceof Method jmd) || !(javaMembers.get(jmd) instanceof JavaClasses.JMember j)
+                                || !paramTypes(inst, jm, Map.of()).equals(params)) {
+                            continue;
+                        }
+                        Type want = javaCaptured(returnTypeOf(inst, jm, Map.of()), true);
+                        Type got = returnTypeOf(self, m, Map.of());
+                        if (j.isStatic()) {
+                            report(md.pos(), md.name() + " hides " + javaName(k) + "." + md.name() + ", which is static and can't be overridden");
+                        } else if (j.isFinal()) {
+                            report(md.pos(), md.name() + " overrides " + javaName(k) + "." + md.name() + ", which is final");
+                        } else if (!want.equals(got) && !want.isError() && !got.isError()) {
+                            report(md.pos(), c.name + "." + md.name() + " returns " + got + ", but " + javaName(k) + "." + md.name()
+                                    + ", which it overrides, returns " + want);
+                        }
+                        return true;
+                    }
+                    return false;
+                });
+            }
+        }
     }
 
     /** Why a Java type has no method so named, when there is more to say. */
@@ -6709,7 +6956,7 @@ public final class Checker {
             if (old == null || refSubtype(old, a)) {
                 found.put(pt.name(), a);
             } else if (!refSubtype(a, old)) {
-                found.put(pt.name(), javaObjectHandle()); // two kinds of object: List.of(s, n) holds Objects
+                found.put(pt.name(), commonParent(old, a)); // two kinds: List.of(square, circle) holds Shapes, as Java's
             }
             return;
         }
@@ -6727,6 +6974,22 @@ public final class Checker {
                 }
             }
         }
+    }
+
+    /** The nearest type both are, a parent or an interface of the first, as Java's inference finds it; JavaObject if none. */
+    private Type commonParent(Type a, Type b) {
+        if (!(a instanceof HandleT ah && ah.target() instanceof ClassT ac)) {
+            return javaObjectHandle();
+        }
+        Type[] found = {null};
+        javaSupertypes(ac.cls(), ac, (c, inst) -> {
+            if (inst != null && !isJavaObject(c) && refSubtype(b, new HandleT(inst))) {
+                found[0] = new HandleT(inst);
+                return true;
+            }
+            return false;
+        });
+        return found[0] != null ? found[0] : javaObjectHandle();
     }
 
     /**
@@ -6819,8 +7082,9 @@ public final class Checker {
             return false;
         }
         if (!isJavaType(ac.cls())) {
-            // A Seal object: of a Seal class as a type argument, or of a class implementing a Java interface.
-            return isSubclass(ac, pc) && (!isJavaType(pc.cls()) || pc.cls().isInterface);
+            // A Seal object: of a Seal class as a type argument, of a class implementing a Java interface, or extending
+            // a Java class; a Java object then, so also where Java wants a JavaObject.
+            return isSubclass(ac, pc);
         }
         if (!isJavaType(pc.cls())) {
             return false;
@@ -7603,8 +7867,11 @@ public final class Checker {
                         .map(m -> c.name + "." + m + "(...)").toList();
                 report(n.pos(), javaName(c) + " has no public constructor" + (makers.isEmpty() ? ""
                         : "; its static methods make them: " + String.join(", ", makers)));
+            } else if (c.constructors.stream().noneMatch(k -> (javaMembers.get(k.member).flags() & JavaClasses.PUBLIC) != 0)) {
+                report(n.pos(), javaName(c) + "'s constructors are protected, so only a class extending it calls them, with super(...)");
             } else if (args.stream().noneMatch(Type::isError)) {
-                resolveJava(b, "new", t, t, c.constructors, Map.of(), args, n.pos(), n);
+                resolveJava(b, "new", t, t, c.constructors.stream()
+                        .filter(k -> (javaMembers.get(k.member).flags() & JavaClasses.PUBLIC) != 0).toList(), Map.of(), args, n.pos(), n);
                 checkLambdaArgs(b, n, n.args());
             }
             return new HandleT(t);
@@ -9006,7 +9273,7 @@ public final class Checker {
 
     /** Whether a value of this type has a cast to string: an @overload(Operator.CAST) method returning string (§46). */
     private boolean castsToString(Type t) {
-        if (isJavaValue(t)) {
+        if (isJavaValue(t) || javaTextOnly(t)) {
             return true; // Java's text of it (docs/JAVA.md §3.1)
         }
         ClassT ct = objectType(t);
@@ -9073,6 +9340,10 @@ public final class Checker {
         if (from instanceof HandleT fh2 && fh2.target() instanceof ClassT fc2 && !isJavaType(fc2.cls())
                 && to instanceof HandleT th2 && th2.target() instanceof ClassT tc2 && tc2.cls().isInterface && isSubclass(fc2, tc2)) {
             return to; // a Seal object as a Java interface its class implements
+        }
+        if (from instanceof HandleT fh3 && fh3.target() instanceof ClassT fc3 && to instanceof HandleT th3
+                && th3.target() instanceof ClassT tc3 && !isJavaType(tc3.cls()) && isSubclass(tc3, fc3)) {
+            return to; // (Worker)thread: down to a Seal class extending a Java one, checked while the program runs
         }
         if (to instanceof HandleT th && th.target() instanceof ClassT tc && !isJavaType(tc.cls()) && isJavaValue(from)) {
             report(c.pos(), "cannot cast " + from + " to " + to + "; Java's objects aren't Seal's, but a Seal object that"
@@ -9144,6 +9415,9 @@ public final class Checker {
         }
         if (isJavaValue(from) || isJavaValue(to)) {
             return javaCast(c, from, to);
+        }
+        if (to.equals(bareString()) && javaTextOnly(from)) {
+            return to; // a Seal class extending a Java one, without a cast of its own: Java's toString() (docs/JAVA.md §5)
         }
         ClassT castsItself = operandClass(from) != null ? operandClass(from) : from instanceof ClassT ct ? ct : null;
         boolean ok = from.equals(to)

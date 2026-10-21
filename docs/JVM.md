@@ -556,7 +556,7 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 | **M5**, **done** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires: the JVM is the default, the VM behind `--vm` |
 | **the VM deprecated**, **done** | `--vm` warns that the VM is deprecated, `vm/` and `codegen/` are `@Deprecated`, and the VM gets no new features: what comes next (Java's classes, docs/JAVA.md) is the JVM's alone; the suites still compare the two on what both run | `--vm` warns, every suite passes |
 | later, a step of its own | removing the VM, `codegen/` and their tests; then the library's VM-only code (the string and array internals on `addr` buffers, `StringChars`, the Seal bodies behind `@jvm`) | |
-| **M6** (in progress) | jars, the target class-file version, calling Java classes from Seal (docs/JAVA.md: imported and typed; T1, Java's classes, T2, their generics, and T3, Seal handed to Java's interfaces, are done), then Mixins (§14) | a first Minecraft mod in Seal |
+| **M6** (in progress) | jars, the target class-file version, calling Java classes from Seal (docs/JAVA.md: imported and typed; T1, Java's classes, T2, their generics, T3, Seal handed to Java's interfaces, and T4, Seal classes extending Java's, are done), then Mixins (§14) | a first Minecraft mod in Seal |
 
 ## 14. Later: Java and Minecraft
 

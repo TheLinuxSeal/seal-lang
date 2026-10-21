@@ -1093,6 +1093,9 @@ public final class JvmGen {
             jc.interfaces.add(instance(root()).desc);
         } else {
             jc.superclass = instance(parent).desc;
+            if (Checker.isJavaType(parent.cls())) {
+                jc.interfaces.add(instance(root()).desc); // a Seal class extending a Java one is a Seal object too (docs/JAVA.md §5)
+            }
         }
         for (ClassT i : ck.allInterfacesOf(t)) {
             jc.interfaces.add(instance(i).desc);
