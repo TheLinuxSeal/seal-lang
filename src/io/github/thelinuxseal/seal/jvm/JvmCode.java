@@ -671,6 +671,18 @@ final class JvmCode {
                 ? new ExprStmt(lam.pos(), lam.expr()) : new Return(lam.pos(), lam.expr())));
         addressTaken = AddressTaken.in(body);
         bindParams(lam.params(), li.params(), 0, params);
+        if (li.iface().cls().java != null) {
+            // Java passes its erased types, compare(Object, Object): each parameter checked as the Seal type it is (docs/JAVA.md §5).
+            for (int n = 0; n < li.params().size(); n++) {
+                Type pt = li.params().get(n);
+                if (kind(pt) == TypeKind.REFERENCE && !g.desc(pt, pos).equals(self.type().parameterType(n))
+                        && params.get(lam.params().get(n).name()) instanceof Local l) {
+                    c.aload(l.slot());
+                    c.checkcast(g.desc(pt, pos));
+                    c.astore(l.slot());
+                }
+            }
+        }
         openScope(params);
         block(body);
         endOfMethod();
@@ -4521,6 +4533,6 @@ final class JvmCode {
         }
         c.invokespecial(lc.desc, "<init>", MethodTypeDesc.of(CD_void,
                 lc.captures.stream().map(FieldSpec::type).toArray(ClassDesc[]::new)));
-        return new HandleT(li.iface());
+        return new HandleT(li.target());
     }
 }

@@ -220,10 +220,12 @@ public final class Checker {
     /**
      * A checked lambda (§30.3): the interface and method it implements, the parameter and
      * return types, the variables it copies when created (in order), and the enclosing
-     * object's type if it uses that object's fields or methods (null otherwise).
+     * object's type if it uses that object's fields or methods (null otherwise); and the
+     * interface its object is, which may extend the one declaring the method (Java's
+     * BinaryOperator, whose method is BiFunction's, docs/JAVA.md §5).
      */
     public record LambdaInfo(ClassT iface, MemberInfo method, List<Type> params, Type returnType,
-                             List<String> captureNames, List<Type> captureTypes, ClassT thisType) {
+                             List<String> captureNames, List<Type> captureTypes, ClassT thisType, ClassT target) {
     }
 
     /** While checking a lambda body: the scope depth where it starts, and what it captures. */
@@ -988,6 +990,47 @@ public final class Checker {
     /** The class-file member a Java class's member was made from; null for Seal's (JavaString's `of`). */
     public JavaClasses.JMember javaMember(Member m) {
         return javaMembers.get(m);
+    }
+
+    /**
+     * A method of a Java interface that a Seal class implements, and the Seal method implementing
+     * it (docs/JAVA.md §5): where their JVM descriptors differ (compareTo(Object) and
+     * compareTo(Version)), the backend writes a bridge, as javac does.
+     */
+    public record JavaImpl(JavaClasses.JMember java, ClassT implOwner, MemberInfo impl) {
+    }
+
+    /** The abstract methods of the Java interfaces {@code t} implements, each with the method of t (or a parent) that implements it. */
+    public List<JavaImpl> javaImplementations(ClassT t) {
+        List<JavaImpl> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (ClassT i : allInterfacesOf(t)) {
+            if (i.cls().java == null) {
+                continue;
+            }
+            for (MemberInfo m : i.cls().all) {
+                if (!(m.member instanceof Method md) || md.modifiers().isStatic() || !(javaMembers.get(md) instanceof JavaClasses.JMember jm)
+                        || (jm.flags() & JavaClasses.ABSTRACT) == 0 || isObjectMethod(jm) || !seen.add(jm.name() + jm.descriptor())) {
+                    continue;
+                }
+                Impl impl = quietly(() -> findImplementation(t, md.name(), paramTypes(i, m, Map.of())));
+                if (impl != null && !isJavaType(impl.owner().cls()) && ((Method) impl.member().member).body() != null) {
+                    out.add(new JavaImpl(jm, impl.owner(), impl.member()));
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Whether a method is a type's cast to the bare string (§46), which Java's toString() gives (docs/JAVA.md §5). */
+    public boolean isStringCast(ClassT owner, MemberInfo m) {
+        return m.member instanceof Method md && overloads(md, CAST) && md.params().isEmpty() && !md.modifiers().isStatic()
+                && bareString() != null && bareString().equals(quietly(() -> returnTypeOf(owner, m, Map.of())));
+    }
+
+    /** Whether a method is a class's == (§48), which Java's equals(Object) gives (docs/JAVA.md §5). */
+    public static boolean isEqualsOperator(Method md) {
+        return overloads(md, "==") && md.params().size() == 1 && !md.modifiers().isStatic();
     }
 
     /** One of Java's values: of one of Java's primitive types, or a reference to a Java object. */
@@ -3658,9 +3701,8 @@ public final class Checker {
             List<ClassT> out = new ArrayList<>();
             for (TypeRef r : refs) {
                 Type it = quietly(() -> resolveType(r, env, new Opts(false, true, false, null)));
-                if (it instanceof ClassT ic && ic.cls().isInterface && (isJavaType(c) || !isJavaType(ic.cls()))) {
-                    // A Seal class can't implement a Java interface yet (reported, docs/JAVA.md §5); a raw type's are raw.
-                    out.add(isRawJava(t) && ic.cls().java != null ? new ClassT(ic.cls(), List.of(), List.of(), 0) : ic);
+                if (it instanceof ClassT ic && ic.cls().isInterface) {
+                    out.add(isRawJava(t) && ic.cls().java != null ? new ClassT(ic.cls(), List.of(), List.of(), 0) : ic); // a raw type's are raw
                 }
             }
             return out;
@@ -4012,10 +4054,7 @@ public final class Checker {
             Env env = shapeEnv(c, s.index, null);
             for (TypeRef r : s.header.interfaces()) {
                 Type t = resolveType(r, env, new Opts(false, true, false, null));
-                if (t instanceof ClassT ic && isJavaType(ic.cls())) {
-                    report(r.pos(), "a Seal class implementing " + javaName(ic.cls()) + " comes in a later step,"
-                            + " with lambdas for Java's interfaces (docs/JAVA.md §5)");
-                } else if (t instanceof ClassT ic && !ic.cls().isInterface) {
+                if (t instanceof ClassT ic && !ic.cls().isInterface) {
                     report(r.pos(), ic.cls().name + " is a " + ic.cls().kind.keyword + ", not an interface"
                             + (ic.cls().dynamic ? "; use extends(" + ic.cls().name + ") for a parent class" : ""));
                 } else if (!(t instanceof ClassT) && !t.isError()) {
@@ -4036,6 +4075,10 @@ public final class Checker {
                     if (!(m.member instanceof Method md) || md.body() != null || isJvmOnly(md) || !m.existsIn(owner.header())
                             || md.modifiers().isStatic() || md.name().contains(" ")) {
                         continue; // a field's accessors: its holder is checked by fillVirtualFields
+                    }
+                    if (javaMembers.get(md) instanceof JavaClasses.JMember jm
+                            && ((jm.flags() & JavaClasses.ABSTRACT) == 0 || isObjectMethod(jm))) {
+                        continue; // a Java interface's default methods, and Object's, are implemented already
                     }
                     List<Type> params = paramTypes(owner, m, Map.of());
                     String sig = md.name() + params.stream()
@@ -5492,6 +5535,9 @@ public final class Checker {
         if (!(t instanceof HandleT h) || !(h.target() instanceof ClassT ic) || !ic.cls().isInterface) {
             return null;
         }
+        if (ic.cls().java != null) {
+            return javaFunctionalMethod(javaUnwildcarded(ic));
+        }
         List<ClassT> all = new ArrayList<>();
         all.add(ic);
         all.addAll(allInterfacesOf(ic));
@@ -5506,6 +5552,86 @@ public final class Checker {
             }
         }
         return found.size() == 1 ? found.get(0) : null;
+    }
+
+    /**
+     * The one abstract method of a Java interface (docs/JAVA.md §5), as Java finds a functional
+     * interface's: its own or one it inherits, not a default one, nor one of java.lang.Object's that
+     * the interface names again (Comparator's equals); null if it has none, or more than one.
+     */
+    private Impl javaFunctionalMethod(ClassT ic) {
+        List<Impl> found = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        javaSupertypes(ic.cls(), ic, (c, inst) -> {
+            if (!c.isInterface) {
+                return false;
+            }
+            for (MemberInfo m : c.all) {
+                if (!(m.member instanceof Method md) || md.modifiers().isStatic()
+                        || !(javaMembers.get(md) instanceof JavaClasses.JMember jm)) {
+                    continue;
+                }
+                if (!seen.add(md.name() + paramTypes(inst, m, Map.of()))) {
+                    continue; // the nearest declaration decides: a default one implements one above it
+                }
+                if ((jm.flags() & JavaClasses.ABSTRACT) != 0 && !isObjectMethod(jm)) {
+                    found.add(new Impl(inst, m));
+                }
+            }
+            return false;
+        });
+        return found.size() == 1 && ((Method) found.get(0).member().member).typeParams().isEmpty() ? found.get(0) : null;
+    }
+
+    /** One of java.lang.Object's public methods, which an interface may name again without its classes implementing it. */
+    private static boolean isObjectMethod(JavaClasses.JMember m) {
+        return switch (m.name() + m.descriptor()) {
+            case "equals(Ljava/lang/Object;)Z", "hashCode()I", "toString()Ljava/lang/String;" -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * A Java interface type with its wildcards as their bounds, as Java makes a lambda's function type
+     * (JLS §9.9): a Comparator<? super JavaString> is a Comparator<JavaString> to a lambda.
+     */
+    private ClassT javaUnwildcarded(ClassT t) {
+        if (t.typeArgs().stream().noneMatch(a -> a instanceof WildT)) {
+            return t;
+        }
+        return new ClassT(t.cls(), t.typeArgs().stream().map(a -> a instanceof WildT w ? w.bound() : a).toList(),
+                t.valueArgs(), t.header());
+    }
+
+    /** Whether a lambda can be a function that returns nothing: an expression that is a statement, or a block that returns no value. */
+    private static boolean voidCompatible(Lambda lam) {
+        if (lam.expr() != null) {
+            return lam.expr() instanceof Call || lam.expr() instanceof Assign || lam.expr() instanceof IncDec
+                    || lam.expr() instanceof New;
+        }
+        return !returnsValue(lam.block());
+    }
+
+    /** Whether a lambda can be a function that returns a value: an expression, or a block returning one (or never ending). */
+    private static boolean valueCompatible(Lambda lam) {
+        return lam.expr() != null || returnsValue(lam.block()) || returns(lam.block());
+    }
+
+    /** Whether a statement returns a value somewhere (not in a lambda inside it). */
+    private static boolean returnsValue(Stmt s) {
+        return switch (s) {
+            case Return r -> r.value() != null;
+            case Block bl -> bl.stmts().stream().anyMatch(Checker::returnsValue);
+            case If i -> returnsValue(i.then()) || (i.otherwise() != null && returnsValue(i.otherwise()));
+            case While w -> returnsValue(w.body());
+            case For f -> returnsValue(f.body());
+            case ForEach fe -> returnsValue(fe.body());
+            case Labeled l -> returnsValue(l.body());
+            case Switch sw -> sw.cases().stream().anyMatch(c -> c.body().stream().anyMatch(Checker::returnsValue));
+            case Try t -> returnsValue(t.body()) || t.catches().stream().anyMatch(c -> returnsValue(c.body()))
+                    || (t.finallyBlock() != null && returnsValue(t.finallyBlock()));
+            default -> false;
+        };
     }
 
     private Type checkLambda(Body b, Lambda lam, Type expected) {
@@ -5591,8 +5717,9 @@ public final class Checker {
                 report(lam.pos(), "the lambda uses " + c.getKey() + ", a unique, which it would have to copy");
             }
         }
+        ClassT target = expected instanceof HandleT eh && eh.target() instanceof ClassT et ? javaUnwildcarded(et) : fn.owner();
         b.lambdas.put(lam, new LambdaInfo(fn.owner(), fn.member(), params, ret,
-                List.copyOf(ctx.captures.keySet()), List.copyOf(ctx.captures.values()), thisType));
+                List.copyOf(ctx.captures.keySet()), List.copyOf(ctx.captures.values()), thisType, target));
         return expected;
     }
 
@@ -6404,7 +6531,6 @@ public final class Checker {
      */
     private Type resolveJava(Body b, String name, ClassT receiver, ClassT qualifier, List<MemberInfo> methods,
                              Map<MemberInfo, ClassT> owners, List<Type> args, Pos pos, Expr site) {
-        boolean ctor = methods.get(0).member instanceof Constructor;
         Type expected = site instanceof Call call ? b.callExpected.get(call) : null;
         List<Type> explicit = new ArrayList<>();
         if (site instanceof Call call) {
@@ -6415,6 +6541,22 @@ public final class Checker {
                 return Type.ERROR;
             }
         }
+        Body outerCall = javaCallBody;
+        javaCallBody = b; // for a lambda argument's result, which may decide which methods it fits
+        try {
+            return resolveJavaIn(b, name, receiver, qualifier, methods, owners, args, pos, site, expected, explicit);
+        } finally {
+            javaCallBody = outerCall;
+        }
+    }
+
+    /** The body a Java call being resolved is in, while it is. */
+    private Body javaCallBody;
+
+    private Type resolveJavaIn(Body b, String name, ClassT receiver, ClassT qualifier, List<MemberInfo> methods,
+                               Map<MemberInfo, ClassT> owners, List<Type> args, Pos pos, Expr site, Type expected,
+                               List<Type> explicit) {
+        boolean ctor = methods.get(0).member instanceof Constructor;
         record Fit(MemberInfo m, ClassT owner, List<Type> params, boolean varargs, Map<String, CVal> bound) {
         }
         List<Fit> fits = new ArrayList<>();
@@ -6427,7 +6569,7 @@ public final class Checker {
                 if (varargs && !javaMembers.get(m.member).isVarargs()) {
                     continue;
                 }
-                Map<String, CVal> bound = javaTypeArguments(m, mo, args, varargs, expected, explicit);
+                Map<String, CVal> bound = javaTypeArguments(b, m, mo, args, varargs, expected, explicit);
                 if (bound == null) {
                     lastMismatch = name + " takes " + ((Method) m.member).typeParams().size() + " type argument(s), not "
                             + explicit.size();
@@ -6463,8 +6605,8 @@ public final class Checker {
                     + javaArgumentHint(args));
             return Type.ERROR;
         }
-        List<Fit> maximal = fits.stream().filter(f -> fits.stream().allMatch(o -> o == f || javaFitAll(f.params(), o.params())))
-                .toList();
+        List<Fit> maximal = fits.stream().filter(f -> fits.stream().allMatch(o -> o == f
+                || javaMoreSpecific(f.params(), o.params(), args))).toList();
         List<Fit> best = maximal.size() > 1 && maximal.stream().allMatch(f -> f.params().equals(maximal.get(0).params()))
                 ? List.of(maximal.get(0)) : maximal; // one signature, declared again above (an interface's method a class implements)
         if (best.size() != 1) {
@@ -6494,8 +6636,8 @@ public final class Checker {
      * from the type the call's value goes to (List<JavaString> l = List.of()); a type no argument
      * decides is what it erases to. Null if the wrong number are given.
      */
-    private Map<String, CVal> javaTypeArguments(MemberInfo m, ClassT owner, List<Type> args, boolean varargs, Type expected,
-                                                List<Type> explicit) {
+    private Map<String, CVal> javaTypeArguments(Body b, MemberInfo m, ClassT owner, List<Type> args, boolean varargs,
+                                                Type expected, List<Type> explicit) {
         if (!(m.member instanceof Method md) || md.typeParams().isEmpty()) {
             return explicit.isEmpty() ? Map.of() : null;
         }
@@ -6514,6 +6656,27 @@ public final class Checker {
                         : javaElement(declared.get(declared.size() - 1));
                 if (p != null) {
                     inferJava(p, args.get(i), md.typeParams(), found);
+                }
+            }
+            // Then what a lambda gives, once its parameters' types are known: R in map(Function<? super T, ? extends R>).
+            for (int i = 0; i < args.size() && i < declared.size(); i++) {
+                if (!(args.get(i) instanceof LambdaT lt) || found.keySet().containsAll(md.typeParams())) {
+                    continue;
+                }
+                Map<String, CVal> sofar = new HashMap<>();
+                found.forEach((k, v) -> sofar.put(k, new TypeV(v)));
+                Impl fn = functionalMethod(substitute(declared.get(i), sofar));
+                if (fn == null) {
+                    continue;
+                }
+                List<Type> lps = paramTypes(fn.owner(), fn.member(), Map.of());
+                Type fret = returnTypeOf(fn.owner(), fn.member(), Map.of());
+                if (lps.stream().anyMatch(Checker::mentionsTypeParam) || !mentionsTypeParam(fret)) {
+                    continue;
+                }
+                Type result = lambdaResultType(b, lt.lambda(), lps);
+                if (result != null) {
+                    inferJava(fret, result, md.typeParams(), found);
                 }
             }
             if (expected != null && !found.keySet().containsAll(md.typeParams())) {
@@ -6578,6 +6741,32 @@ public final class Checker {
         return t;
     }
 
+    /**
+     * Whether one method's parameters are at least as specific as another's for these arguments,
+     * as Java ranks them (JLS §15.12.2.5): each fits where the other's is wanted; for a lambda,
+     * a function that gives a value is more specific than one that gives nothing (submit(Callable)
+     * over submit(Runnable) for () -> x).
+     */
+    private boolean javaMoreSpecific(List<Type> mine, List<Type> theirs, List<Type> args) {
+        for (int i = 0; i < mine.size() && i < theirs.size(); i++) {
+            if (i < args.size() && args.get(i) instanceof LambdaT) {
+                Impl a = functionalMethod(mine.get(i));
+                Impl o = functionalMethod(theirs.get(i));
+                if (a == null || o == null) {
+                    return false;
+                }
+                boolean aVoid = returnTypeOf(a.owner(), a.member(), Map.of()) instanceof VoidT;
+                boolean oVoid = returnTypeOf(o.owner(), o.member(), Map.of()) instanceof VoidT;
+                if (!(oVoid && !aVoid) && !javaFits(mine.get(i), theirs.get(i))) {
+                    return false;
+                }
+            } else if (!javaFits(mine.get(i), theirs.get(i))) {
+                return false;
+            }
+        }
+        return mine.size() == theirs.size();
+    }
+
     private boolean javaFitAll(List<Type> args, List<Type> params) {
         if (args.size() != params.size()) {
             return false;
@@ -6608,11 +6797,33 @@ public final class Checker {
         if (a instanceof NullT) {
             return true;
         }
+        if (a instanceof LambdaT lt) {
+            // A lambda goes where Java wants an interface with one abstract method that takes as many parameters,
+            // returning a value if the lambda gives one, and nothing if it can (docs/JAVA.md §5).
+            Impl fn = functionalMethod(p);
+            if (fn == null || ((Method) fn.member().member).params().size() != lt.lambda().params().size()) {
+                return false;
+            }
+            if (returnTypeOf(fn.owner(), fn.member(), Map.of()) instanceof VoidT) {
+                return voidCompatible(lt.lambda());
+            }
+            if (lt.lambda().expr() != null && javaCallBody != null) {
+                // x -> println(x) gives nothing, so it is no Callable's: what the expression gives decides.
+                List<Type> lps = paramTypes(fn.owner(), fn.member(), Map.of());
+                return lps.stream().anyMatch(Checker::mentionsTypeParam)
+                        || !(lambdaResultType(javaCallBody, lt.lambda(), lps) instanceof VoidT);
+            }
+            return valueCompatible(lt.lambda());
+        }
         if (!(a instanceof HandleT ah && ah.target() instanceof ClassT ac)) {
             return false;
         }
-        if (!isJavaType(ac.cls()) || !isJavaType(pc.cls())) {
-            return !isJavaType(ac.cls()) && !isJavaType(pc.cls()) && isSubclass(ac, pc); // a Seal class, as a type argument
+        if (!isJavaType(ac.cls())) {
+            // A Seal object: of a Seal class as a type argument, or of a class implementing a Java interface.
+            return isSubclass(ac, pc) && (!isJavaType(pc.cls()) || pc.cls().isInterface);
+        }
+        if (!isJavaType(pc.cls())) {
+            return false;
         }
         if (isJavaArray(ac.cls()) && isJavaArray(pc.cls())) {
             Type ae = ac.typeArgs().get(0);
@@ -6648,7 +6859,7 @@ public final class Checker {
                 return "; Seal's " + a + " goes into Java by " + of + "(...) (docs/JAVA.md §3.1)";
             }
             if (a instanceof LambdaT) {
-                return "; a lambda goes where Java wants an interface in a later step (docs/JAVA.md §5)";
+                return "; a lambda goes where Java wants an interface with one abstract method taking as many parameters";
             }
         }
         return "";
@@ -7040,6 +7251,7 @@ public final class Checker {
             case ArrayT a -> mentionsTypeParam(a.element());
             case HandleT h -> mentionsTypeParam(h.target());
             case AddrT a -> mentionsTypeParam(a.target());
+            case WildT w -> mentionsTypeParam(w.bound());
             default -> false;
         };
     }
@@ -7188,6 +7400,7 @@ public final class Checker {
             case HandleT h -> new HandleT(substitute(h.target(), bound));
             case ArrayT a -> new ArrayT(substitute(a.element(), bound), a.size());
             case AddrT a -> new AddrT(substitute(a.target(), bound));
+            case WildT w -> new WildT(substitute(w.bound(), bound), w.kind());
             default -> t;
         };
     }
@@ -7392,6 +7605,7 @@ public final class Checker {
                         : "; its static methods make them: " + String.join(", ", makers)));
             } else if (args.stream().noneMatch(Type::isError)) {
                 resolveJava(b, "new", t, t, c.constructors, Map.of(), args, n.pos(), n);
+                checkLambdaArgs(b, n, n.args());
             }
             return new HandleT(t);
         }
@@ -8855,6 +9069,10 @@ public final class Checker {
         if (javaElement(from) != null && to instanceof ClassT ac && isArrayObject(ac) && ac.valueArgs().isEmpty()
                 && javaArrayCopies(javaElement(from), ac.typeArgs().get(0))) {
             return to; // a copy of a Java array, as a new Seal array (§3.1)
+        }
+        if (from instanceof HandleT fh2 && fh2.target() instanceof ClassT fc2 && !isJavaType(fc2.cls())
+                && to instanceof HandleT th2 && th2.target() instanceof ClassT tc2 && tc2.cls().isInterface && isSubclass(fc2, tc2)) {
+            return to; // a Seal object as a Java interface its class implements
         }
         if (to instanceof HandleT th && th.target() instanceof ClassT tc && !isJavaType(tc.cls()) && isJavaValue(from)) {
             report(c.pos(), "cannot cast " + from + " to " + to + "; Java's objects aren't Seal's, but a Seal object that"

@@ -168,6 +168,15 @@ public final class JvmGen {
     record AbstractSpec(String name, MethodTypeDesc type) {
     }
 
+    /**
+     * A method a class gets so that Java's code reaches its Seal methods (docs/JAVA.md §5): one with
+     * a Java interface method's erased descriptor, calling the Seal method with its arguments cast
+     * ("call"); Java's toString() calling the cast to string ("call"); hashCode() calling hash()
+     * ("hashCode"); equals(Object) calling == on an object of its parameter's class ("equals").
+     */
+    record Bridge(String name, MethodTypeDesc type, MethodRef target, String kind) {
+    }
+
     /** A JVM class being put together: everything it holds is known before it is written. */
     static final class JClass {
         final String name;
@@ -180,6 +189,7 @@ public final class JvmGen {
         final Map<String, FieldSpec> fields = new LinkedHashMap<>();
         final List<FnKey> methods = new ArrayList<>();
         final List<AbstractSpec> abstracts = new ArrayList<>();
+        final List<Bridge> bridges = new ArrayList<>();
         /** Name and descriptor of every method, so that two never coincide. */
         final Set<String> signatures = new HashSet<>();
         /** For a lambda's class: the fields its constructor fills, from what the lambda captures. */
@@ -337,6 +347,9 @@ public final class JvmGen {
                 }
                 for (AbstractSpec a : jc.abstracts) {
                     cb.withMethod(a.name(), a.type(), ACC_PUBLIC | ACC_ABSTRACT, mb -> { });
+                }
+                for (Bridge b : jc.bridges) {
+                    bridge(cb, b);
                 }
                 if (jc.captures != null) {
                     lambdaConstructor(cb, jc);
@@ -501,6 +514,85 @@ public final class JvmGen {
         });
     }
 
+    /** A bridge (docs/JAVA.md §5): the Seal method it reaches, called with this and its arguments. */
+    private static void bridge(ClassBuilder cb, Bridge b) {
+        cb.withMethodBody(b.name(), b.type(), ACC_PUBLIC, c -> {
+            if (b.kind().equals("equals")) {
+                // equals(Object o): o is one of =='s parameter's class, and == says they are equal.
+                ClassDesc other = b.target().type().parameterType(0);
+                java.lang.classfile.Label no = c.newLabel();
+                c.aload(1);
+                c.instanceOf(other);
+                c.ifeq(no);
+                c.aload(0);
+                c.aload(1);
+                c.checkcast(other);
+                invoke(c, b.target());
+                c.ireturn();
+                c.labelBinding(no);
+                c.iconst_0();
+                c.ireturn();
+                return;
+            }
+            c.aload(0);
+            for (int i = 0; i < b.type().parameterCount(); i++) {
+                ClassDesc given = b.type().parameterType(i);
+                TypeKind k = TypeKind.from(given);
+                c.loadLocal(k.asLoadable(), c.parameterSlot(i));
+                ClassDesc wanted = b.target().type().parameterType(i);
+                if (k == TypeKind.REFERENCE && !wanted.equals(given)) {
+                    c.checkcast(wanted);
+                }
+            }
+            invoke(c, b.target());
+            if (b.kind().equals("hashCode")) {
+                c.l2i(); // Seal's hash is 64 bits; Java's hashCode its low 32
+            }
+            c.return_(TypeKind.from(b.type().returnType()).asLoadable());
+        });
+    }
+
+    /**
+     * The bridges a Seal class's objects need for Java (docs/JAVA.md §5): a Java interface method
+     * whose erased descriptor isn't its Seal method's; and toString(), hashCode() and equals(Object)
+     * from the class's own cast to string, hash() and ==, so that Java prints Seal objects as Seal
+     * does and its HashMap finds Seal keys.
+     */
+    private void bridges(JClass jc, ClassT t) {
+        for (Checker.JavaImpl ji : ck.javaImplementations(t)) {
+            MethodRef target = virtualRef(ji.implOwner(), ji.impl(), ji.impl().member.pos());
+            MethodTypeDesc java = MethodTypeDesc.ofDescriptor(ji.java().descriptor());
+            if (!(target.name().equals(ji.java().name()) && target.type().equals(java))
+                    && jc.signatures.add(ji.java().name() + java.descriptorString())) {
+                jc.bridges.add(new Bridge(ji.java().name(), java, target, "call"));
+            }
+        }
+        for (MemberInfo m : t.cls().all) {
+            if (!(m.member instanceof Method md) || md.modifiers().isStatic() || !m.existsIn(t.header()) || hasBinders(md)) {
+                continue;
+            }
+            try {
+                if (ck.isStringCast(t, m)) {
+                    objectBridge(jc, "toString", MethodTypeDesc.of(CD_String), virtualRef(t, m, md.pos()), "call");
+                } else if (md.name().equals("hash") && md.params().isEmpty()
+                        && ck.returnTypeOf(t, m, Map.of()) instanceof IntT it && width(it) == 64) {
+                    objectBridge(jc, "hashCode", MethodTypeDesc.of(CD_int), virtualRef(t, m, md.pos()), "hashCode");
+                } else if (Checker.isEqualsOperator(md) && ck.paramTypes(t, m, Map.of()).get(0) instanceof HandleT
+                        && ck.returnTypeOf(t, m, Map.of()) instanceof BitT) {
+                    objectBridge(jc, "equals", MethodTypeDesc.of(CD_boolean, CD_Object), virtualRef(t, m, md.pos()), "equals");
+                }
+            } catch (Unsupported u) {
+                // A method not on the JVM yet: Java gets Object's own.
+            }
+        }
+    }
+
+    private static void objectBridge(JClass jc, String name, MethodTypeDesc type, MethodRef target, String kind) {
+        if (!(target.name().equals(name) && target.type().equals(type)) && jc.signatures.add(name + type.descriptorString())) {
+            jc.bridges.add(new Bridge(name, type, target, kind));
+        }
+    }
+
     /** A lambda class's constructor: it stores what the lambda captures, in order (§30.3). */
     private void lambdaConstructor(ClassBuilder cb, JClass jc) {
         MethodTypeDesc type = MethodTypeDesc.of(CD_void, jc.captures.stream().map(FieldSpec::type).toArray(ClassDesc[]::new));
@@ -658,8 +750,14 @@ public final class JvmGen {
             case "lambda" -> {
                 home = lambdaClasses.get(k);
                 Checker.LambdaInfo li = lambdaInfos.get(k);
-                MethodRef iface = virtualRef(li.iface(), li.method(), at);
-                r = new MethodRef(home.desc, iface.name(), iface.type(), Invoke.VIRTUAL);
+                if (li.iface().cls().java != null) {
+                    // A Java interface's method, with its erased descriptor (docs/JAVA.md §5).
+                    r = new MethodRef(home.desc, ((Method) li.method().member).name(),
+                            MethodTypeDesc.ofDescriptor(ck.javaMember(li.method().member).descriptor()), Invoke.VIRTUAL);
+                } else {
+                    MethodRef iface = virtualRef(li.iface(), li.method(), at);
+                    r = new MethodRef(home.desc, iface.name(), iface.type(), Invoke.VIRTUAL);
+                }
             }
             default -> {
                 Method md = (Method) k.member().member;
@@ -1037,6 +1135,9 @@ public final class JvmGen {
                 // Its signature uses what isn't on the JVM yet, so no code here can call it.
             }
         }
+        if (!jc.isInterface && !c.isRoot()) {
+            bridges(jc, t);
+        }
         return jc;
     }
 
@@ -1138,6 +1239,7 @@ public final class JvmGen {
             return jc;
         }
         jc = jclass(binaryName(key.cls()) + "$lambda$" + (lambdaClasses.size() + 1), file);
+        jc.interfaces.add(instance(li.target()).desc); // the interface the lambda is, which may extend the method's
         jc.interfaces.add(instance(li.iface()).desc);
         jc.interfaces.add(instance(root()).desc);
         lambdaClasses.put(key, jc);

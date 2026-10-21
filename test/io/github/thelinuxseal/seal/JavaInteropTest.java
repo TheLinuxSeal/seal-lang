@@ -127,6 +127,7 @@ public final class JavaInteropTest {
             interfacesAndObjects();
             sealAndJavaTogether();
             generics();
+            sealIntoJava();
             exceptions();
             javaArrays();
             imports();
@@ -483,6 +484,97 @@ public final class JavaInteropTest {
                 "a Java array's length is fixed when it is made");
     }
 
+    /** Seal handed to Java (docs/JAVA.md §5), T3: lambdas as Java's interfaces, Seal classes implementing them, Object's methods. */
+    private static void sealIntoJava() {
+        output("T3: a Java Thread runs Seal code, a Seal Comparator sorts a Java list, a Java HashMap holds Seal keys",
+                "import java.lang.Thread;\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.Comparator;\n"
+                + "import java.util.HashMap;\nimport java.util.HashSet;", """
+                Thread t = new Thread(() -> System.stdout.println("run from a Java thread"));
+                t.start();
+                t.join();
+                ArrayList<JavaString> names = new ArrayList();
+                names.add(JavaString.of("Linus"));
+                names.add(JavaString.of("Ada"));
+                names.add(JavaString.of("Grace"));
+                names.sort((a, b) -> a.compareTo(b));                  // a lambda as a Comparator<? super JavaString>
+                System.stdout.print(names + " ");
+                names.sort(new ByLength());                            // a Seal class implementing Comparator
+                System.stdout.print(names + " ");
+                Collections.sort(names, (a, b) -> b.compareTo(a));
+                Comparator<JavaString> shortFirst = (a, b) -> a.length() - b.length();
+                System.stdout.println(names + " " + (int)shortFirst.compare(JavaString.of("ab"), JavaString.of("a")) + " "
+                        + (int)shortFirst.reversed().compare(JavaString.of("ab"), JavaString.of("a")));
+                HashMap<Point, JavaString> where = new HashMap();
+                where.put(new Point(1, 2), JavaString.of("home"));
+                HashSet<Point> seen = new HashSet();
+                seen.add(new Point(3, 4));
+                seen.add(new Point(3, 4));                             // equal by ==, hashed by hash()
+                System.stdout.println(where.get(JavaObject.of(new Point(1, 2))) + " " + where + " "
+                        + (bit)where.containsKey(JavaObject.of(new Point(2, 1))) + " " + (int)seen.size());
+                """, "run from a Java thread\n[Ada, Grace, Linus] [Ada, Grace, Linus] [Linus, Grace, Ada] 1 -1\nhome {(1, 2)=home} false 1\n",
+                "Point", """
+                class Point
+                {
+                    public int x;
+                    public int y;
+                    public new(int x, int y) { this.x = x; this.y = y; }
+                    @overload(Operator.EQUALS) public bit same(Point o) { return x == o.x && y == o.y; }
+                    public uint<<64>> hash() { return (uint<<64>>)(x * 31 + y); }
+                    @overload(Operator.CAST) public string text() { return "(" + x + ", " + y + ")"; }
+                }
+                """, "ByLength", """
+                import java.util.Comparator;
+                import seal.java.*;
+                class ByLength implements(Comparator<JavaString>)
+                {
+                    public JavaInt compare(JavaString a, JavaString b) { return a.length() - b.length(); }
+                }
+                """);
+        output("a Seal Comparable in a TreeSet, through the bridge javac would write", "import java.util.TreeSet;", """
+                TreeSet<Version> versions = new TreeSet();
+                versions.add(new Version(3));
+                versions.add(new Version(1));
+                versions.add(new Version(2));
+                System.stdout.println(versions + " " + versions.first().major + " " + (int)new Version(5).compareTo(new Version(2)));
+                """, "[v1, v2, v3] 1 3\n", "Version", """
+                import java.lang.Comparable;
+                import seal.java.*;
+                class Version implements(Comparable<Version>)
+                {
+                    public int major;
+                    public new(int major) { this.major = major; }
+                    public JavaInt compareTo(Version o) { return JavaInt.of(major - o.major); }
+                    @overload(Operator.CAST) public string text() { return "v" + major; }
+                }
+                """);
+        output("streams and callbacks: a lambda's result gives a type argument; Callable or Runnable, as Java chooses",
+                "import java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\n"
+                + "import java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;", """
+                List<JavaString> names = List.of(JavaString.of("Linus"), JavaString.of("Ada"), JavaString.of("Grace"));
+                List<JavaString> upper = names.stream().map(s -> s.toUpperCase()).toList();
+                HashMap<JavaString, ArrayList<JavaString>> groups = new HashMap();
+                for (JavaString n : names) {
+                    groups.computeIfAbsent(JavaString.valueOf(n.length()), k -> new ArrayList()).add(n);
+                }
+                ExecutorService pool = Executors.newSingleThreadExecutor();
+                JavaString done = pool.submit(() -> JavaString.of("from a Callable")).get();
+                pool.submit(() -> System.stdout.println("from a Runnable")).get();
+                pool.shutdown();
+                names.forEach(n -> System.stdout.print(n + ";"));
+                System.stdout.println(" " + upper + " " + groups + " " + done);
+                """, "from a Runnable\nLinus;Ada;Grace; [LINUS, ADA, GRACE] {3=[Ada], 5=[Linus, Grace]} from a Callable\n");
+        compileError("a lambda takes as many parameters as Java's method", "import java.util.ArrayList;",
+                "ArrayList<JavaString> l = new ArrayList();\nl.sort(a -> a);",
+                "a lambda goes where Java wants an interface with one abstract method taking as many parameters");
+        compileError("and gives Java's types", "import java.util.ArrayList;", "ArrayList<JavaString> l = new ArrayList();\nl.sort((a, b) -> 1);",
+                "lambda result: expected JavaInt, found integer constant 1; Seal's integer constant 1 goes into Java by JavaInt.of(...)");
+        compileError("a Java interface's methods must be implemented", "", "", "A must implement Comparable.compareTo(A), or be declared `abstract class A`",
+                "A", "import java.lang.Comparable;\nclass A implements(Comparable<A>) { }");
+        compileError("with Java's types", "", "", "B.compare returns int, but Comparator.compare(JavaString, JavaString) returns JavaInt",
+                "B", "import java.util.Comparator;\nimport seal.java.*;\nclass B implements(Comparator<JavaString>)\n{\n"
+                + "    public int compare(JavaString a, JavaString b) { return 0; }\n}");
+    }
+
     private static void exceptions() {
         output("Java's exceptions are caught by their class, and finally runs", "import java.nio.file.Files;\n"
                 + "import java.nio.file.Path;\nimport java.io.IOException;\nimport java.lang.IllegalStateException as JavaIllegalState;", """
@@ -578,8 +670,6 @@ public final class JavaInteropTest {
                 "a cast takes a Java value out: (string)x");
         compileError("a class without a public constructor", "import java.time.LocalDate;", "new LocalDate();",
                 "Java's java.time.LocalDate has no public constructor; its static methods make them: LocalDate.now(...)");
-        compileError("lambdas as Java's interfaces come later", "import java.util.ArrayList;", "new ArrayList().forEach(x -> { });",
-                "a lambda goes where Java wants an interface in a later step");
         compileError("so do Seal classes extending Java's", "import java.util.ArrayList;", "",
                 "a Seal class extending Java's java.util.ArrayList comes in a later step", "Mine",
                 "import java.util.ArrayList;\nclass Mine extends(ArrayList) { }");

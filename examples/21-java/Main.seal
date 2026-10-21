@@ -1,10 +1,12 @@
 // Java's own classes (docs/JAVA.md), imported and used as Seal's are: checked while
-// compiling, and called as the JVM calls them, generics and all. Seal's values go into Java
-// by seal.java's classes, JavaInt.of(5) and JavaString.of("Ada"), and come out by casts,
-// (int)x and (string)s. It runs on the JVM, Seal's backend; the deprecated VM (--vm) has no Java.
+// compiling, and called as the JVM calls them, generics and all; and Seal's lambdas and
+// classes handed to Java as its interfaces. Seal's values go into Java by seal.java's classes,
+// JavaInt.of(5) and JavaString.of("Ada"), and come out by casts, (int)x and (string)s. It runs
+// on the JVM, Seal's backend; the deprecated VM (--vm) has no Java.
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
+import java.lang.Thread;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -12,6 +14,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -27,6 +30,17 @@ class Main
     {
         public string name;
         public new(string name) { this.name = name; }
+    }
+
+    // Java's HashSet finds it by its ==, hashed by its hash(), and prints it by its cast to string.
+    class Point
+    {
+        public int x;
+        public int y;
+        public new(int x, int y) { this.x = x; this.y = y; }
+        @overload(Operator.EQUALS) public bit same(Point o) { return x == o.x && y == o.y; }
+        public uint<<64>> hash() { return (uint<<64>>)(x * 31 + y); }
+        @overload(Operator.CAST) public string text() { return "(" + x + ", " + y + ")"; }
     }
 
     static void main()
@@ -96,6 +110,18 @@ class Main
         things.add(JavaObject.of(tag));                             // where Java wants an Object, by JavaObject.of
         System.stdout.println(back.name + " " + (back == tag) + " " + ((Tag)things.get(JavaInt.of(0))).name + " "
                 + (bit)things.contains(JavaObject.of(tag)));
+
+        System.stdout.println("== Seal code handed to Java ==");
+        Thread worker = new Thread(() -> System.stdout.println("a Java thread runs a Seal lambda"));   // a Runnable
+        worker.start();
+        worker.join();
+        ArrayList<JavaString> people = new ArrayList(List.of(JavaString.of("Linus"), JavaString.of("Ada"), JavaString.of("Grace")));
+        people.sort((x, y) -> x.length() - y.length());           // a Comparator, with Java's operators
+        List<JavaString> shouting = people.stream().map(s -> s.toUpperCase()).toList();
+        HashSet<Point> points = new HashSet();
+        points.add(new Point(1, 2));
+        points.add(new Point(1, 2));                                // the same point: Java asks Seal's ==
+        System.stdout.println(people + " " + shouting + " " + points);
 
         System.stdout.println("== Java's exceptions, caught by their class ==");
         try {

@@ -15,6 +15,9 @@ A 65 [pi   |  3.14]
 30 63 48 84 70 
 == Seal objects in a Java collection ==
 Ada true Ada true
+== Seal code handed to Java ==
+a Java thread runs a Seal lambda
+[Ada, Linus, Grace] [ADA, LINUS, GRACE] [(1, 2)]
 == Java's exceptions, caught by their class ==
 NoSuchFileException: no-such-file.txt
 line one / line two

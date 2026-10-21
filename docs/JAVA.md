@@ -1,7 +1,7 @@
 # Calling Java from Seal: design
 
-**Status:** reviewed 2026-10-20; T1 and T2 are built (§8), and §10 records what building them
-settled; T3, handing Seal to Java, is next. Seal uses Java's classes as it uses its own:
+**Status:** reviewed 2026-10-20; T1, T2 and T3 are built (§8), and §10 records what building
+them settled; T4, Seal classes extending Java's, is next. Seal uses Java's classes as it uses its own:
 `import java.util.ArrayList;`, then `new ArrayList()` and `names.add(...)`, checked while compiling
 and compiled to the JVM's own calls. Values cross between the two by hand: a Seal value goes into
 Java through the class of the Java type it becomes (`JavaInt.of(5)`, `JavaString.of("Ada")`,
@@ -264,33 +264,45 @@ class Main
 - Bounds aren't checked (`Collections.sort` of a list of something not `Comparable`): the JVM's
   cast finds it while the program runs.
 
-## 5. Handing Seal to Java (T3, T4)
+## 5. Handing Seal to Java (T3 built, T4)
 
-Proposed: through the compiler, which knows Java's interfaces once it reads them. B2's plan, an
+Through the compiler, which knows Java's interfaces once it reads them (built in T3). B2's plan, an
 `implement` making a `java.lang.reflect.Proxy` whose calls went to a handler, and the idea of Java
 source beside Seal's for this, are set aside.
 
 - **Lambdas:** a Seal lambda goes wherever Java wants an interface with one abstract method
   (`Runnable`, `Comparator<T>`, Fabric's event callbacks), with Java's types for its parameters and
   result: `names.sort((a, b) -> a.compareTo(b))`, or `(a, b) -> JavaInt.of(...)`. It becomes a class
-  implementing the interface, as Seal lambdas become classes now.
+  implementing the interface, as Seal lambdas become classes now, with the method's erased
+  descriptor (`compare(Object, Object)`), whose parameters it casts to their Seal types. The
+  interface's method is found as Java finds a functional interface's: not a default one, nor one
+  of `Object`'s it names again (`Comparator.equals`); a wildcard in the type it goes to is its bound
+  (`Comparator<? super JavaString>`). Among overloads, it fits those whose method takes as many
+  parameters, and gives a value if the lambda does (`submit(() -> x)` is `submit(Callable)`,
+  `submit(() -> println(x))` `submit(Runnable)`, as Java chooses); a generic method's type
+  arguments may come from what it gives (`stream.map(s -> s.toUpperCase())` is a `Stream<JavaString>`).
 - **Implementing a Java interface:**
   `class Version implements(Comparable<Version>) { public JavaInt compareTo(Version o) { ... } }`.
   For a generic interface, the backend also writes the erased bridge the JVM calls
   (`compareTo(Object)` calling `compareTo(Version)`), as `javac` does. A missing method is an
-  error, as for Seal's interfaces. Fabric starts a mod by creating the class `fabric.mod.json`
+  error, as for Seal's interfaces; the interface's default methods are inherited; and a Seal
+  interface may extend a Java one. Fabric starts a mod by creating the class `fabric.mod.json`
   names, `class MyMod implements(ModInitializer)`, with its constructor that takes nothing.
 - **Extending a Java class** (T4): `class Worker extends(Thread)`. Its constructors call a Java one
   with `super(...)` (or the one that takes nothing); it overrides Java's methods, with bridges where
   generics need them, and reaches protected members; a `final` class can't be extended, and
   abstract methods must be implemented.
-- **Seal objects as Java objects:** a Seal class gets `equals(Object)` from its `==`
-  (`@overload(Operator.EQUALS)`), `hashCode()` from its `hash()`, and `toString()` from its cast to
-  `string`, so Java's `HashMap` finds Seal keys, and Java prints Seal objects as Seal does.
+- **Seal objects as Java objects** (built in T3): a Seal class gets `equals(Object)` from its `==`
+  (`@overload(Operator.EQUALS)`, true for an object of its parameter's class that == calls equal),
+  `hashCode()` from its `hash()` (its low 32 bits), and `toString()` from its cast to `string`, so
+  Java's `HashMap` finds Seal keys, and Java prints Seal objects as Seal does. A class without them
+  keeps Java's own: identity, as Seal's defaults are. A Seal object goes where Java wants a type
+  argument that is its class, or an interface its class implements; where Java wants an `Object`
+  (`HashMap.get(Object)`), it still goes by `JavaObject.of(o)`.
 - **Java calling Seal:** Seal's classes are JVM classes with readable names (docs/JVM.md §5), so
   Java code calls their methods; a `JavaInt` parameter is Java's `int`, a `JavaString` a `String`.
 - **When Java calls first** (Fabric creating a Seal class before any `main`), Seal's static fields
-  are set up as for `main`.
+  are set up as for `main` (not yet: with T5's Fabric mod).
 - The library's `Runnable`, `Comparator`, `Iterable` and `AutoCloseable` stay Seal's own
   interfaces; Java's are imported by name.
 
@@ -348,7 +360,7 @@ source beside Seal's for this, are set aside.
 | **B1**, **B2**, **removed** | the string bridge: `JavaBridge`, `JavaObject.invoke`, Java's exceptions as `JavaThrownException`s, arrays copied; built 2026-10-19, removed 2026-10-20 for this design. Kept: `--classpath`, and what building it settled (§10) | |
 | **T1**, **done** | the class-path reader; Java's classes without generics (raw, §4.1): imports, constructors, methods, fields, statics, enum constants, overloads, varargs; `seal.java`'s types (the primitives, `JavaString`, the boxes, `JavaObject`, `JavaArray`) with their `of`s and casts; `instanceof`; Java's exceptions caught and thrown | a program using `java.time`, `java.util.Random`, `java.util.regex` and `java.nio.file` prints what the same Java program prints (`JavaInteropTest`, which compiles the Java program and compares); `examples/21-java` |
 | **T2**, **done** | Java's generics: type arguments, erasure and casts, inference, wildcards; for-each over an `Iterable`; `try` closing an `AutoCloseable`. With it: Java's operators on Java's primitives, and Java arrays' elements in place | a word count in a `TreeMap<JavaString, JavaIntBoxed>` (`JavaInteropTest`) |
-| **T3** | Seal lambdas as Java's functional interfaces; Seal classes implementing Java interfaces, with bridges; Seal objects' `equals`, `hashCode` and `toString` | a Java `Thread` runs Seal code, a Seal `Comparator` sorts a Java list, a Java `HashMap` holds Seal keys |
+| **T3**, **done** | Seal lambdas as Java's functional interfaces; Seal classes implementing Java interfaces, with bridges; Seal objects' `equals`, `hashCode` and `toString` | a Java `Thread` runs Seal code, a Seal `Comparator` sorts a Java list, a Java `HashMap` holds Seal keys (`JavaInteropTest`) |
 | **T4** | Seal classes extending Java classes: constructors, overrides, bridges, protected members | a Seal class extends a class from the test's jar, and its Java code calls the Seal overrides |
 | **T5** (rest of M6) | jars from `seal build`, the class-file target (Java 21, for Minecraft), then a Fabric mod: a Seal `ModInitializer` registering a block | the mod loads in a Fabric development run |
 
@@ -439,7 +451,12 @@ Decided on review:
 20. **Java's operators on Java's primitives** (2026-10-21): `JavaInt + JavaInt` is Java's, but
     `JavaInt + int` isn't allowed, nor `JavaInt + 1`; a condition still wants `(bit)` (§3.1).
 
-Still to decide:
+Settled while building T3:
 
-21. **Handing Seal to Java through the compiler** (§5), rather than B2's `Proxy` plan or Java source
-    beside Seal's: proposed, for T3.
+21. **Handing Seal to Java through the compiler** (§5): lambdas and classes become JVM classes
+    implementing Java's interfaces, with javac's bridges, rather than B2's `Proxy` plan or Java
+    source beside Seal's.
+22. **A Seal object still goes where Java wants an `Object` by `JavaObject.of(o)`,** as T1 decided,
+    though Java's generics take one as itself where a type argument is its class: `map.put(point, v)`
+    on a `HashMap<Point, ...>`, but `map.get(JavaObject.of(point))`, as `get` takes an `Object`.
+23. **Static fields when Java calls first** wait for T5, which has a Fabric mod to start that way.
