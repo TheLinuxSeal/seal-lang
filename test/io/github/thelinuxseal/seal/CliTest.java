@@ -359,6 +359,181 @@ public final class CliTest {
 
         classPath(dir);
         jarsAndLibraries(dir);
+        javaFiles(dir);
+    }
+
+    /**
+     * A program's own .java files (docs/JAVA.md §11): those that use none of its Seal classes are
+     * compiled first, and Seal's code uses theirs; those that do, in a library, after Seal's
+     * classes, against them, as a Fabric mod's mixins are.
+     */
+    private static void javaFiles(Path dir) throws IOException {
+        String javaCommand = ProcessHandle.current().info().command().orElse("java");
+        String plain = write(dir, "java-files/plain/Main.seal", """
+                import seal.java.*;
+
+                class Main
+                {
+                    static void main()
+                    {
+                        System.stdout.println((string) Helper.shout(JavaString.of("hi")) + " " + (int) Helper.twice(JavaInt.of(21)));
+                    }
+                }
+                """).getParent().toString();
+        Path helper = write(dir, "java-files/plain/Helper.java", """
+                public class Helper {
+                    public static String shout(String s) { return s.toUpperCase() + "!"; }
+                    public static int twice(int x) { return 2 * x; }
+                }
+                """);
+        Run r = run("run", plain);
+        check(r.code() == 0 && r.out().equals("HI! 42\n") && r.err().isEmpty(), "run: Seal uses a .java file's class " + r);
+        r = run("check", plain);
+        check(r.code() == 0 && r.err().isEmpty(), "check: with a .java file " + r);
+        r = run("run", "--vm", plain);
+        check(r.code() == 2 && r.err().contains("--vm can't run them"), "run --vm: no .java files on the VM " + r);
+        r = run("run", plain + "/Main.seal", helper.toString());
+        check(r.code() == 0 && r.out().equals("HI! 42\n"), "run: a .java file given by itself " + r);
+
+        String pkg = write(dir, "java-files/pkg/com/example/Main.seal", """
+                package com.example;
+
+                import com.example.util.Counter;
+                import seal.java.*;
+
+                class Main
+                {
+                    static void main()
+                    {
+                        Counter c = new Counter();
+                        c.add(JavaInt.of(3));
+                        System.stdout.println((string) Names.joined() + " " + (int) c.total());
+                    }
+                }
+                """).getParent().getParent().getParent().toString();
+        write(dir, "java-files/pkg/com/example/Names.java", """
+                package com.example;
+
+                public class Names {
+                    public static String joined() { return String.join(", ", java.util.List.of("Ada", "Grace")); }
+                }
+                """);
+        write(dir, "java-files/pkg/com/example/util/Counter.java", """
+                package com.example.util;
+
+                public class Counter {
+                    private int total;
+                    public void add(int n) { total += n; }
+                    public int total() { return total; }
+                }
+                """);
+        r = run("run", "--main", "com.example.Main", pkg);
+        check(r.code() == 0 && r.out().equals("Ada, Grace 3\n"), "run: a Java class of the same package needs no import " + r);
+        Path classes = dir.resolve("java-files/pkg-classes");
+        r = run("build", "--main", "com.example.Main", "-d", classes.toString(), pkg);
+        check(r.code() == 0 && Files.isRegularFile(classes.resolve("com/example/Names.class"))
+                && Files.isRegularFile(classes.resolve("com/example/util/Counter.class")), "build: writes the Java classes too " + r);
+        String got = runProcess(dir, javaCommand, "-cp", classes.toString(), "com.example.Main");
+        check(got.equals("Ada, Grace 3\n"), "java runs what build wrote: " + got);
+        r = run("dump", "--main", "com.example.Main", pkg);
+        check(r.code() == 0 && r.out().contains("class com.example.Names  (Names.java)"), "dump: prints the Java classes " + r);
+
+        // A library: Seal uses Format, a Java class, and Caller, a Java class, uses Seal's Hooks.
+        String lib = write(dir, "java-files/lib/com/example/Hooks.seal", """
+                package com.example;
+
+                import com.example.glue.Format;
+                import seal.java.*;
+
+                class Hooks
+                {
+                    static int calls = 0;
+
+                    public static JavaString called(JavaString who)
+                    {
+                        calls++;
+                        return Format.bracket(JavaString.of((string) who + " #" + calls));
+                    }
+                }
+                """).getParent().getParent().getParent().toString();
+        write(dir, "java-files/lib/com/example/glue/Format.java", """
+                package com.example.glue;
+
+                public class Format {
+                    public static String bracket(String s) { return "[" + s + "]"; }
+                }
+                """);
+        write(dir, "java-files/lib/com/example/hooks/Caller.java", """
+                package com.example.hooks;
+
+                import com.example.*;
+
+                public class Caller {
+                    public static void main(String[] args) {
+                        System.out.println(Hooks.called("Ada") + " " + com.example.hooks.Again.twice());
+                    }
+                }
+                """);
+        write(dir, "java-files/lib/com/example/hooks/Again.java", """
+                package com.example.hooks;
+
+                public class Again {
+                    public static String twice() { return com.example.Hooks.called("Grace"); }
+                }
+                """);
+        Path libJar = dir.resolve("java-files/lib.jar");
+        r = run("build", "--library", "--jar", libJar.toString(), lib);
+        check(r.code() == 0 && r.err().isEmpty(), "build --library: Java that uses Seal, after it " + r);
+        got = runProcess(dir, javaCommand, "-cp", libJar.toString(), "com.example.hooks.Caller");
+        check(got.equals("[Ada #1] [Grace #2]\n"), "Java's code calls Seal's, which calls Java's: " + got);
+        r = run("check", lib);
+        check(r.code() == 0 && r.err().isEmpty(), "check: compiles the Java that uses Seal, against it " + r);
+        r = run("run", lib);
+        check(r.code() == 2 && r.err().contains("Again.java uses Seal's classes, which only a library's .java files can"),
+                "run: a program's Java can't use Seal's classes " + r);
+
+        Path uses = write(dir, "java-files/lib/com/example/Uses.seal", """
+                package com.example;
+
+                import com.example.hooks.Caller;
+
+                class Uses
+                {
+                    static void go() { Again.twice(); }
+                }
+                """);
+        r = run("check", lib);
+        check(r.code() == 1 && r.err().contains("no type com.example.hooks.Caller to import; com.example.hooks.Caller is in ")
+                && r.err().contains("Caller.java, which uses Seal's classes, so it is compiled after them"),
+                "check: Seal can't import what is compiled after it " + r);
+        Files.writeString(uses, """
+                package com.example;
+
+                import com.example.hooks.*;
+
+                class Uses
+                {
+                    static void go() { Again.twice(); }
+                }
+                """);
+        r = run("check", lib);
+        check(r.code() == 1 && r.err().contains("unknown name Again; com.example.hooks.Again is in ")
+                && r.err().contains("which uses Seal's classes"), "check: nor use it by a * import " + r);
+        Files.delete(uses);
+
+        Path twice = write(dir, "java-files/lib/com/example/Hooks.java", "package com.example;\npublic class Hooks { }\n");
+        r = run("check", lib);
+        check(r.code() == 1 && r.err().contains("com.example.Hooks is declared twice: in ") && r.err().contains("Hooks.java"),
+                "a class in Seal and in Java " + r);
+        Files.delete(twice);
+        Path bad = write(dir, "java-files/lib/com/example/glue/Bad.java", "package com.example.glue;\npublic class Bad { int x = \"no\"; }\n");
+        r = run("build", "--library", "--jar", libJar.toString(), lib);
+        check(r.code() == 1 && r.err().contains("Bad.java:2: error: incompatible types"), "javac's errors, before Seal's code " + r);
+        Files.writeString(bad, "package com.example.hooks;\npublic class Bad { void f() { com.example.Hooks.nope(); } }\n");
+        r = run("build", "--library", "--jar", libJar.toString(), lib);
+        check(r.code() == 1 && r.err().contains("Bad.java:2: error: cannot find symbol") && r.err().contains("method nope()"),
+                "javac's errors, after Seal's code " + r);
+        Files.delete(bad);
     }
 
     /**

@@ -115,13 +115,29 @@ public final class JavaClasses {
     private static volatile Set<String> jdkExported;
 
     private final List<Path> classPath;
+    private final Map<String, String> afterSeal;
     private final Map<Path, ZipFile> jars = new HashMap<>();
     private final Map<Path, Set<String>> jarPackages = new HashMap<>();
     private final Map<String, Optional<JClass>> read = new HashMap<>();
 
     /** The JDK's classes and those of the jars and folders given, which come after the JDK's, as in Java. */
     public JavaClasses(List<Path> classPath) {
+        this(classPath, Map.of());
+    }
+
+    /**
+     * As above, knowing the classes of the program's .java files that are compiled after Seal's
+     * code, as they use it, and their files (docs/JAVA.md §11): Seal's code can't use them, and
+     * the checker says why.
+     */
+    public JavaClasses(List<Path> classPath, Map<String, String> afterSeal) {
         this.classPath = List.copyOf(classPath);
+        this.afterSeal = Map.copyOf(afterSeal);
+    }
+
+    /** The .java file of a class compiled after Seal's code (com.example.mixin.ServerMixin), or null. */
+    public String afterSealFile(String binaryName) {
+        return afterSeal.get(binaryName);
     }
 
     /** The JDK's classes alone. */

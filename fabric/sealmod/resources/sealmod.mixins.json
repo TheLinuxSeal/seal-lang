@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "com.example.sealmod.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "server": ["SettingsMixin"],
+  "injectors": { "defaultRequire": 1 }
+}

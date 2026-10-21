@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds the Seal mod in sealmod/ and runs it in a Fabric server for Minecraft 26.3 (docs/JAVA.md, T5).
+# Builds the Seal mod in sealmod/, with its mixin in Java, and runs it in a Fabric server for Minecraft
+# 26.3 (docs/JAVA.md, T5 and §11).
 #
 # The first run downloads Fabric's server launcher, Minecraft's server (through the launcher) and
 # Fabric API into fabric/server/. Minecraft's server then stops, as its EULA (eula.txt) isn't accepted:
@@ -34,7 +35,7 @@ if ! ls mods/fabric-api-*.jar >/dev/null 2>&1; then
 fi
 
 # The mod compiles against Minecraft's own classes, under their own names (Minecraft is no longer
-# obfuscated), with its libraries and Fabric's loader, for ModInitializer.
+# obfuscated), with its libraries and Fabric's loader, for ModInitializer and Mixin's annotations.
 classpath="versions/$minecraft/server-$minecraft.jar:$(find libraries -name '*.jar' | sort | tr '\n' ':')"
 "$here/../seal" build --library --jar mods/sealmod.jar --resources "$here/sealmod/resources" \
     --classpath "$classpath" "$here/sealmod/src"

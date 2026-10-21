@@ -68,8 +68,10 @@ Point[x=3, y=9]  is 9.49 from the origin
   interfaces (`names.sort((a, b) -> a.compareTo(b))`), and Seal classes extend Java's
   (`class Worker extends(Thread)`). Values cross by hand, through
   `seal.java`'s `JavaInt.of`, `JavaString.of` and casts; jars come from `--classpath`
-  ([`docs/JAVA.md`](docs/JAVA.md)). [`fabric/`](fabric) is a Minecraft mod written in Seal:
-  `fabric/run.sh` builds it and runs it in Fabric's server.
+  ([`docs/JAVA.md`](docs/JAVA.md)). A program's own `.java` files sit beside its `.seal` files
+  and compile with it, so a mod's Mixins are Java that calls its Seal code. [`fabric/`](fabric)
+  is a Minecraft mod written in Seal, with a mixin: `fabric/run.sh` builds it and runs it in
+  Fabric's server.
 
 The full language is described in [`SPEC.md`](SPEC.md).
 
@@ -94,8 +96,9 @@ nix flake check                            # build the package and run every tes
 
 With [direnv](https://direnv.net), the `.envrc` enters the dev shell by itself (run `direnv allow` once).
 
-A program is a folder of `.seal` files, each holding one top-level type and named after it. Its
-entry point is `main()` in the class `Main`.
+A program is a folder of `.seal` files, each holding one top-level type and named after it, and
+any `.java` files it has, which the JDK's `javac` compiles with it. Its entry point is `main()` in
+the class `Main`.
 
 ```text
 seal run   [options] PATH...   compile to JVM class files and run them

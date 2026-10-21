@@ -24,8 +24,8 @@ JVM, fast, and can later become Minecraft mods.
 - Speed: the JIT compiles Seal code like Java code. Most code should run within a small factor of
   equivalent Java; struct-heavy code somewhat slower (§4.5).
 
-Not goals yet (later phases, §13): Mixins, native compilation, `System.rawAssembly`. Calling Java
-classes from Seal is designed in docs/JAVA.md, and its first step, T1, is built.
+Not goals yet (later phases, §13): native compilation, `System.rawAssembly`. Calling Java classes
+from Seal, and Mixins (in Java, beside the Seal code), are in docs/JAVA.md, and built.
 
 ## 2. Pipeline
 
@@ -556,7 +556,7 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 | **M5**, **done** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires: the JVM is the default, the VM behind `--vm` |
 | **the VM deprecated**, **done** | `--vm` warns that the VM is deprecated, `vm/` and `codegen/` are `@Deprecated`, and the VM gets no new features: what comes next (Java's classes, docs/JAVA.md) is the JVM's alone; the suites still compare the two on what both run | `--vm` warns, every suite passes |
 | later, a step of its own | removing the VM, `codegen/` and their tests; then the library's VM-only code (the string and array internals on `addr` buffers, `StringChars`, the Seal bodies behind `@jvm`) | |
-| **M6** (in progress) | jars, calling Java classes from Seal and Seal from Java (docs/JAVA.md, T1 to T5, done: a Fabric mod in Seal loads in Minecraft 26.3 and registers a block; Minecraft runs on Java 25, so the class-file version needed no change), then Mixins (§14) | a first Minecraft mod in Seal (done) |
+| **M6**, **done** | jars, calling Java classes from Seal and Seal from Java (docs/JAVA.md, T1 to T5: a Fabric mod in Seal loads in Minecraft 26.3 and registers a block; Minecraft runs on Java 25, so the class-file version needed no change), then Mixins, as a program's own `.java` files (docs/JAVA.md §11) | a first Minecraft mod in Seal, with a mixin |
 
 ## 14. Later: Java and Minecraft
 
@@ -566,8 +566,9 @@ Not designed here, but the design keeps the door open:
   Calling Java from Seal (importing Java classes, values crossing by `JavaInt.of` and the rest,
   implementing Java interfaces and extending Java classes) is designed in [docs/JAVA.md](JAVA.md):
   typed, checked while compiling, and compiled to direct calls.
-- Mixins: a Seal declaration that compiles to a standard Mixin class, so Fabric and NeoForge apply
-  it like a Java mod's.
+- Mixins are Java, a program's own `.java` files beside its Seal code, which they call
+  (docs/JAVA.md §11): Fabric and NeoForge apply them as a Java mod's. A Seal declaration compiling
+  to a Mixin class could come later, if it earns its place.
 - Several mods bundling different versions of the Seal runtime and library would clash in one
   game; the usual answers are one shared library mod, or giving each mod its own renamed copy.
 

@@ -962,6 +962,10 @@ public final class Checker {
         if (pkg.isEmpty() && classes.get(name) instanceof ClassInfo c && !c.builtin && (from == null || !from.builtin)) {
             return c;
         }
+        // A Java class of the same package, as in Java: a program's own .java file's (docs/JAVA.md §11).
+        if (from != null && !from.builtin && javaClass(pkg.isEmpty() ? name : pkg + "." + name) instanceof ClassInfo c) {
+            return c;
+        }
         List<ClassInfo> brought = imported(name, imports);
         if (!brought.isEmpty()) {
             if (brought.size() == 1 && brought.get(0).java != null && classNamed(name) != null) {
@@ -1486,10 +1490,29 @@ public final class Checker {
         return "";
     }
 
+    /**
+     * Why Seal's code can't use a class of one of the program's .java files, if it is one compiled
+     * after Seal's code, as it uses it (docs/JAVA.md §11); empty otherwise.
+     */
+    private String afterSealHint(String binary) {
+        String file = javaClasses.afterSealFile(binary);
+        return file == null ? "" : "; " + binary + " is in " + file + ", which uses Seal's classes, so it is compiled"
+                + " after them, and Seal's code can't use it (docs/JAVA.md §11)";
+    }
+
     /** Why a type name means nothing where {@code from} is written, when there is more to say, as "; ...". */
     private String unknownTypeHint(String name, ClassInfo from) {
         if (name.indexOf('.') >= 0) {
-            return "";
+            return afterSealHint(name);
+        }
+        if (from != null) {
+            List<String> where = new ArrayList<>(List.of(from.pkg.isEmpty() ? name : from.pkg + "." + name));
+            from.imports.stream().filter(i -> i.all() && !i.isStatic()).forEach(i -> where.add(i.name() + "." + name));
+            for (String binary : where) {
+                if (!afterSealHint(binary).isEmpty()) {
+                    return afterSealHint(binary);
+                }
+            }
         }
         String renamed = renamedHint(from, name, false);
         if (renamed.isEmpty()) {
@@ -1594,8 +1617,8 @@ public final class Checker {
             String what = "import " + i.name() + (i.alias() == null ? "" : " as " + i.alias());
             if (t == null) {
                 ClassInfo outside = classes.get(i.name());
-                report(i.pos(), "no type " + i.name() + " to import"
-                        + (outside != null && !outside.builtin && outside.pkg.isEmpty() && !c.pkg.isEmpty()
+                report(i.pos(), "no type " + i.name() + " to import" + (!afterSealHint(i.name()).isEmpty() ? afterSealHint(i.name())
+                        : outside != null && !outside.builtin && outside.pkg.isEmpty() && !c.pkg.isEmpty()
                                 ? "; " + i.name() + " is in no package, and as in Java, a type in a package can't use one that isn't"
                                 : unknownTypeHint(simple, c)));
             } else if (!canSeeType(c, t)) {

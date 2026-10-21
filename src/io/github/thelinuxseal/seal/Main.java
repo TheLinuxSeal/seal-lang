@@ -19,8 +19,10 @@ import io.github.thelinuxseal.seal.check.JavaClasses;
 import io.github.thelinuxseal.seal.check.Warning;
 import io.github.thelinuxseal.seal.codegen.CodeGen;
 import io.github.thelinuxseal.seal.jvm.ClassText;
+import io.github.thelinuxseal.seal.jvm.JavaSources;
 import io.github.thelinuxseal.seal.jvm.JvmGen;
 import io.github.thelinuxseal.seal.jvm.JvmRunner;
+import io.github.thelinuxseal.seal.parser.Parser;
 import io.github.thelinuxseal.seal.vm.Trap;
 import io.github.thelinuxseal.seal.vm.VM;
 
@@ -51,7 +53,10 @@ import io.github.thelinuxseal.seal.vm.VM;
  *   -Wall             turn on every -W flag
  * </pre>
  *
- * A PATH is a `.seal` file or a directory searched recursively for them.
+ * A PATH is a `.seal` file or a directory searched recursively for them. The `.java` files given,
+ * or found there, are compiled by the JDK's javac with the program (docs/JAVA.md §11): those that
+ * use none of its Seal classes first, so that Seal's code may use theirs, and those that do (a
+ * Fabric mod's mixins) after them.
  */
 public final class Main {
 
@@ -122,8 +127,9 @@ public final class Main {
         }
 
         Map<String, String> sources = new LinkedHashMap<>();
+        List<Path> javaFiles = new ArrayList<>();
         for (Path p : paths) {
-            readSources(p, sources);
+            readSources(p, sources, javaFiles);
         }
         Map<String, String> library = new LinkedHashMap<>();
         if (stdlib != null) {
@@ -140,10 +146,53 @@ public final class Main {
                 return 2;
             }
         }
-        Checker checker = Checker.analyze(sources, library, warn, new JavaClasses(classPath));
+        if (javaFiles.isEmpty()) {
+            return compile(command, sources, library, warn, null, mainClass, vm, classDir, jar, resources, asLibrary,
+                    classPath, in, out, err);
+        }
+        if (vm && (command.equals("run") || command.equals("dump"))) {
+            err.println("a program's .java files compile only to the JVM's classes, so --vm can't run them");
+            return 2;
+        }
+        if (!JavaSources.available()) {
+            err.println("compiling .java files needs javac, which this Java hasn't got: run seal with a JDK's java");
+            return 2;
+        }
+        Map<String, String> sealClasses = sealClasses(sources);
+        try (JavaSources java = JavaSources.sort(javaFiles, sealClasses.keySet())) {
+            if (java.declaredTwice(sealClasses) instanceof String twice) {
+                err.println(twice);
+                return 1;
+            }
+            if (java.usesSeal() && !asLibrary && !command.equals("check")) {
+                err.println(java.firstUsingSeal() + " uses Seal's classes, which only a library's .java files can (--library):"
+                        + " Seal's code can't use its classes, so in a program nothing would run them (docs/JAVA.md §11)");
+                return 2;
+            }
+            if (!java.compileBefore(classPath, err)) {
+                return 1;
+            }
+            return compile(command, sources, library, warn, java, mainClass, vm, classDir, jar, resources, asLibrary,
+                    classPath, in, out, err);
+        }
+    }
+
+    /** Checks the program, then runs, prints or writes it, with its .java files' classes if it has any. */
+    private static int compile(String command, Map<String, String> sources, Map<String, String> library, Set<Warning> warn,
+                               JavaSources java, String mainClass, boolean vm, Path classDir, Path jar, Path resources,
+                               boolean asLibrary, List<Path> classPath, java.io.InputStream in, PrintStream out,
+                               PrintStream err) throws IOException {
+        List<Path> javaPath = new ArrayList<>(classPath);
+        if (java != null && java.beforeClasses() != null) {
+            javaPath.add(java.beforeClasses());
+        }
+        Checker checker = Checker.analyze(sources, library, warn,
+                new JavaClasses(javaPath, java == null ? Map.of() : java.afterClasses()));
         checker.warnings().forEach(err::println);
         List<Diagnostic> errors = checker.diagnostics();
-        if (!errors.isEmpty() || command.equals("check")) {
+        // Checking .java files that use Seal's classes compiles them against Seal's, which takes generating those.
+        boolean checkJava = java != null && java.usesSeal();
+        if (!errors.isEmpty() || (command.equals("check") && !checkJava)) {
             errors.forEach(err::println);
             return errors.isEmpty() ? 0 : 1;
         }
@@ -151,12 +200,13 @@ public final class Main {
             err.println("resources folder not found: " + resources);
             return 2;
         }
-        if (asLibrary && !command.equals("build") && !command.equals("dump")) {
+        if (asLibrary && !command.equals("build") && !command.equals("dump") && !command.equals("check")) {
             err.println("a library has no main to run; build it, or dump its classes");
             return 2;
         }
-        if (!vm) {
-            return runOnJvm(command, checker, asLibrary ? null : mainClass, classDir, jar, resources, classPath, in, out, err);
+        if (!vm || command.equals("check")) {
+            return runOnJvm(command, checker, asLibrary || command.equals("check") ? null : mainClass, classDir, jar,
+                    resources, java, classPath, in, out, err);
         }
         if (command.equals("build")) {
             err.println("build writes JVM class files; it has no --vm form");
@@ -164,6 +214,19 @@ public final class Main {
         }
         err.println(VM_DEPRECATED);
         return runOnVm(command, checker, mainClass, in, out, err);
+    }
+
+    /** The binary names of the program's top-level Seal classes (com.example.Main), and their files. */
+    private static Map<String, String> sealClasses(Map<String, String> sources) {
+        Map<String, String> classes = new LinkedHashMap<>();
+        for (Map.Entry<String, String> e : sources.entrySet()) {
+            Parser.Result r = Parser.parse(e.getValue());
+            if (!r.ast().headers().isEmpty()) {
+                String name = r.ast().headers().get(0).name();
+                classes.put(r.pkg() == null ? name : r.pkg() + "." + name, e.getKey());
+            }
+        }
+        return classes;
     }
 
     /** What `--vm` prints first, on standard error. */
@@ -199,11 +262,24 @@ public final class Main {
 
     /** `seal run`, `dump` and `build`: the program as JVM class files, run, printed or written (docs/JVM.md). */
     private static int runOnJvm(String command, Checker checker, String mainClass, Path classDir, Path jar, Path resources,
-                                List<Path> classPath, java.io.InputStream in, PrintStream out, PrintStream err) throws IOException {
+                                JavaSources java, List<Path> classPath, java.io.InputStream in, PrintStream out,
+                                PrintStream err) throws IOException {
         JvmGen.Result result = mainClass == null ? JvmGen.generateLibrary(checker) : JvmGen.generate(checker, mainClass);
         if (!result.errors().isEmpty()) {
             result.errors().forEach(err::println);
             return 1;
+        }
+        if (java != null) {
+            Map<String, byte[]> javaClasses = java.classes(result, classPath, err);
+            if (javaClasses == null) {
+                return 1;
+            }
+            Map<String, byte[]> all = new LinkedHashMap<>(result.classes());
+            all.putAll(javaClasses);
+            result = new JvmGen.Result(all, result.mainClass(), List.of());
+        }
+        if (command.equals("check")) {
+            return 0;
         }
         if (command.equals("build") && jar != null) {
             JvmRunner.writeJar(result, jar, resources);
@@ -233,12 +309,23 @@ public final class Main {
 
     /** Reads a `.seal` file, or every `.seal` file under a directory. */
     static void readSources(Path p, Map<String, String> into) throws IOException {
+        readSources(p, into, null);
+    }
+
+    /** As above, and adds the `.java` files given, or under the directory, to {@code java} (docs/JAVA.md §11). */
+    static void readSources(Path p, Map<String, String> into, List<Path> java) throws IOException {
         if (Files.isDirectory(p)) {
             try (Stream<Path> files = Files.walk(p)) {
-                for (Path f : files.filter(f -> f.toString().endsWith(".seal")).sorted().toList()) {
-                    into.put(f.toString(), Files.readString(f));
+                for (Path f : files.sorted().toList()) {
+                    if (f.toString().endsWith(".seal")) {
+                        into.put(f.toString(), Files.readString(f));
+                    } else if (java != null && f.toString().endsWith(".java") && Files.isRegularFile(f)) {
+                        java.add(f);
+                    }
                 }
             }
+        } else if (java != null && p.toString().endsWith(".java")) {
+            java.add(p);
         } else {
             into.put(p.toString(), Files.readString(p));
         }

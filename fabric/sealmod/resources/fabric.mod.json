@@ -3,11 +3,12 @@
   "id": "sealmod",
   "version": "1.0.0",
   "name": "Seal example mod",
-  "description": "A Fabric mod written in Seal: it registers a block.",
+  "description": "A Fabric mod written in Seal: it registers a block, and a mixin calls its Seal code from Minecraft's.",
   "environment": "*",
   "entrypoints": {
     "main": ["com.example.sealmod.SealMod"]
   },
+  "mixins": ["sealmod.mixins.json"],
   "depends": {
     "fabricloader": ">=0.20.0",
     "fabric-api": "*",

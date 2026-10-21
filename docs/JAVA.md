@@ -1,8 +1,8 @@
 # Calling Java from Seal: design
 
 **Status:** reviewed 2026-10-20; T1 to T5 are built (§8), and §10 records what building them
-settled: a Fabric mod written in Seal loads in Minecraft 26.3 (`fabric/`). Mixins come next, in
-docs/JVM.md's M6. Seal uses Java's classes as it uses its own:
+settled: a Fabric mod written in Seal loads in Minecraft 26.3 (`fabric/`). Its Mixins are Java, a
+program's own `.java` files beside its `.seal` ones (§11), built too. Seal uses Java's classes as it uses its own:
 `import java.util.ArrayList;`, then `new ArrayList()` and `names.add(...)`, checked while compiling
 and compiled to the JVM's own calls. Values cross between the two by hand: a Seal value goes into
 Java through the class of the Java type it becomes (`JavaInt.of(5)`, `JavaString.of("Ada")`,
@@ -65,7 +65,7 @@ of milestone M6 in docs/JVM.md §13, and the way to a Minecraft mod in Seal.
   a Seal `Block`.
 - Read Java's classes, never run them, while compiling.
 
-Not goals yet: Mixins and annotations (their own design, after T4); Java code calling Seal's
+Not goals yet: Mixins and annotations written in Seal (Mixins are Java, §11); Java code calling Seal's
 generic classes (instantiated per type, `List$int`, which Java can't name usefully); inner
 (non-static) classes; arrays of arrays (`int[][]`); the VM, which can't run Java classes (§0).
 
@@ -372,6 +372,7 @@ source beside Seal's for this, are set aside.
 | **T3**, **done** | Seal lambdas as Java's functional interfaces; Seal classes implementing Java interfaces, with bridges; Seal objects' `equals`, `hashCode` and `toString` | a Java `Thread` runs Seal code, a Seal `Comparator` sorts a Java list, a Java `HashMap` holds Seal keys (`JavaInteropTest`) |
 | **T4**, **done** | Seal classes extending Java classes: constructors, overrides, bridges, protected members | a Seal class extends a class from the test's class folder, and its Java code calls the Seal overrides (`JavaInteropTest`) |
 | **T5**, **done** | jars from `seal build` (`--jar`, `--resources`), libraries (`--library`), static fields set up when Java calls first, then a Fabric mod: a Seal `ModInitializer` registering a Seal `Block` | the mod loads in Fabric's server for Minecraft 26.3 and registers its block (`fabric/run.sh`) |
+| **Mixins**, **done** | a program's own `.java` files, compiled by the JDK's `javac` before Seal's code or after it (§11); the mod gets a mixin | the mod's mixin, in Java, runs in Minecraft's code and calls the mod's Seal code (`fabric/run.sh`); `CliTest` |
 
 ## 9. What will be hard
 
@@ -492,3 +493,66 @@ Settled while building T5:
 28. **One Seal mod at a time, for now:** each mod's jar holds Seal's runtime and library classes
     under their own names, so two Seal mods in one game would share (and clash over) them. Giving
     each mod its own copy, in its own package, comes later.
+
+Decided on review:
+
+29. **Mixins are Java,** in a program's own `.java` files (§11), rather than a Seal declaration
+    compiled to a Mixin class: Mixin copies a mixin's bytecode into Minecraft's class, which Seal's
+    classes, with what Seal's code generation adds to each, don't suit; and a mixin is a few lines
+    that hand over to the mod's code, which is Seal. The files sit beside the `.seal` files, rather
+    than Java written inside a `.seal` file.
+
+Settled while building them:
+
+30. **Two parts, by what each file uses** (§11): the files that use none of the program's Seal
+    classes are compiled first, and Seal's code uses theirs; those that use Seal's are compiled
+    after, and Seal's code can't. A file goes after if it may use a Seal class, or a class of a file
+    that goes after, so a file the checker can't see is one that couldn't come first.
+31. **Only a library's `.java` files may use Seal's classes:** in a program, Seal's code can't use
+    theirs, so nothing would run them; `run`, `build` and `dump` say so, without `--library`.
+32. **A Java class of a Seal class's package needs no import,** as in Java: one of the program's
+    own `.java` files, most often, but a class path's too.
+
+## 11. A program's own Java files, and Mixins
+
+A program's folders can hold `.java` files beside its `.seal` files, and every command compiles
+them with the program, with the JDK's own `javac` (`javax.tools`: no dependency, and no other tool
+to install; a JRE's `java`, which has no `javac`, says so). Their classes go with the program's:
+`seal run` loads them, `build` writes them, `dump` prints them. The VM runs none (§0).
+
+They are compiled in two parts, as each side needs the other's classes compiled first to use them:
+
+1. **The files that use none of the program's Seal classes come first,** against the class path.
+   Seal's code uses their classes as it uses any Java class: imported, or by its simple name in the
+   same package, as in Java. A small helper written in Java is one.
+2. **The files that use Seal's classes come after** Seal's classes are generated, against them, the
+   first part's and the class path. Seal's code can't use theirs: an import of one, or its name, is
+   an error that says which file it is in and why. Only a library's files may (`--library`), as
+   Java's code is what starts one: Fabric, or Mixin, by their names.
+
+A file goes in the second part if it may use a Seal class, from what `javac` parses of it: an
+import of one, its simple name where the file's package or a `*` import brings it, or its full
+name; or a class of another file in the second part. A class can't be declared in both a `.seal`
+and a `.java` file. `javac`'s errors are its own, at their lines, and stop the build as Seal's do.
+
+**Mixins** are Java files of the second part: Mixin copies a mixin's bytecode into the class it
+targets, as that class loads, and wants a Java class with its annotations for that; what the
+mixin does is the mod's own code, in Seal. `fabric/sealmod` has one:
+
+```java
+@Mixin(DedicatedServerSettings.class)
+abstract class SettingsMixin {
+    @Inject(method = "forceSave", at = @At("HEAD"))
+    private void sealmod$forceSave(CallbackInfo ci) {
+        Hooks.savingSettings((DedicatedServerSettings) (Object) this);   // Hooks is Seal
+    }
+}
+```
+
+`Hooks.savingSettings` takes Minecraft's own class, and the Seal methods a mixin calls take Java's
+types, or Seal's numbers: Java code can't make a Seal `string`. Mixin's own rules hold: the mixin
+package holds mixins alone, so the mod's Seal classes are in another package (`$Seal`, which sets
+up a library's static fields, goes in the first one's); `sealmod.mixins.json`, which names the
+mixins, is a resource (`--resources`), and `fabric.mod.json` names it; Mixin's annotations come
+from Fabric's Mixin jar, on the class path. Minecraft's names need no refmap, as it isn't
+obfuscated (§10, item 26).
