@@ -119,6 +119,22 @@ public final class JvmGen {
         return new JvmGen(checker).run(mainClass);
     }
 
+    /**
+     * Generates a library: every class of the program, for Java's code to use, with no main
+     * (docs/JAVA.md §5, T5), as a Fabric mod is, whose class Fabric creates. The static fields are
+     * set up, in Seal's order, the first time Java's code touches one of the program's classes;
+     * the class holding that work, {@link #STATICS_CLASS}, is put in the first class's package.
+     */
+    public static Result generateLibrary(Checker checker) {
+        return new JvmGen(checker).runLibrary();
+    }
+
+    /** The simple name of the class a library's static fields are set up from. */
+    public static final String STATICS_CLASS = "$Seal";
+    /** Its method, which sets them up once, and the flag it keeps. */
+    static final String ENSURE_METHOD = "$ensure";
+    static final String STARTED_FIELD = "$started";
+
     // ================================================================ state
 
     /**
@@ -194,6 +210,8 @@ public final class JvmGen {
         final Set<String> signatures = new HashSet<>();
         /** For a lambda's class: the fields its constructor fills, from what the lambda captures. */
         List<FieldSpec> captures;
+        /** For a library's class (T5): its static initializer sets up the program's static fields first. */
+        boolean ensuresStatics;
         /** How big each object's block for its struct fields is, if it has any (§5). */
         long valuesBits;
         /** The class's static block for static fields of struct types, and where each is (§4.2). */
@@ -363,6 +381,133 @@ public final class JvmGen {
             }));
         }
         return new Result(out, mainClass.name, List.of());
+    }
+
+    /** {@link #generateLibrary}: every class of the program reached, as main's code reaches a program's. */
+    private Result runLibrary() {
+        List<ClassInfo> program = ck.allClasses().stream().filter(c -> !c.builtin && !Checker.isJavaType(c)).toList();
+        if (program.isEmpty()) {
+            return failed(new Diagnostic("<program>", 1, 1, "a library needs at least one class"));
+        }
+        ClassInfo first = program.get(0);
+        Pos at = first.decl.pos();
+        mainClass = jclass((first.pkg.isEmpty() ? "" : first.pkg + ".") + STATICS_CLASS, first.file);
+        FnKey initKey = new FnKey("init", first, null, null, Map.of());
+        FnKey root = new FnKey("root", first, null, null, Map.of());
+        MethodRef init;
+        current = root;
+        try {
+            for (ClassInfo c : ck.allClasses()) {
+                if (!c.builtin && !Checker.isJavaType(c)) {
+                    initialized.add(c);
+                }
+            }
+            init = ref(initKey, at);
+            for (ClassInfo c : program) {
+                if (!c.typeParams.isEmpty() || c.shapes.size() != 1 || !c.shapes.get(0).binders.isEmpty()) {
+                    continue; // made per type or shape, for what uses it: Java can't name one by itself
+                }
+                staticClass(c).ensuresStatics = true;
+                ClassT t = new ClassT(c, List.of(), List.of(), 0);
+                if (c.dynamic) {
+                    instance(t); // its objects' methods
+                    if (!c.isAbstract) {
+                        if (c.constructors.isEmpty()) {
+                            constructor(t, null, Map.of(), at);
+                        }
+                        for (MemberInfo k : c.constructors) {
+                            constructor(t, k, Map.of(), k.member.pos());
+                        }
+                    }
+                }
+                for (MemberInfo m : c.all) {
+                    if (m.member instanceof Method md && md.modifiers().isStatic() && md.body() != null && !hasBinders(md)) {
+                        ref(new FnKey("method", c, null, m, Map.of()), md.pos());
+                    }
+                }
+            }
+        } catch (Unsupported u) {
+            Pos p = u.pos == null ? at : u.pos;
+            return failed(new Diagnostic(first.file, p.line(), p.column(), u.getMessage()));
+        }
+        current = null;
+        while (true) {
+            drain(at);
+            Set<ClassInfo> before = new LinkedHashSet<>(initialized);
+            for (ClassInfo c : ck.allClasses()) {
+                if (c.builtin && classes.containsKey(binaryName(c)) && hasStatics(c)) {
+                    initialized.add(c);
+                }
+            }
+            if (initialized.equals(before)) {
+                break;
+            }
+            failed.remove(initKey);
+            work.add(initKey);
+        }
+        Set<FnKey> used = used(root);
+        for (Map.Entry<FnKey, List<Diagnostic>> e : failed.entrySet()) {
+            if (used.contains(e.getKey())) {
+                errors.addAll(e.getValue());
+            }
+        }
+        if (!errors.isEmpty()) {
+            return new Result(Map.of(), null, List.copyOf(new LinkedHashSet<>(errors)));
+        }
+        writing = true;
+        ClassFile cf = ClassFile.of(ClassFile.ClassHierarchyResolverOption.of(hierarchy()));
+        Map<String, byte[]> out = new LinkedHashMap<>();
+        for (JClass jc : new ArrayList<>(classes.values())) {
+            out.put(jc.name, cf.build(jc.desc, cb -> writeClass(cb, jc, init)));
+        }
+        return new Result(out, null, List.of());
+    }
+
+    /** One class of a library, as run() writes a program's, with what sets up the static fields. */
+    private void writeClass(ClassBuilder cb, JClass jc, MethodRef init) {
+        cb.withVersion(ClassFile.JAVA_25_VERSION, 0);
+        cb.withFlags(jc.isInterface ? ACC_PUBLIC | ACC_INTERFACE | ACC_ABSTRACT
+                : ACC_PUBLIC | ACC_SUPER | (jc.isAbstract ? ACC_ABSTRACT : 0));
+        cb.withSuperclass(jc.superclass);
+        cb.withInterfaceSymbols(new ArrayList<>(jc.interfaces));
+        cb.with(SourceFileAttribute.of(jc.source));
+        for (FieldSpec f : jc.fields.values()) {
+            cb.withField(f.name(), f.type(), f.flags());
+        }
+        for (AbstractSpec a : jc.abstracts) {
+            cb.withMethod(a.name(), a.type(), ACC_PUBLIC | ACC_ABSTRACT, mb -> { });
+        }
+        for (Bridge b : jc.bridges) {
+            bridge(cb, b);
+        }
+        if (jc.captures != null) {
+            lambdaConstructor(cb, jc);
+        }
+        for (FnKey k : jc.methods) {
+            generate(cb, k, new ArrayList<>());
+        }
+        MethodTypeDesc none = MethodTypeDesc.of(CD_void);
+        if (jc == mainClass) {
+            // static synchronized void $ensure(): the static fields, set up once, by the first to ask.
+            cb.withField(STARTED_FIELD, CD_boolean, ACC_PUBLIC | ACC_STATIC);
+            cb.withMethodBody(ENSURE_METHOD, none, ACC_PUBLIC | ACC_STATIC | java.lang.classfile.ClassFile.ACC_SYNCHRONIZED, c -> {
+                java.lang.classfile.Label start = c.newLabel();
+                c.getstatic(jc.desc, STARTED_FIELD, CD_boolean);
+                c.ifeq(start);
+                c.return_();
+                c.labelBinding(start);
+                c.iconst_1();
+                c.putstatic(jc.desc, STARTED_FIELD, CD_boolean);
+                invoke(c, init);
+                c.return_();
+            });
+        }
+        if (jc.ensuresStatics && !jc.isInterface) {
+            cb.withMethodBody("<clinit>", none, ACC_STATIC, c -> {
+                c.invokestatic(mainClass.desc, ENSURE_METHOD, none);
+                c.return_();
+            });
+        }
     }
 
     /** Generates every method reached and not yet generated, once, recording what it calls and whether it can be. */

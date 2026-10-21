@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "sealmod",
+  "version": "1.0.0",
+  "name": "Seal example mod",
+  "description": "A Fabric mod written in Seal: it registers a block.",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.example.sealmod.SealMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.20.0",
+    "fabric-api": "*",
+    "minecraft": "26.3",
+    "java": ">=25"
+  }
+}

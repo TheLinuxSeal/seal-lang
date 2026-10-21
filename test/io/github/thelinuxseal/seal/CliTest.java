@@ -358,6 +358,85 @@ public final class CliTest {
         check(r.code() == 1 && r.err().contains("struct Right must be in a file named Right"), "file name rule " + r);
 
         classPath(dir);
+        jarsAndLibraries(dir);
+    }
+
+    /**
+     * build --jar, --resources and --library (docs/JAVA.md, T5): a program's jar runs with java -jar;
+     * a library's classes are Java's to use, its static fields set up the first time Java's code
+     * touches one of its classes, as Fabric creates a mod's.
+     */
+    private static void jarsAndLibraries(Path dir) throws IOException {
+        String javaCommand = ProcessHandle.current().info().command().orElse("java");
+        String app = write(dir, "jar-app/Main.seal", """
+                class Main
+                {
+                    static string greeting = "from a jar";
+                    static void main() { System.stdout.println(greeting); }
+                }
+                """).getParent().toString();
+        Path appJar = dir.resolve("out/app.jar");
+        Path res = write(dir, "res/notes/readme.txt", "kept as it is\n").getParent().getParent();
+        Run r = run("build", "--jar", appJar.toString(), "--resources", res.toString(), app);
+        check(r.code() == 0 && Files.isRegularFile(appJar), "build --jar " + r);
+        String got = runProcess(dir, javaCommand, "-jar", appJar.toString());
+        check(got.equals("from a jar\n"), "java -jar runs a program's jar: " + got);
+        try (java.util.jar.JarFile jf = new java.util.jar.JarFile(appJar.toFile())) {
+            check(jf.getEntry("notes/readme.txt") != null && jf.getEntry("io/github/thelinuxseal/seal/runtime/Natives.class") != null,
+                    "the jar holds the resources and the runtime");
+        }
+        Path classes = dir.resolve("out/app-classes");
+        r = run("build", "-d", classes.toString(), "--resources", res.toString(), app);
+        check(r.code() == 0 && Files.isRegularFile(classes.resolve("notes/readme.txt")), "build -d copies the resources " + r);
+
+        String lib = write(dir, "jar-lib/com/example/Greeter.seal", """
+                package com.example;
+
+                class Greeter
+                {
+                    static string prefix = "hello, ";
+                    static int made = 0;
+                    string name;
+                    public new(string name) { this.name = name; made++; }
+                    public string greet() { return prefix + name + " (" + made + ")"; }
+                    public static int count() { return made; }
+                }
+                """).getParent().getParent().getParent().toString();
+        Path libJar = dir.resolve("out/lib.jar");
+        r = run("build", "--library", "--jar", libJar.toString(), lib);
+        check(r.code() == 0, "build --library --jar " + r);
+        Path user = write(dir, "java-user/UseGreeter.java", """
+                import com.example.Greeter;
+
+                public class UseGreeter {
+                    public static void main(String[] args) {
+                        Greeter g = new Greeter("Ada");
+                        System.out.println(g.greet() + " " + Greeter.count());
+                    }
+                }
+                """);
+        javax.tools.JavaCompiler javac = javax.tools.ToolProvider.getSystemJavaCompiler();
+        check(javac.run(null, null, null, "-cp", libJar.toString(), "-d", user.getParent().toString(), user.toString()) == 0,
+                "Java code compiles against a Seal library");
+        got = runProcess(dir, javaCommand, "-cp", libJar + java.io.File.pathSeparator + user.getParent(), "UseGreeter");
+        check(got.equals("hello, Ada (1) 1\n"), "Java's code uses the library, its static fields set up first: " + got);
+        r = run("run", "--library", lib);
+        check(r.code() == 2 && r.err().contains("a library has no main to run"), "run --library " + r);
+        r = run("build", "--resources", dir.resolve("no-such-folder").toString(), app);
+        check(r.code() == 2 && r.err().contains("resources folder not found"), "a missing resources folder " + r);
+    }
+
+    /** What a separate JVM prints, standard output and error together. */
+    private static String runProcess(Path dir, String... command) throws IOException {
+        Process p = new ProcessBuilder(command).directory(dir.toFile()).redirectErrorStream(true).start();
+        try {
+            String text = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            p.waitFor();
+            return text;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "";
+        }
     }
 
     /** --classpath: Java classes of a class folder and of a jar, which a program imports (docs/JAVA.md §6). */

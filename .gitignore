@@ -6,3 +6,4 @@ out/
 result
 result-*
 .direnv/
+fabric/server/

@@ -225,6 +225,65 @@ public final class JvmRunner {
         }
     }
 
+    /**
+     * Writes the program's classes, the runtime's and the resources' files into a jar; a program's
+     * names its main class in the manifest, so that {@code java -jar FILE} runs it. A library's (a
+     * Fabric mod) has none: Java's code uses it.
+     */
+    public static void writeJar(JvmGen.Result program, Path jar, Path resources) throws IOException {
+        java.util.jar.Manifest manifest = new java.util.jar.Manifest();
+        manifest.getMainAttributes().put(java.util.jar.Attributes.Name.MANIFEST_VERSION, "1.0");
+        if (program.mainClass() != null) {
+            manifest.getMainAttributes().put(java.util.jar.Attributes.Name.MAIN_CLASS, program.mainClass());
+        }
+        if (jar.getParent() != null) {
+            Files.createDirectories(jar.getParent());
+        }
+        java.util.Set<String> written = new java.util.HashSet<>();
+        try (java.util.jar.JarOutputStream out = new java.util.jar.JarOutputStream(Files.newOutputStream(jar), manifest)) {
+            for (Map.Entry<String, byte[]> e : program.classes().entrySet()) {
+                jarEntry(out, written, e.getKey().replace('.', '/') + ".class", e.getValue());
+            }
+            for (String name : JvmGen.RUNTIME_CLASSES) {
+                String resource = "/" + name.replace('.', '/') + ".class";
+                try (InputStream in = JvmRunner.class.getResourceAsStream(resource)) {
+                    if (in == null) {
+                        throw new IOException("the runtime class " + name + " is missing from the compiler");
+                    }
+                    jarEntry(out, written, resource.substring(1), in.readAllBytes());
+                }
+            }
+            if (resources != null) {
+                try (java.util.stream.Stream<Path> files = Files.walk(resources)) {
+                    for (Path f : files.filter(Files::isRegularFile).sorted().toList()) {
+                        jarEntry(out, written, resources.relativize(f).toString().replace('\\', '/'), Files.readAllBytes(f));
+                    }
+                }
+            }
+        }
+    }
+
+    private static void jarEntry(java.util.jar.JarOutputStream out, java.util.Set<String> written, String name, byte[] bytes)
+            throws IOException {
+        if (!written.add(name)) {
+            throw new IOException(name + " would be in the jar twice: a resource can't have a class's name");
+        }
+        out.putNextEntry(new java.util.jar.JarEntry(name));
+        out.write(bytes);
+        out.closeEntry();
+    }
+
+    /** Copies a resources folder's files beside the classes {@link #write} wrote. */
+    public static void copyResources(Path resources, Path dir) throws IOException {
+        try (java.util.stream.Stream<Path> files = Files.walk(resources)) {
+            for (Path f : files.filter(Files::isRegularFile).toList()) {
+                Path to = dir.resolve(resources.relativize(f).toString());
+                Files.createDirectories(to.getParent());
+                Files.copy(f, to, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+    }
+
     private static void writeClass(Path dir, String name, byte[] bytes) throws IOException {
         Path file = dir.resolve(name.replace('.', '/') + ".class");
         Files.createDirectories(file.getParent());

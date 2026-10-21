@@ -1,0 +1,13 @@
+package com.example.sealmod;
+
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockBehaviour;
+
+// A block of the mod's own: a Seal class extending Minecraft's Block, made with Minecraft's
+// properties through Block's constructor.
+class SealBlock extends(Block)
+{
+    public new(BlockBehaviour.Properties properties) { super(properties); }
+
+    public string describe() { return "a block made in Seal"; }
+}

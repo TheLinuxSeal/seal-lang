@@ -1,0 +1,31 @@
+package com.example.sealmod;
+
+import net.fabricmc.api.ModInitializer;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockBehaviour;
+import seal.java.*;
+
+// A Fabric mod written in Seal (docs/JAVA.md, T5). Fabric creates this class, which
+// fabric.mod.json names, and calls onInitialize: it registers a block, a Seal class
+// extending Minecraft's Block, under Minecraft's own names.
+class SealMod implements(ModInitializer)
+{
+    // Seal's static fields are set up before Fabric's first call reaches the mod.
+    static int registered = 0;
+
+    public void onInitialize()
+    {
+        Identifier id = Identifier.fromNamespaceAndPath(JavaString.of("sealmod"), JavaString.of("seal_block"));
+        ResourceKey<Block> key = ResourceKey.create(Registries.BLOCK, id);
+        SealBlock block = Registry.register(BuiltInRegistries.BLOCK, key,
+                new SealBlock(BlockBehaviour.Properties.of().strength(JavaFloat.of(1.5)).setId(key)));
+        registered++;
+        System.stdout.println("Seal mod: registered " + BuiltInRegistries.BLOCK.getKey(block) + ", " + registered
+                + " block, " + block.describe());
+    }
+}

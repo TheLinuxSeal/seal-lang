@@ -36,6 +36,9 @@ import io.github.thelinuxseal.seal.vm.VM;
  *
  *   --vm              run (or dump) on Seal's own VM instead; deprecated, to be removed (docs/JVM.md §13)
  *   -d DIR            where build writes the class files (default: classes)
+ *   --jar FILE        build writes a jar instead, with the runtime's classes; a program's runs with java -jar FILE
+ *   --resources DIR   build puts the files of DIR beside the classes: a Fabric mod's fabric.mod.json, its assets
+ *   --library         build every class, with no main: a library Java's code uses, or a Fabric mod (docs/JAVA.md)
  *   --main Class      the class whose main() is the entry point (default Main); com.example.Main for one in a package
  *   --classpath PATH  (or -cp) the jars and class folders of the Java classes the program imports, after the
  *                     JDK's (docs/JAVA.md), separated as Java's class path is (: on Linux and macOS)
@@ -63,8 +66,8 @@ public final class Main {
     /** Runs the command line with the program's standard input, output and error. */
     public static int run(String[] args, java.io.InputStream in, PrintStream out, PrintStream err) throws IOException {
         if (args.length < 2) {
-            err.println("usage: seal run|check|dump|build [--main Class] [--classpath PATH] [--vm] [-d DIR] [-WautoCast]"
-                    + " [-WautoCastLossy] [-Wassert] [-Wall] PATH...");
+            err.println("usage: seal run|check|dump|build [--main Class] [--classpath PATH] [--vm] [-d DIR] [--jar FILE]"
+                    + " [--resources DIR] [--library] [-WautoCast] [-WautoCastLossy] [-Wassert] [-Wall] PATH...");
             return 2;
         }
         String command = args[0];
@@ -74,6 +77,9 @@ public final class Main {
         Set<Warning> warn = EnumSet.noneOf(Warning.class);
         boolean vm = false;
         Path classDir = Path.of("classes");
+        Path jar = null;
+        Path resources = null;
+        boolean asLibrary = false;
         List<Path> classPath = new ArrayList<>();
         for (int i = 1; i < args.length; i++) {
             if (args[i].equals("--main") && i + 1 < args.length) {
@@ -90,6 +96,12 @@ public final class Main {
                 vm = false; // the default now; kept so that older command lines still work
             } else if (args[i].equals("-d") && i + 1 < args.length) {
                 classDir = Path.of(args[++i]);
+            } else if (args[i].equals("--jar") && i + 1 < args.length) {
+                jar = Path.of(args[++i]);
+            } else if (args[i].equals("--resources") && i + 1 < args.length) {
+                resources = Path.of(args[++i]);
+            } else if (args[i].equals("--library")) {
+                asLibrary = true;
             } else if (args[i].equals("--stdlib") && i + 1 < args.length) {
                 stdlib = Path.of(args[++i]);
             } else if (args[i].equals("--no-stdlib")) {
@@ -135,8 +147,16 @@ public final class Main {
             errors.forEach(err::println);
             return errors.isEmpty() ? 0 : 1;
         }
+        if (resources != null && !Files.isDirectory(resources)) {
+            err.println("resources folder not found: " + resources);
+            return 2;
+        }
+        if (asLibrary && !command.equals("build") && !command.equals("dump")) {
+            err.println("a library has no main to run; build it, or dump its classes");
+            return 2;
+        }
         if (!vm) {
-            return runOnJvm(command, checker, mainClass, classDir, classPath, in, out, err);
+            return runOnJvm(command, checker, asLibrary ? null : mainClass, classDir, jar, resources, classPath, in, out, err);
         }
         if (command.equals("build")) {
             err.println("build writes JVM class files; it has no --vm form");
@@ -178,15 +198,22 @@ public final class Main {
     }
 
     /** `seal run`, `dump` and `build`: the program as JVM class files, run, printed or written (docs/JVM.md). */
-    private static int runOnJvm(String command, Checker checker, String mainClass, Path classDir, List<Path> classPath,
-                                java.io.InputStream in, PrintStream out, PrintStream err) throws IOException {
-        JvmGen.Result result = JvmGen.generate(checker, mainClass);
+    private static int runOnJvm(String command, Checker checker, String mainClass, Path classDir, Path jar, Path resources,
+                                List<Path> classPath, java.io.InputStream in, PrintStream out, PrintStream err) throws IOException {
+        JvmGen.Result result = mainClass == null ? JvmGen.generateLibrary(checker) : JvmGen.generate(checker, mainClass);
         if (!result.errors().isEmpty()) {
             result.errors().forEach(err::println);
             return 1;
         }
+        if (command.equals("build") && jar != null) {
+            JvmRunner.writeJar(result, jar, resources);
+            return 0;
+        }
         if (command.equals("build")) {
             JvmRunner.write(result, classDir);
+            if (resources != null) {
+                JvmRunner.copyResources(resources, classDir);
+            }
             return 0;
         }
         if (command.equals("dump")) {

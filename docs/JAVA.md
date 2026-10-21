@@ -1,7 +1,8 @@
 # Calling Java from Seal: design
 
-**Status:** reviewed 2026-10-20; T1 to T4 are built (§8), and §10 records what building them
-settled; T5, a Fabric mod, is next. Seal uses Java's classes as it uses its own:
+**Status:** reviewed 2026-10-20; T1 to T5 are built (§8), and §10 records what building them
+settled: a Fabric mod written in Seal loads in Minecraft 26.3 (`fabric/`). Mixins come next, in
+docs/JVM.md's M6. Seal uses Java's classes as it uses its own:
 `import java.util.ArrayList;`, then `new ArrayList()` and `names.add(...)`, checked while compiling
 and compiled to the JVM's own calls. Values cross between the two by hand: a Seal value goes into
 Java through the class of the Java type it becomes (`JavaInt.of(5)`, `JavaString.of("Ada")`,
@@ -308,8 +309,9 @@ source beside Seal's for this, are set aside.
   (`HashMap.get(Object)`), it still goes by `JavaObject.of(o)`.
 - **Java calling Seal:** Seal's classes are JVM classes with readable names (docs/JVM.md §5), so
   Java code calls their methods; a `JavaInt` parameter is Java's `int`, a `JavaString` a `String`.
-- **When Java calls first** (Fabric creating a Seal class before any `main`), Seal's static fields
-  are set up as for `main` (not yet: with T5's Fabric mod).
+- **When Java calls first** (built in T5), Fabric creating a Seal class before any `main`: a
+  library's build (`seal build --library`) has every class of the program, and each one's static
+  initializer sets up all of Seal's static fields first, once, in Seal's order, as `main` would.
 - The library's `Runnable`, `Comparator`, `Iterable` and `AutoCloseable` stay Seal's own
   interfaces; Java's are imported by name.
 
@@ -369,7 +371,7 @@ source beside Seal's for this, are set aside.
 | **T2**, **done** | Java's generics: type arguments, erasure and casts, inference, wildcards; for-each over an `Iterable`; `try` closing an `AutoCloseable`. With it: Java's operators on Java's primitives, and Java arrays' elements in place | a word count in a `TreeMap<JavaString, JavaIntBoxed>` (`JavaInteropTest`) |
 | **T3**, **done** | Seal lambdas as Java's functional interfaces; Seal classes implementing Java interfaces, with bridges; Seal objects' `equals`, `hashCode` and `toString` | a Java `Thread` runs Seal code, a Seal `Comparator` sorts a Java list, a Java `HashMap` holds Seal keys (`JavaInteropTest`) |
 | **T4**, **done** | Seal classes extending Java classes: constructors, overrides, bridges, protected members | a Seal class extends a class from the test's class folder, and its Java code calls the Seal overrides (`JavaInteropTest`) |
-| **T5** (rest of M6) | jars from `seal build`, the class-file target (Java 21, for Minecraft), then a Fabric mod: a Seal `ModInitializer` registering a block | the mod loads in a Fabric development run |
+| **T5**, **done** | jars from `seal build` (`--jar`, `--resources`), libraries (`--library`), static fields set up when Java calls first, then a Fabric mod: a Seal `ModInitializer` registering a Seal `Block` | the mod loads in Fabric's server for Minecraft 26.3 and registers its block (`fabric/run.sh`) |
 
 ## 9. What will be hard
 
@@ -385,8 +387,9 @@ source beside Seal's for this, are set aside.
   need the per-class steps to run for them later.
 - **`null`:** Java hands out `null` where Seal's values never are; casts out (an unboxing) and
   method calls are where it shows.
-- **Which JDK:** the compiler sees the JDK it runs on; checking against an older one (Minecraft's
-  Java 21) needs `javac --release`'s API data, and waits for T5.
+- **Which JDK:** the compiler sees the JDK it runs on, and writes Java 25's class files.
+  Minecraft 26.x runs on Java 25, so a mod needs nothing else (§10, item 26); an older target
+  would need `javac --release`'s API data.
 
 ## 10. Questions
 
@@ -475,3 +478,17 @@ Settled while building T4:
     lets its package see one, which Seal's code never shares.
 25. **Two arguments of different classes infer their nearest common type,** as Java's do:
     `List.of(square, circle)` is a `List<Shape>` (§4.1), where T2 made it a `List<JavaObject>`.
+
+Settled while building T5:
+
+26. **No Java 21 target, and no remapping:** Minecraft moved to Java 25 with 26.1 and stopped
+    obfuscating its code, so a Seal mod compiles against Minecraft's own classes, under Mojang's
+    names, and Seal's class files load as they are. The development run is Fabric's own server
+    launcher with the mod in `mods/`, no Gradle; `fabric/run.sh` sets it up. Registering a block
+    needs Fabric API beside the mod, which keeps Minecraft's registries open while mods start.
+27. **A library's static fields are set up all at once,** the first time Java's code touches one of
+    its classes, by a `$Seal` class in the first class's package, so Seal's order of setting them
+    up holds, as with `main`.
+28. **One Seal mod at a time, for now:** each mod's jar holds Seal's runtime and library classes
+    under their own names, so two Seal mods in one game would share (and clash over) them. Giving
+    each mod its own copy, in its own package, comes later.

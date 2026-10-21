@@ -68,7 +68,8 @@ Point[x=3, y=9]  is 9.49 from the origin
   interfaces (`names.sort((a, b) -> a.compareTo(b))`), and Seal classes extend Java's
   (`class Worker extends(Thread)`). Values cross by hand, through
   `seal.java`'s `JavaInt.of`, `JavaString.of` and casts; jars come from `--classpath`
-  ([`docs/JAVA.md`](docs/JAVA.md)).
+  ([`docs/JAVA.md`](docs/JAVA.md)). [`fabric/`](fabric) is a Minecraft mod written in Seal:
+  `fabric/run.sh` builds it and runs it in Fabric's server.
 
 The full language is described in [`SPEC.md`](SPEC.md).
 
@@ -106,6 +107,9 @@ seal build [options] PATH...   write the class files, for java to run
   --classpath PATH   jars and class folders of the Java classes the program imports (also -cp)
   --vm               run or dump on Seal's old VM instead (deprecated, see Status)
   -d DIR             where build writes class files (default classes)
+  --jar FILE         build a jar instead, which java -jar runs
+  --resources DIR    put DIR's files beside the classes (a Fabric mod's fabric.mod.json)
+  --library          build every class and no main, for Java's code to use: a library, a Fabric mod
   -WautoCast         warn about every number converted without a cast
   -WautoCastLossy    warn only about those that may lose data
   -Wassert           run assert statements
