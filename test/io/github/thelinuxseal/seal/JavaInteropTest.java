@@ -552,8 +552,7 @@ public final class JavaInteropTest {
                         + (bit)where.containsKey(JavaObject.of(new Point(2, 1))) + " " + (int)seen.size());
                 """, "run from a Java thread\n[Ada, Grace, Linus] [Ada, Grace, Linus] [Linus, Grace, Ada] 1 -1\nhome {(1, 2)=home} false 1\n",
                 "Point", """
-                class Point
-                {
+                class Point {
                     public int x;
                     public int y;
                     public new(int x, int y) { this.x = x; this.y = y; }
@@ -564,8 +563,7 @@ public final class JavaInteropTest {
                 """, "ByLength", """
                 import java.util.Comparator;
                 import seal.java.*;
-                class ByLength implements(Comparator<JavaString>)
-                {
+                class ByLength implements(Comparator<JavaString>) {
                     public JavaInt compare(JavaString a, JavaString b) { return a.length() - b.length(); }
                 }
                 """);
@@ -578,8 +576,7 @@ public final class JavaInteropTest {
                 """, "[v1, v2, v3] 1 3\n", "Version", """
                 import java.lang.Comparable;
                 import seal.java.*;
-                class Version implements(Comparable<Version>)
-                {
+                class Version implements(Comparable<Version>) {
                     public int major;
                     public new(int major) { this.major = major; }
                     public JavaInt compareTo(Version o) { return JavaInt.of(major - o.major); }
@@ -610,7 +607,7 @@ public final class JavaInteropTest {
         compileError("a Java interface's methods must be implemented", "", "", "A must implement Comparable.compareTo(A), or be declared `abstract class A`",
                 "A", "import java.lang.Comparable;\nclass A implements(Comparable<A>) { }");
         compileError("with Java's types", "", "", "B.compare returns int, but Comparator.compare(JavaString, JavaString) returns JavaInt",
-                "B", "import java.util.Comparator;\nimport seal.java.*;\nclass B implements(Comparator<JavaString>)\n{\n"
+                "B", "import java.util.Comparator;\nimport seal.java.*;\nclass B implements(Comparator<JavaString>) {\n"
                 + "    public int compare(JavaString a, JavaString b) { return 0; }\n}");
     }
 
@@ -639,8 +636,7 @@ public final class JavaInteropTest {
                 "Square", """
                 import demo.Shape;
                 import seal.java.*;
-                class Square extends(Shape)
-                {
+                class Square extends(Shape) {
                     double side;
                     public new(double side) { super(JavaString.of("square"), JavaInt.of(4)); this.side = side; }
                     public JavaDouble area() { return JavaDouble.of(side * side); }
@@ -651,8 +647,7 @@ public final class JavaInteropTest {
                 """, "Circle", """
                 import demo.Shape;
                 import seal.java.*;
-                class Circle extends(Shape)
-                {
+                class Circle extends(Shape) {
                     double r;
                     public new(double r) { super(JavaString.of("circle"), JavaInt.of(0)); this.r = r; }
                     public JavaDouble area() { return JavaDouble.of(3.0 * r * r); }
@@ -661,15 +656,13 @@ public final class JavaInteropTest {
                 """, "Labels", """
                 import demo.Box;
                 import seal.java.*;
-                class Labels extends(Box<JavaString>)
-                {
+                class Labels extends(Box<JavaString>) {
                     public void put(JavaString t) { super.put(t.toUpperCase()); }
                 }
                 """, "Worker", """
                 import java.lang.Thread;
                 import seal.java.*;
-                class Worker extends(Thread)
-                {
+                class Worker extends(Thread) {
                     public string job;
                     public new(string job) { this.job = job; }   // Thread's constructor that takes nothing
                     public void run() { System.stdout.println("working on " + job + ": " + getName().startsWith(JavaString.of("Thread"))); }
@@ -683,8 +676,7 @@ public final class JavaInteropTest {
                 """, "[ADA, BO] [BO, ADA] 2\n", "Names", """
                 import java.util.ArrayList;
                 import seal.java.*;
-                class Names extends(ArrayList<JavaString>)
-                {
+                class Names extends(ArrayList<JavaString>) {
                     public JavaBoolean add(JavaString s) { return super.add(s.toUpperCase()); }
                 }
                 """);
@@ -696,13 +688,13 @@ public final class JavaInteropTest {
         compileError("abstract methods must be implemented", "", "", "B must implement Shape.area(), or be declared `abstract class B`",
                 "B", "import demo.Shape;\nimport seal.java.*;\nclass B extends(Shape) { public new() { super(JavaString.of(\"b\"), JavaInt.of(1)); } }");
         compileError("a final method can't be overridden", "", "", "sides overrides Java's demo.Shape.sides, which is final",
-                "D", "import demo.Shape;\nimport seal.java.*;\nclass D extends(Shape)\n{\n"
+                "D", "import demo.Shape;\nimport seal.java.*;\nclass D extends(Shape) {\n"
                 + "    public new() { super(JavaString.of(\"d\"), JavaInt.of(1)); }\n"
                 + "    public JavaDouble area() { return JavaDouble.of(1.0); }\n"
                 + "    public JavaInt sides() { return JavaInt.of(9); }\n}");
         compileError("an override returns what Java's returns", "", "",
                 "E.unit returns string, but Java's demo.Shape.unit, which it overrides, returns handle<JavaString>",
-                "E", "import demo.Shape;\nimport seal.java.*;\nclass E extends(Shape)\n{\n"
+                "E", "import demo.Shape;\nimport seal.java.*;\nclass E extends(Shape) {\n"
                 + "    public new() { super(JavaString.of(\"e\"), JavaInt.of(1)); }\n"
                 + "    public JavaDouble area() { return JavaDouble.of(1.0); }\n"
                 + "    public string unit() { return \"x\"; }\n}");
@@ -710,7 +702,7 @@ public final class JavaInteropTest {
                 "Box<JavaString> b = new Box();\nJavaString h = b.held;",
                 "the field held of Java's demo.Box is protected, so only code of a class below it can use it");
         compileError("super.m() of an abstract method", "", "", "area is abstract in Java's demo.Shape; there is no implementation to call",
-                "F", "import demo.Shape;\nimport seal.java.*;\nclass F extends(Shape)\n{\n"
+                "F", "import demo.Shape;\nimport seal.java.*;\nclass F extends(Shape) {\n"
                 + "    public new() { super(JavaString.of(\"f\"), JavaInt.of(1)); }\n"
                 + "    public JavaDouble area() { return super.area(); }\n}");
     }
@@ -819,7 +811,7 @@ public final class JavaInteropTest {
     /** A Main whose main() runs body, after the imports and seal.java's; then pairs of file name and source. */
     private static Map<String, String> program(String body, String imports, String... more) {
         Map<String, String> files = new LinkedHashMap<>();
-        files.put("Main.seal", imports + "\nimport seal.java.*;\n\nclass Main\n{\n    static void main()\n    {\n"
+        files.put("Main.seal", imports + "\nimport seal.java.*;\n\nclass Main {\n    static void main() {\n"
                 + body + "\n    }\n}\n");
         for (int i = 0; i + 1 < more.length; i += 2) {
             files.put(more[i] + ".seal", more[i + 1]);

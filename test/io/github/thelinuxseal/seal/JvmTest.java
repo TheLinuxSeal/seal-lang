@@ -244,8 +244,7 @@ public final class JvmTest {
         same("a for-each over an Iterable's numbers isn't needed: while with early returns", "4 32 \n", """
                 pr(firstOver(10)); pr(firstOver(1000));
                 """, """
-                static int firstOver(int limit)
-                {
+                static int firstOver(int limit) {
                     int i = 1;
                     while (i < 100) {
                         if (i * i > limit) { return i; }
@@ -262,8 +261,7 @@ public final class JvmTest {
                 """, """
                 static int fib(int n) { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); }
                 static int<<64>> fact(int n) { if (n <= 1) { return 1; } return (int<<64>>)n * fact(n - 1); }
-                static int ack(int m, int n)
-                {
+                static int ack(int m, int n) {
                     if (m == 0) { return n + 1; }
                     if (n == 0) { return ack(m - 1, 1); }
                     return ack(m - 1, ack(m, n - 1));
@@ -291,8 +289,7 @@ public final class JvmTest {
                 pr(Math.pow(2.0, 10.0)); pr(Integer.max(4, -4)); pr(Integer.MAX_INT); pr(Math.abs((int<<8>>)-100));
                 pr(Math.floor(-2.5)); pr(Math.PI); pr(Integer.gcd(12, 18));
                 """, "", "Util", """
-                struct Util
-                {
+                struct Util {
                     public const int LIMIT = 10 * 10;
                     public static int square(int x) { return x * x; }
                 }
@@ -300,8 +297,7 @@ public final class JvmTest {
         same("void methods and early returns", "01234\nnegative\n\n", """
                 count(5); count(-1);
                 """, """
-                static void count(int n)
-                {
+                static void count(int n) {
                     if (n < 0) { System.stdout.println("negative"); return; }
                     for (int i = 0; i < n; i++) { System.stdout.print(i); }
                     System.stdout.println();
@@ -345,8 +341,7 @@ public final class JvmTest {
                 struct Main { static int main() { System.stdout.println("bye"); return 3; } }
                 """), "bye\n", 3);
         program("System.exit ends the program at once", Map.of("Main.seal", """
-                struct Main
-                {
+                struct Main {
                     static void stop(int code) { System.exit(code); }
                     static int main() { System.stdout.print("a"); stop(5); System.stdout.print("b"); return 0; }
                 }
@@ -369,8 +364,7 @@ public final class JvmTest {
 
         // Division by zero stops the program on both, after what it printed.
         Map<String, String> fault = Map.of("Main.seal", """
-                struct Main
-                {
+                struct Main {
                     static int divide(int a, int b) { return a / b; }
                     static int main() { System.stdout.print("before "); System.stdout.print(divide(1, 0)); return 0; }
                 }
@@ -378,7 +372,7 @@ public final class JvmTest {
         Run jvm = onJvm(fault, "Main");
         check(jvm.code() == 70 && jvm.output().equals("before ")
                         && jvm.fault() != null && JvmRunner.describe(jvm.fault()).startsWith("trap: division by zero")
-                        && JvmRunner.describe(jvm.fault()).contains("at Main.divide (Main.seal:3)"),
+                        && JvmRunner.describe(jvm.fault()).contains("at Main.divide (Main.seal:2)"),
                 "division by zero stops the program\n    JVM " + jvm
                         + (jvm.fault() == null ? "" : "\n    " + JvmRunner.describe(jvm.fault())));
     }
@@ -394,8 +388,7 @@ public final class JvmTest {
                 Animal none = null;
                 pr(none == null); pr(a != b); pr(a == d);
                 """, "", "Animal", """
-                class Animal
-                {
+                class Animal {
                     public static int count = 0;
                     public string name;
                     public int legs = 4;
@@ -404,8 +397,7 @@ public final class JvmTest {
                     public string describe() { return name + " says " + sound() + " on " + legs + " legs"; }
                 }
                 """, "Dog", """
-                class Dog extends(Animal)
-                {
+                class Dog extends(Animal) {
                     public new(string n) { super(n); legs = 4; }
                     public string sound() { return "woof, " + super.sound(); }
                     public string fetch() { return name + " fetches"; }
@@ -419,28 +411,24 @@ public final class JvmTest {
                 c.r = 2;
                 pr(c.area()); pr(c.describe()); pr(c.label());
                 """, "", "Named", """
-                interface Named
-                {
+                interface Named {
                     string name;
                     default string label() { return "<" + name + ">"; }
                 }
                 """, "Shape", """
-                abstract class Shape implements(Named)
-                {
+                abstract class Shape implements(Named) {
                     public abstract int area();
                     public string describe() { return name + " of area " + area(); }
                 }
                 """, "Square", """
-                class Square extends(Shape)
-                {
+                class Square extends(Shape) {
                     public string name = "square";
                     int side;
                     public new(int s) { side = s; }
                     public int area() { return side * side; }
                 }
                 """, "Circle", """
-                class Circle extends(Shape)
-                {
+                class Circle extends(Shape) {
                     public string name = "circle";
                     public int r;
                     public int area() { return 3 * r * r; }
@@ -454,15 +442,13 @@ public final class JvmTest {
                 pr(a.get() + 1); pr(b.get() + "!"); pr(c.get().get()); pr(a.twice()); pr(b.twice());
                 pr(Pair.of(3, "x").second);
                 """, "", "Box", """
-                class Box<T>
-                {
+                class Box<T> {
                     public T value;
                     public T get() { return value; }
                     public T twice() { return value + value; }
                 }
                 """, "Pair", """
-                class Pair<A, B>
-                {
+                class Pair<A, B> {
                     public A first;
                     public B second;
                     public static <X, Y> Pair<X, Y> of(X x, Y y) { Pair<X, Y> p = new Pair(); p.first = x; p.second = y; return p; }
@@ -476,8 +462,7 @@ public final class JvmTest {
                 c += a;
                 pr(c.cents);
                 """, "", "Money", """
-                class Money
-                {
+                class Money {
                     public int cents;
                     public new(int c) { cents = c; }
                     @overload(Operator.ADD) public Money plus(Money o) { return new Money(cents + o.cents); }
@@ -488,8 +473,7 @@ public final class JvmTest {
                 }
                 """);
         program("an instance main runs on a new main object", Map.of("Main.seal", """
-                class Main
-                {
+                class Main {
                     int count = 2;
                     new() { count += 3; }
                     int main() { count++; System.stdout.println("count " + count); return count; }
@@ -497,23 +481,20 @@ public final class JvmTest {
                 """), "count 6\n", 6);
         Map<String, String> ordered = new LinkedHashMap<>(); // the files in this order: Main's static fields first
         ordered.put("Main.seal", """
-                class Main
-                {
+                class Main {
                     static int a = Other.b + 1;
                     static string s = "s" + a;
                     static int main() { System.stdout.println(a + " " + Other.b + " " + s); return 0; }
                 }
                 """);
         ordered.put("Other.seal", """
-                class Other
-                {
+                class Other {
                     public static int b = 41;
                 }
                 """);
         program("static fields are initialized before main, in order", ordered, "1 41 s1\n", 0);
         program("a failed cast stops the program", Map.of("Main.seal", """
-                class Main
-                {
+                class Main {
                     static int main() { Object o = new Main(); System.stdout.print("x"); Other t = (Other)o; return 0; }
                 }
                 """, "Other.seal", "class Other { }"), "x", 70);
@@ -539,8 +520,7 @@ public final class JvmTest {
                 }
                 try { nested(); } catch (Bad e) { pr(e.code); pr(e.getMessage()); }
                 """, """
-                static int f(int n)
-                {
+                static int f(int n) {
                     try {
                         if (n == 0) { return 10; }
                         if (n == 1) { throw new IllegalArgumentException("one"); }
@@ -556,8 +536,7 @@ public final class JvmTest {
                         System.stdout.print("finally" + n + " ");
                     }
                 }
-                static void nested()
-                {
+                static void nested() {
                     try {
                         try { throw new Bad("deep", 7); }
                         catch (IllegalArgumentException e) { System.stdout.print("not this "); }
@@ -566,8 +545,7 @@ public final class JvmTest {
                     }
                 }
                 """, "Bad", """
-                class Bad extends(Exception)
-                {
+                class Bad extends(Exception) {
                     public int code;
                     public new(string m, int c) { super(m); code = c; }
                 }
@@ -580,21 +558,18 @@ public final class JvmTest {
                     pr(e.getMessage() + " " + e.getSuppressed().length() + " " + e.getSuppressed()[0].getMessage());
                 }
                 """, "", "Res", """
-                class Res implements(AutoCloseable)
-                {
+                class Res implements(AutoCloseable) {
                     string name;
                     bit fails;
                     public new(string n, bit f) { name = n; fails = f; System.stdout.print("open " + n + " "); }
-                    public void close()
-                    {
+                    public void close() {
                         System.stdout.print("close " + name + " ");
                         if (fails) { throw new IllegalStateException("close " + name); }
                     }
                 }
                 """);
         program("an uncaught exception ends the program, as on the VM", Map.of("Main.seal", """
-                struct Main
-                {
+                struct Main {
                     static int main() { System.stdout.print("a"); throw new IllegalStateException("broken"); }
                 }
                 """), "a", 70);
@@ -623,8 +598,7 @@ public final class JvmTest {
                 pr(xs.size());
                 """, "", "Counter", """
                 import seal.util.function.Supplier;
-                class Counter
-                {
+                class Counter {
                     public int n;
                     public Supplier<int> nextOne() { return () -> { n++; return n * 100; }; }
                 }
@@ -749,8 +723,7 @@ public final class JvmTest {
                 """, """
                     static void bump(Vec v) { v.x += 100; pr(v.x); }
                 """, "Vec", """
-                struct Vec
-                {
+                struct Vec {
                     public int x;
                     public int y;
                     public new() { }
@@ -761,8 +734,7 @@ public final class JvmTest {
                     @overload(Operator.EQUALS) public bit eq(Vec o) { return x == o.x && y == o.y; }
                 }
                 """, "Line", "struct Line { public Vec from; public Vec to; }", "Holder", """
-                class Holder
-                {
+                class Holder {
                     public static Vec origin;
                     public Vec v;
                 }
@@ -786,8 +758,7 @@ public final class JvmTest {
                 a.v = 0;
                 pr(list.get(0).v); pr(list.size());
                 """, "", "Num", """
-                struct Num
-                {
+                struct Num {
                     public int v;
                     public new() { }
                     public new(int v) { this.v = v; }
@@ -816,22 +787,18 @@ public final class JvmTest {
                 string name = switch (Color.BLUE) { case RED -> "red"; case GREEN -> "green"; case BLUE -> "blue"; };
                 pr(name); pr(Planet.MARS.weight(10)); pr("" + Planet.EARTH);
                 """, "", "Point", """
-                record Point(int x, int y)
-                {
+                record Point(int x, int y) {
                     public Point plus(Point o) { return new Point(x + o.x, y + o.y()); }
                 }
                 """, "Range", """
-                record Range(int lo, int hi)
-                {
-                    new
-                    {
+                record Range(int lo, int hi) {
+                    new {
                         if (lo > hi) { throw new IllegalArgumentException("lo " + lo + " is above hi " + hi); }
                     }
                     public int size() { return hi - lo; }
                 }
                 """, "Color", "enum Color { RED, GREEN, BLUE; }", "Planet", """
-                enum Planet
-                {
+                enum Planet {
                     EARTH(10), MARS(4);
                     int g;
                     new(int g) { this.g = g; }
@@ -906,8 +873,7 @@ public final class JvmTest {
                     static int boom() { throw new IllegalStateException("boom"); }
                     static int both(Tag t, int n) { return n; }
                 """, "Tag", """
-                unique Tag
-                {
+                unique Tag {
                     public int id;
                     public new() { }
                     public new(int id) { this.id = id; System.stdout.print("+" + id + " "); }
@@ -918,8 +884,7 @@ public final class JvmTest {
         check(wide.error() != null && wide.error().contains("offset or size 4294967296 is too large: a block of values on the JVM holds at most 2147483647 bits"),
                 "a value too large for a block is an error " + wide);
         program("an instance main() of a unique", Map.of("Main.seal", """
-                unique Main
-                {
+                unique Main {
                     int n = 3;
                     delete() { System.stdout.print(" bye"); }
                     int main() { System.stdout.print("n " + n); return n; }
@@ -957,10 +922,8 @@ public final class JvmTest {
                 """, "", "Body", "class Body { public fixed<<8, 8>> mass; public Spot at; }",
                 "Spot", "struct Spot { public static Spot origin; public fixed<<12, 20>> x; }");
         program("fixed-point division by zero stops the program", Map.of("Main.seal", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         fixed<<8, 8>> a = 1.5;
                         fixed<<8, 8>> z = 0;
                         System.stdout.print("before ");
@@ -1052,8 +1015,8 @@ public final class JvmTest {
         for (int p = 0; p < count; p++) {
             Gen g = new Gen(rnd);
             String body = g.program();
-            Map<String, String> files = Map.of("Main.seal", "struct Main\n{\n" + HELPERS
-                    + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n");
+            Map<String, String> files = Map.of("Main.seal", "struct Main {\n" + HELPERS
+                    + "    static int main() {\n" + body + "        return 0;\n    }\n}\n");
             Run jvm = onJvm(files, "Main");
             String where = "random program " + p + " (seed " + seed + ")\n" + body + "\n    JVM " + jvm;
             compareRecorded("random program " + p, seed, jvm, where);
@@ -1149,8 +1112,8 @@ public final class JvmTest {
                 body.append("        pr(").append(shown).append("C").append(f).append("); pr(").append(shown).append("f").append(f)
                         .append("()); System.stdout.println();\n");
             }
-            Map<String, String> files = Map.of("Main.seal", "struct Main\n{\n" + HELPERS + members
-                    + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n");
+            Map<String, String> files = Map.of("Main.seal", "struct Main {\n" + HELPERS + members
+                    + "    static int main() {\n" + body + "        return 0;\n    }\n}\n");
             Run jvm = onJvm(files, "Main");
             String where = "random pure methods " + p + " (seed " + seed + ")\n" + members + "\n    JVM " + jvm;
             boolean same = true;
@@ -1305,7 +1268,7 @@ public final class JvmTest {
                             .append(";\n");
                 }
             }
-            return "    static pure " + ret + " " + name + "()\n    {\n" + out + "        return (" + ret + ")("
+            return "    static pure " + ret + " " + name + "() {\n" + out + "        return (" + ret + ")("
                     + expr(ret, 3) + ");\n    }\n";
         }
 
@@ -1458,7 +1421,7 @@ public final class JvmTest {
     private static void same(String name, String expected, String body, String... more) {
         Map<String, String> files = new LinkedHashMap<>();
         String extra = more.length > 0 ? more[0] : "";
-        String main = "struct Main\n{\n" + HELPERS + extra + "    static int main()\n    {\n" + body
+        String main = "struct Main {\n" + HELPERS + extra + "    static int main() {\n" + body
                 + "\n        System.stdout.println();\n        return 0;\n    }\n}\n";
         files.put("Main.seal", Imports.of(main) + main);
         for (int i = 1; i + 1 < more.length; i += 2) {

@@ -806,10 +806,10 @@ public final class StdlibTest {
         files.put("Pt.seal", "class Pt { public int x; public int y; public new(int x, int y) { this.x = x; this.y = y; }"
                 + " @overload(Operator.EQUALS) public bit same(Pt o) { return o != null && x == o.x && y == o.y; }"
                 + " public uint<<64>> hash() { return Hash.of(x * 31 + y); } }");
-        String main = "struct Main\n{\n"
+        String main = "struct Main {\n"
                 + "    static void shout(string s) { s = s.toUpper(); s += \"!\"; System.stdout.println(s); }\n"
                 + "    static void fill(List<int> xs) { while (xs.size() < 5) { xs.add(0); } }\n"
-                + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n";
+                + "    static int main() {\n" + body + "        return 0;\n    }\n}\n";
         files.put("Main.seal", Imports.of(main) + main);
         Checker checker = Checker.analyze(files, library);
         if (!checker.diagnostics().isEmpty()) {

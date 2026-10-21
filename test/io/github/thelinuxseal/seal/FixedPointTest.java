@@ -89,7 +89,7 @@ public final class FixedPointTest {
             described.add(f.type() + ": " + show(a, f) + " " + op + " " + show(b, f));
         }
 
-        String program = "struct Main\n{\n    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n";
+        String program = "struct Main {\n    static int main() {\n" + body + "        return 0;\n    }\n}\n";
         Map<String, String> files = new LinkedHashMap<>();
         files.put("Main.seal", program);
         Checker checker = Checker.analyze(files, library);

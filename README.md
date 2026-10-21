@@ -6,14 +6,12 @@ compile-time sizes built into its types.
 ```java
 import seal.util.List;
 
-class Main
-{
+class Main {
     record Point(int x, int y) { }
 
     enum Shape { CIRCLE, SQUARE }
 
-    static void main()
-    {
+    static void main() {
         List<Point> points = new List();
         for (int i = 1; i <= 3; i++) { points.add(new Point(i, i * i)); }
         for (Point p : points) {

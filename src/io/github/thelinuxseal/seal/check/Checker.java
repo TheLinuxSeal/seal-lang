@@ -37,8 +37,7 @@ public final class Checker {
     /** Source of the implicit root class (§31). */
     private static final String PRELUDE_OBJECT = """
             package seal.lang;
-            class Object
-            {
+            class Object {
                 /**
                  * A hash code for HashMap keys (§42.4): by default from the object's identity,
                  * matching the default ==. A class that defines its own == should define hash()
@@ -58,8 +57,7 @@ public final class Checker {
      */
     private static final String PRELUDE_WRITER = """
             package seal.io;
-            class Writer
-            {
+            class Writer {
                 int<<64>> file;
                 private<System> new(int<<64>> f) { file = f; }
                 @native("io_write_char") static int<<64>> nChar(int<<64>> file, char c) { }
@@ -95,8 +93,7 @@ public final class Checker {
     private static final String PRELUDE_SYSTEM = """
             package seal.lang;
             import seal.io.Writer;
-            struct System
-            {
+            struct System {
                 public static Writer stdout = new Writer(2);
                 public static Writer stderr = new Writer(3);
             }

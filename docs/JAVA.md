@@ -82,10 +82,8 @@ import java.nio.file.Path;
 import java.io.IOException;
 import seal.java.*;
 
-class Main
-{
-    static void main()
-    {
+class Main {
+    static void main() {
         TreeMap<JavaString, JavaIntBoxed> ages = new TreeMap();
         ages.put(JavaString.of("Grace"), JavaIntBoxed.of(85));
         ages.put(JavaString.of("Ada"), JavaIntBoxed.of(36));

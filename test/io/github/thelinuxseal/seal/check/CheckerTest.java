@@ -16,8 +16,7 @@ public final class CheckerTest {
 
     public static final String ARRAY = """
             struct Array<T><<int N>>
-            struct Array<T><<int N, int K>>
-            {
+            struct Array<T><<int N, int K>> {
                 int occupied;
 
                 array<T><<N>> data<<int N>>;
@@ -40,26 +39,22 @@ public final class CheckerTest {
 
     public static final String STRING = """
             struct string<<>>
-            struct string<<int N>>
-            {
+            struct string<<int N>> {
                 int length;
 
                 array<uint<<16>>><<N>> data<<int N>>;
                 addr<uint<<16>>> data<<>>;
                 int capacity<<>>;
 
-                public uint<<16>> charAt<<int N>>(int i)
-                {
+                public uint<<16>> charAt<<int N>>(int i) {
                     return data[i];
                 }
 
-                public uint<<16>> charAt<<>>(int i)
-                {
+                public uint<<16>> charAt<<>>(int i) {
                     return &(data + i * sizeof(uint<<16>>));
                 }
 
-                public string<<N + K>> add<<int N>>(string<<int K>> other)
-                {
+                public string<<N + K>> add<<int N>>(string<<int K>> other) {
                     string<<N + K>> result;
                     for (int i = 0; i < N; i += 1) {
                         result.data[i] = data[i];
@@ -74,8 +69,7 @@ public final class CheckerTest {
             """;
 
     public static final String BIGUINT = """
-            struct BigUInt<<int BITS>>
-            {
+            struct BigUInt<<int BITS>> {
                 array<uint<<64>>><<(BITS + 63) / 64>> words;
 
                 @overload(Operator.ADD)
@@ -134,10 +128,8 @@ public final class CheckerTest {
         ok("string", files("string", STRING));
         ok("BigUInt", files("BigUInt", BIGUINT));
         ok("Array used", files("Array", ARRAY, "Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         Array<int><<64>> a = new Array();
                         Array<float><<4, 4>> m = new Array();
                         int n = a.getLength();
@@ -149,10 +141,8 @@ public final class CheckerTest {
                 }
                 """));
         ok("string add", files("string", STRING, "Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         string<<3>> a = "abc";
                         string<<4>> b = "defg";
                         string<<7>> c = a.add(b);
@@ -166,62 +156,53 @@ public final class CheckerTest {
     private static void shapesAndGuards() {
         error("coverage rule", """
                 struct Foo<<int N>>
-                struct Foo<<int N, int K>>
-                {
+                struct Foo<<int N, int K>> {
                     array<int><<N>> data<<int N>>;
                     int first() { return data[0]; }
                 }
                 """, "`data` does not exist in shape Foo<<int N, int K>>");
         ok("coverage satisfied", files("Foo", """
                 struct Foo<<int N>>
-                struct Foo<<int N, int K>>
-                {
+                struct Foo<<int N, int K>> {
                     int size<<int N>>() { return N; }
                     int size<<int N, int K>>() { return N * K; }
                     int twice() { return size() * 2; }
                 }
                 """));
         error("all-or-nothing", """
-                struct Foo<<int N>>
-                {
+                struct Foo<<int N>> {
                     int size;
                     int size<<int N>>() { return N; }
                 }
                 """, "`size` is used both with and without a shape guard");
         error("field and method share a name", """
-                struct Foo
-                {
+                struct Foo {
                     int size;
                     int size() { return 1; }
                 }
                 """, "`size` is already a field");
         error("guard matches no header", """
-                struct Foo<<int N>>
-                {
+                struct Foo<<int N>> {
                     int get<<int N, int K>>() { return N; }
                 }
                 """, "guard <<int, int>> matches no header of Foo");
         error("duplicate shape", """
                 struct Foo<<int N>>
-                struct Foo<<int M>>
-                {
+                struct Foo<<int M>> {
                 }
                 """, "duplicate shape: Foo<<int N>> is already declared");
         error("header with a fixed value", """
-                struct Foo<<3>>
-                {
+                struct Foo<<3>> {
                 }
                 """, "type headers declare values");
         error("mismatched type params", """
                 struct Foo<T><<int N>>
-                struct Foo<U><<int N, int K>>
-                {
+                struct Foo<U><<int N, int K>> {
                 }
                 """, "every header of Foo must have the same type parameters <T>");
         ok("empty guard and per-shape types", files("Buf", """
                 struct Buf<<>>
-                struct Buf<<int N>>
-                {
+                struct Buf<<int N>> {
                     array<uint<<16>>><<N>> data<<int N>>;
                     array<uint<<16>>><<16>> data<<>>;
                     addr<int> extra<<>>;
@@ -230,10 +211,8 @@ public final class CheckerTest {
                     int total() { return count(); }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         Buf b;
                         Buf<<32>> c;
                         int n = b.count() + c.count();
@@ -242,40 +221,33 @@ public final class CheckerTest {
                 """));
         error("per-shape type checked in unguarded code", """
                 struct Buf<<>>
-                struct Buf<<int N>>
-                {
+                struct Buf<<int N>> {
                     array<uint<<16>>><<N>> data<<int N>>;
                     addr<uint<<16>>> data<<>>;
                     uint<<16>> first() { return data[0]; }
                 }
                 """, "addresses cannot be indexed");
         error("shape selection", """
-                struct Foo<<int N>>
-                {
+                struct Foo<<int N>> {
                     void f() { Foo<<1, 2>> x; }
                 }
                 """, "Foo<<1, 2>> matches no shape of Foo; its shapes are Foo<<int N>>");
         error("missing values", """
-                struct Foo<<int N>>
-                {
+                struct Foo<<int N>> {
                     void f() { Foo x; }
                 }
                 """, "Foo needs <<...>> values; its shapes are Foo<<int N>>");
         ok("shape identity by value", files("Foo", """
-                struct Foo<<int N>>
-                {
-                    void f()
-                    {
+                struct Foo<<int N>> {
+                    void f() {
                         Foo<<4>> a;
                         Foo<<2 + 2>> b = a;
                     }
                 }
                 """));
         error("distinct values are distinct types", """
-                struct Foo<<int N>>
-                {
-                    void f()
-                    {
+                struct Foo<<int N>> {
+                    void f() {
                         Foo<<4>> a;
                         Foo<<5>> b = a;
                     }
@@ -285,10 +257,8 @@ public final class CheckerTest {
 
     private static void valueBinders() {
         error("binder result type is checked", files("string", STRING, "Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         string<<3>> a;
                         string<<4>> b;
                         string<<8>> c = a.add(b);
@@ -296,28 +266,23 @@ public final class CheckerTest {
                 }
                 """), "expected string<<8>>, found string<<7>>");
         error("binder only in parameters", """
-                struct Foo<<int N>>
-                {
+                struct Foo<<int N>> {
                     int<<size W>> f<<int N>>() { return 0; }
                 }
                 """, "binders are only allowed in parameter types");
         error("binder in a field", """
-                struct Foo<<int N>>
-                {
+                struct Foo<<int N>> {
                     Foo<<int K>> other;
                 }
                 """, "binders are only allowed in parameter types");
         error("binder shadows struct value", """
-                struct Foo<<int N>>
-                {
+                struct Foo<<int N>> {
                     void f(Foo<<int N>> other) { }
                 }
                 """, "binder N shadows an existing compile-time value");
         error("binder does not accept bare shape", files("string", STRING, "Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         string<<3>> a;
                         string b;
                         a.add(b);
@@ -325,11 +290,9 @@ public final class CheckerTest {
                 }
                 """), "expected string<<K>>, found string");
         ok("binders across parameters", files("Pair", """
-                struct Pair<<int N>>
-                {
+                struct Pair<<int N>> {
                     public int both<<int N>>(Pair<<int K>> a, Pair<<K>> b) { return N + K; }
-                    void f()
-                    {
+                    void f() {
                         Pair<<2>> x;
                         Pair<<2>> y;
                         int r = both(x, y);
@@ -341,50 +304,42 @@ public final class CheckerTest {
     private static void constructors() {
         error("constructor coverage", """
                 struct Foo<<int N>>
-                struct Foo<<int N, int K>>
-                {
+                struct Foo<<int N, int K>> {
                     public new<<int N>>() { }
                 }
                 """, "no constructor for shape Foo<<int N, int K>>");
         ok("unguarded constructor covers all", files("Foo", """
                 struct Foo<<int N>>
-                struct Foo<<int N, int K>>
-                {
+                struct Foo<<int N, int K>> {
                     int x;
                     public new() { x = 0; }
                 }
                 """));
         error("constructor arguments", files("Foo", """
-                struct Foo
-                {
+                struct Foo {
                     int x;
                     public new(int v) { x = v; }
                 }
                 """, "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { Foo f = new Foo(true); }
                 }
                 """), "constructor argument 1: expected int, found bit");
         error("inline object needs no-arg constructor", files("Foo", """
-                struct Foo
-                {
+                struct Foo {
                     int x;
                     public new(int v) { x = v; }
                 }
                 """, "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { Foo f; }
                 }
                 """), "variable f of type Foo needs an initializer");
         error("new needs a shape", files("Foo", """
-                struct Foo<<int N>>
-                {
+                struct Foo<<int N>> {
                 }
                 """, "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { addr<int> p = new Foo(); }
                 }
                 """), "cannot tell which shape of Foo to create");
@@ -392,58 +347,49 @@ public final class CheckerTest {
 
     private static void fixedAndDynamic() {
         error("fixed struct contains itself", """
-                struct Node
-                {
+                struct Node {
                     Node next;
                 }
                 """, "struct Node contains itself inline; make it a class, or use addr<Node>");
         ok("fixed struct holds address of itself", files("Node", """
-                struct Node
-                {
+                struct Node {
                     addr<Node> next;
                     int value;
                 }
                 """));
         error("indirect inline cycle", files("A", """
-                struct A
-                {
+                struct A {
                     B b;
                 }
                 """, "B", """
-                struct B
-                {
+                struct B {
                     A a;
                 }
                 """), "struct A contains itself inline");
         String doc = """
-                class Doc
-                {
+                class Doc {
                     public int pages;
                     public int count() { return pages; }
                 }
                 """;
         ok("a class-typed field in a struct is a handle", files("Doc", doc, "Holder", """
-                struct Holder
-                {
+                struct Holder {
                     Doc d;
                     array<int><<sizeof(Doc)>> check;   // a handle is 64 bits
                     void f() { d = new Doc(); int p = d.pages; }
                 }
                 """));
         ok("a class as a type argument is a handle", files("Doc", doc, "Array", ARRAY, "Holder", """
-                struct Holder
-                {
+                struct Holder {
                     Array<Doc><<4>> docs;
                     void f() { docs.set(0, new Doc()); handle<Doc> same = docs.get(0); }
                 }
                 """));
         ok("handles to dynamic", files("Doc", doc, "Array", ARRAY, "Holder", """
-                struct Holder
-                {
+                struct Holder {
                     Array<handle<Doc>><<4>> docs;
                     handle<Doc> one;
-                    void run()
-                    {
+                    void run() {
                         one = new Doc();
                         int p = one.pages + one.count();
                         one.pages = 3;
@@ -452,47 +398,39 @@ public final class CheckerTest {
                 }
                 """));
         error("addr of dynamic", files("Doc", doc, "Holder", """
-                struct Holder
-                {
+                struct Holder {
                     addr<Doc> d;
                 }
                 """), "class objects can move, so they have no address; a Doc variable already refers to one");
         error("handle of fixed", """
-                struct Holder
-                {
+                struct Holder {
                     handle<int> h;
                 }
                 """, "handle<...> needs a class, not int");
         error("no address inside dynamic object", files("Doc", doc, "Holder", """
-                struct Holder
-                {
-                    void run()
-                    {
+                struct Holder {
+                    void run() {
                         handle<Doc> d = new Doc();
                         addr<int> p = *d.pages;
                     }
                 }
                 """), "cannot take an address inside a class object");
         error("handles are not dereferenced", files("Doc", doc, "Holder", """
-                struct Holder
-                {
-                    void run()
-                    {
+                struct Holder {
+                    void run() {
                         handle<Doc> d = new Doc();
                         int x = &d;
                     }
                 }
                 """), "handles cannot be dereferenced");
         error("T[] and T[N] are no longer how arrays are written", """
-                struct Foo
-                {
+                struct Foo {
                     int[] items;
                     int[4][2] grid;
                 }
                 """, "arrays are written array<int>, not int[]");
         error("T[N][K] has its new spelling suggested", """
-                struct Foo
-                {
+                struct Foo {
                     int[4][2] grid;
                 }
                 """, "arrays are written array<int><<4, 2>>, not int[4][2]");
@@ -500,24 +438,20 @@ public final class CheckerTest {
 
     private static void inheritance() {
         String animals = """
-                class Animal
-                {
+                class Animal {
                     public int legs;
                     public int speak() { return 0; }
                 }
                 """;
         String dog = """
-                class Dog extends(Animal)
-                {
+                class Dog extends(Animal) {
                     public new() { super(); legs = 4; }
                     public int bark() { return speak() + super.speak(); }
                 }
                 """;
         ok("inheritance", files("Animal", animals, "Dog", dog, "Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         handle<Dog> d = new Dog();
                         handle<Animal> a = d;
                         handle<Dog> back = (handle<Dog>)a;
@@ -527,23 +461,19 @@ public final class CheckerTest {
                 }
                 """));
         error("no implicit downcast", files("Animal", animals, "Dog", dog, "Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         handle<Animal> a = new Dog();
                         handle<Dog> d = a;
                     }
                 }
                 """), "expected handle<Dog>, found handle<Animal>");
         error("structs cannot extend", """
-                struct Foo extends(Object)
-                {
+                struct Foo extends(Object) {
                 }
                 """, "only classes can use extends; a struct uses composition instead");
         error("cannot extend fixed", files("Base", "struct Base { }", "Foo", """
-                class Foo extends(Base)
-                {
+                class Foo extends(Base) {
                 }
                 """), "cannot extend struct Base; parents must be classes");
         error("inheritance cycle", files("A", "class A extends(B) { }", "B", "class B extends(A) { }"),
@@ -555,14 +485,11 @@ public final class CheckerTest {
                 class Shape<<int KIND>>
                     extends(Base)
                     extends<<0>>(Circle)
-                    extends<<1>>(Square)
-                {
+                    extends<<1>>(Square) {
                 }
                 """, "Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         handle<Shape<<0>>> c = new Shape();
                         handle<Shape<<1>>> s = new Shape();
                         handle<Shape<<7>>> b = new Shape();
@@ -576,38 +503,31 @@ public final class CheckerTest {
                 "Shape", """
                 class Shape<<int KIND>>
                     extends<<0>>(Circle)
-                    extends<<1>>(Square)
-                {
+                    extends<<1>>(Square) {
                 }
                 """, "Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         handle<Shape<<1>>> s = new Shape();
                         int r = s.radius;
                     }
                 }
                 """), "Shape has no member radius");
         error("duplicate extends guard", files("A", "class A { }", "Foo", """
-                class Foo<<int K>> extends<<0>>(A) extends<<0>>(A)
-                {
+                class Foo<<int K>> extends<<0>>(A) extends<<0>>(A) {
                 }
                 """), "duplicate extends guard");
     }
 
     private static void abstractAndInterfaces() {
         ok("a class implements an interface and an abstract parent", files("Drawable", "interface Drawable { void draw(); }", "Shape", "abstract class Shape { public abstract double area(); }", "Circle", """
-                class Circle extends(Shape) implements(Drawable)
-                {
+                class Circle extends(Shape) implements(Drawable) {
                     public double area() { return 3.0; }
                     public void draw() { }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static void run()
-                    {
+                struct Main {
+                    static void run() {
                         Drawable d = new Circle();
                         Shape s = new Circle();
                         d.draw();
@@ -621,17 +541,14 @@ public final class CheckerTest {
                 "Thing", "interface Thing extends(Drawable) { int id(); }",
                 "Comparable", "interface Comparable<T> { int compareTo(T other); }",
                 "Box", """
-                class Box implements(Thing, Comparable<Box>)
-                {
+                class Box implements(Thing, Comparable<Box>) {
                     public void draw() { }
                     public int id() { return 1; }
                     public int compareTo(Box other) { return 0; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static void run()
-                    {
+                struct Main {
+                    static void run() {
                         Thing t = new Box();
                         Drawable d = t;
                         t.draw();
@@ -667,8 +584,7 @@ public final class CheckerTest {
         error("method without a body", "class Main { void f(); }",
                 "method f needs a body, or `abstract` in an abstract class");
         error("super call to an abstract method", files("Shape", "abstract class Shape { public abstract double area(); }", "Circle", """
-                class Circle extends(Shape)
-                {
+                class Circle extends(Shape) {
                     public double area() { return super.area(); }
                 }
                 """), "area is abstract in Shape; there is no implementation to call");
@@ -698,8 +614,7 @@ public final class CheckerTest {
                 "abstract fields belong in interfaces and abstract classes, for the classes below them to hold; Main isn't one");
         Map<String, String> named = files(
                 "Named", """
-                        interface Named
-                        {
+                        interface Named {
                             int id;
                             default int level = 1;
                             default int score() { return id * 10 + level; }
@@ -707,8 +622,7 @@ public final class CheckerTest {
                         }
                         """,
                 "Shape", """
-                        abstract class Shape implements(Named)
-                        {
+                        abstract class Shape implements(Named) {
                             public abstract int sides;
                             public default int weight = 2;
                             public int total() { return sides * weight + score(); }
@@ -716,17 +630,14 @@ public final class CheckerTest {
                         """);
         Map<String, String> filled = new LinkedHashMap<>(named);
         filled.putAll(files("Square", """
-                class Square extends(Shape)
-                {
+                class Square extends(Shape) {
                     public int sides = 4;
                     public int id;
                     public new(int i) { id = i; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         Shape s = new Square(7);
                         int t = s.total() + s.sides + s.weight;
                         s.sides = 5;
@@ -763,10 +674,8 @@ public final class CheckerTest {
         ok("instanceof bindings are visible where the test passed", files("Drawable", "interface Drawable { void draw(); }", "Shape", "abstract class Shape { public abstract double area(); }", "Circle",
                 "class Circle extends(Shape) implements(Drawable) { public double area() { return 1.0; } public void draw() { } }",
                 "Main", """
-                struct Main
-                {
-                    static void run(Drawable d)
-                    {
+                struct Main {
+                    static void run(Drawable d) {
                         if (d instanceof Circle c) { double a = c.area(); }
                         bit b = d instanceof Shape s && s.area() > 0.5;
                         while (d instanceof Circle w) { d = null; }
@@ -778,8 +687,7 @@ public final class CheckerTest {
                 struct Main { @overload(Operator.INDEX_SET) public void set(int i) { } }
                 """, "Operator.INDEX_SET (x[i] = v) takes two parameters, the index and the value");
         ok("nested types by their bare and dotted names", files("Outer", """
-                class Outer
-                {
+                class Outer {
                     public static struct Point { public int x; int secret; }
                     struct Hidden { public int y; }
                     public int f(Point p, Hidden h) { return p.secret + h.y; }   // Outer sees Point's private secret
@@ -851,11 +759,9 @@ public final class CheckerTest {
 
     private static void addresses() {
         ok("address operators", files("Main", """
-                struct Main
-                {
+                struct Main {
                     int field;
-                    void run()
-                    {
+                    void run() {
                         int x = 5;
                         addr<int> p = *x;
                         &p = 32;
@@ -872,42 +778,35 @@ public final class CheckerTest {
                 }
                 """));
         error("address-of is not assignable", """
-                struct Main
-                {
+                struct Main {
                     void run() { int x; *x = 3; }
                 }
                 """, "*x is an address, not a location; to store through an address p write &p = value");
         error("dereference needs an address", """
-                struct Main
-                {
+                struct Main {
                     void run() { int x; int y = &x; }
                 }
                 """, "& dereferences an address, but this is a int; to take an address use *x");
         error("address of a temporary", """
-                struct Main
-                {
+                struct Main {
                     void run() { addr<int> p = *(1 + 2); }
                 }
                 """, "*x takes the address of a variable, field or element");
         error("member access through address", """
-                struct Point
-                {
+                struct Point {
                     public int x;
                     void run(addr<Point> p) { int a = p.x; }
                 }
                 """, "cannot use . on an address; dereference first: (&p).x");
         ok("member access after dereference", files("Point", """
-                struct Point
-                {
+                struct Point {
                     public int x;
                     void run(addr<Point> p) { (&p).x = 3; int a = (&p).x; }
                 }
                 """));
         ok("labeled break and continue", files("Main", """
-                struct Main
-                {
-                    static int first(int n)
-                    {
+                struct Main {
+                    static int first(int n) {
                         outer:
                         while (true) {
                             for (int i = 0; i < n; i++) {
@@ -917,8 +816,7 @@ public final class CheckerTest {
                         }
                     }
 
-                    void run()
-                    {
+                    void run() {
                         rows:
                         for (int r = 0; r < 3; r++) {
                             cols:
@@ -932,10 +830,8 @@ public final class CheckerTest {
                 }
                 """));
         ok("switch expressions (§41.3)", files("Main", """
-                struct Main
-                {
-                    static int size(int n)
-                    {
+                struct Main {
+                    static int size(int n) {
                         return switch (n) {
                             case 0 -> 0;
                             case 1, 2, 3 -> 1;
@@ -950,46 +846,38 @@ public final class CheckerTest {
                 }
                 """));
         error("a switch expression needs a default", """
-                struct Main
-                {
+                struct Main {
                     int f(int n) { return switch (n) { case 1 -> 10; }; }
                 }
                 """, "a switch expression needs a value for every case: add a default");
         error("a case block ends with yield", """
-                struct Main
-                {
+                struct Main {
                     int f(int n) { return switch (n) { default -> { int z = 2; } }; }
                 }
                 """, "a case block of a switch expression ends with yield and its value, or a throw");
         error("a case can't return", """
-                struct Main
-                {
+                struct Main {
                     int f(int n) { int x = switch (n) { default -> { return 1; } }; return x; }
                 }
                 """, "a switch expression's case can't return; give its value with yield");
         error("a case can't break out of a loop around the switch", """
-                struct Main
-                {
+                struct Main {
                     void f() { for (;;) { int x = switch (1) { default -> { break; } }; } }
                 }
                 """, "break can't leave a switch expression's case; give its value with yield");
         error("yield outside a switch expression", """
-                struct Main
-                {
+                struct Main {
                     void f() { yield 3; }
                 }
                 """, "yield gives a switch expression's value, so it goes in a case block of one");
         error("a switch expression's cases must meet in a type", """
-                struct Main
-                {
+                struct Main {
                     void f(int n) { int x = switch (n) { case 1 -> 1; default -> true; }; }
                 }
                 """, "the cases of a switch expression give different types");
         error("break outer makes a loop's end reachable", """
-                struct Main
-                {
-                    static int f()
-                    {
+                struct Main {
+                    static int f() {
                         outer:
                         while (true) {
                             for (int i = 0; i < 3; i++) { if (i == 2) { break outer; } }
@@ -998,38 +886,32 @@ public final class CheckerTest {
                 }
                 """, "method f can reach its end without returning");
         error("a label goes on a loop", """
-                struct Main
-                {
+                struct Main {
                     void run() { int x = 0; block: if (x > 0) { x++; } }
                 }
                 """, "a label goes on a loop (for, for-each or while), not on this statement");
         error("a label can't be reused inside its loop", """
-                struct Main
-                {
+                struct Main {
                     void run() { outer: for (;;) { outer: for (;;) { } } }
                 }
                 """, "label outer is already used by a loop around this one");
         error("break with an unknown label", """
-                struct Main
-                {
+                struct Main {
                     void run() { outer: for (;;) { break inner; } }
                 }
                 """, "break inner: no loop around it is labeled inner; the labels here are outer");
         error("a lambda can't continue an outer loop", files("Task", "interface Task { void go(); }", "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { outer: for (;;) { Task t = () -> { continue outer; }; } }
                 }
                 """), "continue outer: no loop around it is labeled outer");
         error("delete an inline object", """
-                struct Main
-                {
+                struct Main {
                     void run() { int x; delete x; }
                 }
                 """, "delete needs an addr<...>, not int");
         error("delete on a handle", files("Doc", "class Doc { }", "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { Doc d = new Doc(); delete d; }
                 }
                 """), "delete frees addr memory only; the garbage collector frees a class object once nothing refers to it");
@@ -1045,8 +927,7 @@ public final class CheckerTest {
                 "com/example/util/Vec2", """
                         package com.example.util;
 
-                        struct Vec2
-                        {
+                        struct Vec2 {
                             public int x;
                             public static struct Unit { public static int one() { return 1; } }
                         }
@@ -1068,10 +949,8 @@ public final class CheckerTest {
                 import com.example.util.Vec2;
                 import com.example.util.*;
 
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         Vec2 v = Tools.zero();
                         int one = Vec2.Unit.one();
                         int two = org.other.Tools.n();
@@ -1092,8 +971,7 @@ public final class CheckerTest {
                 import com.example.util.*;
                 import org.other.*;
 
-                struct Main
-                {
+                struct Main {
                     void run() { int n = Tools.n(); }
                 }
                 """));
@@ -1103,8 +981,7 @@ public final class CheckerTest {
         missing.putAll(files("app/Main", """
                 package app;
 
-                struct Main
-                {
+                struct Main {
                     void run() { Vec2 v; }
                 }
                 """));
@@ -1146,8 +1023,7 @@ public final class CheckerTest {
         Map<String, String> statics = files("com/example/util/Calc", """
                 package com.example.util;
 
-                class Calc
-                {
+                class Calc {
                     public const int SIZE = 3;
                     public static int count = 0;
                     public static int twice(int x) { return x * 2; }
@@ -1171,11 +1047,9 @@ public final class CheckerTest {
                 import static com.example.util.Calc.Pair;
                 import static com.example.util.Other.*;
 
-                struct Main
-                {
+                struct Main {
                     static int thrice(int x) { return x; }   // its own method comes first
-                    void run()
-                    {
+                    void run() {
                         int a = twice(1) + twice(2, 3) + thrice(4) + SIZE;
                         count = count + 1;
                         array<int><<SIZE>> xs;
@@ -1212,11 +1086,9 @@ public final class CheckerTest {
 
     private static void typesAndConversions() {
         ok("numbers widen as in Java (§41.6)", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static double half(double x) { return x / 2; }
-                    void run()
-                    {
+                    void run() {
                         int i; float f; int<<8>> b; uint u; int<<64>> big; char c; double d;
                         fixed<<16, 16>> fx; ufixed<<8, 8>> ufx;
                         float r = i + f;
@@ -1239,22 +1111,18 @@ public final class CheckerTest {
                 }
                 """));
         ok("an int and a uint meet in an int<<64>>, as Java promotes to long", files("Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { int a; uint b; int<<64>> c = a + b; bit less = a < b; int<<8>> s; uint<<8>> u; int d = s + u; }
                 }
                 """));
         error("a uint<<64>> and an int have no common type", """
-                struct Main
-                {
+                struct Main {
                     void run() { int a; uint<<64>> b; int<<64>> c = a + b; }
                 }
                 """, "operator + needs matching types, not int and uint<<64>>; use a cast");
         ok("compound assignments narrow back, as Java's do (§41.6)", files("Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         int i; int<<8>> b; int<<64>> big; uint u; char c; float f; double d; fixed<<8, 8>> fx;
                         i += 2.5;
                         i *= d;
@@ -1271,12 +1139,10 @@ public final class CheckerTest {
                 }
                 """));
         ok("numbers narrow where they are stored or passed, as C's do (§41.6)", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static int<<8>> clip(int x) { return x; }
                     static void take(char c) { }
-                    void run()
-                    {
+                    void run() {
                         int<<64>> big; int i = big;
                         double d; float f = d;
                         uint<<64>> u = i;
@@ -1293,20 +1159,17 @@ public final class CheckerTest {
                 }
                 """));
         error("a floating-point constant must fit when narrowed", """
-                struct Main
-                {
+                struct Main {
                     void run() { int<<8>> b = 300.5; }
                 }
                 """, "initializer of b: expected int<<8>>, found floating-point constant");
         error("a bit is not a number", """
-                struct Main
-                {
+                struct Main {
                     void run() { bit flag; int i = flag; }
                 }
                 """, "initializer of i: expected int, found bit");
         ok("an argument narrows only when no overload takes it as it is", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static int<<8>> f(int<<8>> x) { return x; }
                     static double f(double x) { return x; }
                     static void g(int<<8>> x) { }
@@ -1314,26 +1177,22 @@ public final class CheckerTest {
                 }
                 """));
         error("several overloads that would narrow are ambiguous", """
-                struct Main
-                {
+                struct Main {
                     static void f(int<<8>> x) { }
                     static void f(float x) { }
                     void run() { double d; f(d); }
                 }
                 """, "ambiguous call to f: no overload takes (double) as they are, and 2 do once narrowed; use a cast");
         error("a compound assignment needs an operator the types have", """
-                struct Main
-                {
+                struct Main {
                     void run() { int<<64>> a; uint<<64>> b; a += b; }
                 }
                 """, "operator + needs matching types, not int<<64>> and uint<<64>>");
         Map<String, String> casts = files("Main", """
-                struct Main
-                {
+                struct Main {
                     static double half(double x) { return x / 2; }
 
-                    void run()
-                    {
+                    void run() {
                         int i; int<<8>> b; char c; double d; float f; int<<64>> big;
                         d = i;
                         big = i + big;
@@ -1350,39 +1209,37 @@ public final class CheckerTest {
                 }
                 """);
         warnings("-WautoCast reports every number converted without a cast", Set.of(Warning.AUTO_CAST), casts,
-                "8: [-WautoCast] implicit cast from int to double in assignment",
-                "9: [-WautoCast] implicit cast from int to int<<64>> in operand of +",
-                "10: [-WautoCast] implicit cast from int<<8>> to double in argument 1 of half",
-                "11: [-WautoCast] implicit cast from int to float in assignment may round",
-                "12: [-WautoCast] implicit cast from float to double in ?:",
-                "13: [-WautoCast] implicit cast from int to double in operand of +=",
-                "13: [-WautoCast] implicit cast from double to int in compound assignment may lose data",
-                "14: [-WautoCast] implicit cast from char to int in operand of +=",
-                "14: [-WautoCast] implicit cast from int to char in compound assignment",
-                "18: [-WautoCast] implicit cast from int<<8>> to float in assignment");
+                "6: [-WautoCast] implicit cast from int to double in assignment",
+                "7: [-WautoCast] implicit cast from int to int<<64>> in operand of +",
+                "8: [-WautoCast] implicit cast from int<<8>> to double in argument 1 of half",
+                "9: [-WautoCast] implicit cast from int to float in assignment may round",
+                "10: [-WautoCast] implicit cast from float to double in ?:",
+                "11: [-WautoCast] implicit cast from int to double in operand of +=",
+                "11: [-WautoCast] implicit cast from double to int in compound assignment may lose data",
+                "12: [-WautoCast] implicit cast from char to int in operand of +=",
+                "12: [-WautoCast] implicit cast from int to char in compound assignment",
+                "16: [-WautoCast] implicit cast from int<<8>> to float in assignment");
         warnings("-WautoCastLossy reports only casts that may lose data", Set.of(Warning.AUTO_CAST_LOSSY), casts,
-                "11: [-WautoCastLossy] implicit cast from int to float in assignment may round",
-                "13: [-WautoCastLossy] implicit cast from double to int in compound assignment may lose data");
+                "9: [-WautoCastLossy] implicit cast from int to float in assignment may round",
+                "11: [-WautoCastLossy] implicit cast from double to int in compound assignment may lose data");
         warnings("-Wall reports each cast once, as lossy where it may lose data", Set.of(Warning.values()), casts,
-                "8: [-WautoCast] implicit cast from int to double in assignment",
-                "9: [-WautoCast] implicit cast from int to int<<64>> in operand of +",
-                "10: [-WautoCast] implicit cast from int<<8>> to double in argument 1 of half",
-                "11: [-WautoCastLossy] implicit cast from int to float in assignment may round",
-                "12: [-WautoCast] implicit cast from float to double in ?:",
-                "13: [-WautoCast] implicit cast from int to double in operand of +=",
-                "13: [-WautoCastLossy] implicit cast from double to int in compound assignment may lose data",
-                "14: [-WautoCast] implicit cast from char to int in operand of +=",
-                "14: [-WautoCast] implicit cast from int to char in compound assignment",
-                "18: [-WautoCast] implicit cast from int<<8>> to float in assignment");
+                "6: [-WautoCast] implicit cast from int to double in assignment",
+                "7: [-WautoCast] implicit cast from int to int<<64>> in operand of +",
+                "8: [-WautoCast] implicit cast from int<<8>> to double in argument 1 of half",
+                "9: [-WautoCastLossy] implicit cast from int to float in assignment may round",
+                "10: [-WautoCast] implicit cast from float to double in ?:",
+                "11: [-WautoCast] implicit cast from int to double in operand of +=",
+                "11: [-WautoCastLossy] implicit cast from double to int in compound assignment may lose data",
+                "12: [-WautoCast] implicit cast from char to int in operand of +=",
+                "12: [-WautoCast] implicit cast from int to char in compound assignment",
+                "16: [-WautoCast] implicit cast from int<<8>> to float in assignment");
         Map<String, String> library = files("Lib", """
-                struct Lib
-                {
+                struct Lib {
                     public static int addHalf(int i) { i += 0.5; return i; }
                 }
                 """);
         Map<String, String> program = files("Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { int i = Lib.addHalf(1); }
                 }
                 """);
@@ -1390,53 +1247,44 @@ public final class CheckerTest {
         check(withLibrary.diagnostics().isEmpty() && withLibrary.warnings().isEmpty(),
                 "no warnings for the library's code: got " + withLibrary.diagnostics() + withLibrary.warnings());
         error("literal does not fit", """
-                struct Main
-                {
+                struct Main {
                     void run() { int<<8>> x = 300; }
                 }
                 """, "integer 300 does not fit in int<<8>>");
         error("array literal of the wrong size", """
-                struct Main
-                {
+                struct Main {
                     void run() { array<int><<3>> a = [1, 2]; }
                 }
                 """, "initializer of a: the array literal has 2 elements, but array<int><<3>> holds 3");
         error("array element does not fit", """
-                struct Main
-                {
+                struct Main {
                     void run() { array<uint<<8>>><<2>> a = [1, 300]; }
                 }
                 """, "integer 300 does not fit in uint<<8>>");
         error("empty array literal", """
-                struct Main
-                {
+                struct Main {
                     void run() { array<int><<1>> a = []; }
                 }
                 """, "an array literal needs at least one element");
         error("array elements without a common type", """
-                struct Main
-                {
+                struct Main {
                     void run() { int d; double e; int x = [d, e][0]; }
                 }
                 """, "array elements don't share a type (int, double); declare the array's type, as in `array<T><<2>> a = [...];`");
         error("array literal argument of the wrong size", """
-                struct Main
-                {
+                struct Main {
                     static void f(array<int><<3>> xs) { }
                     void run() { f([1, 2]); }
                 }
                 """, "argument 1 of f: expected array<int><<3>>, found array literal of 2 elements");
         error("character literal does not fit", """
-                struct Main
-                {
+                struct Main {
                     void run() { int<<8>> x = '\\u00e9'; }
                 }
                 """, "integer 233 does not fit in int<<8>>");
         ok("literals adapt", files("Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         int<<8>> a = 100;
                         uint<<4>> b = 15;
                         int<<8>> c = a + 1;
@@ -1447,22 +1295,18 @@ public final class CheckerTest {
                 }
                 """));
         error("condition must be bit", """
-                struct Main
-                {
+                struct Main {
                     void run() { int x; if (x) { } }
                 }
                 """, "condition must be a bit, not int; compare explicitly, e.g. x != 0");
         error("bit is not uint<<1>>", """
-                struct Main
-                {
+                struct Main {
                     void run() { uint<<1>> u = 1; bit b = u; }
                 }
                 """, "expected bit, found uint<<1>>");
         ok("bits and slices", files("Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         uint x = 255;
                         bit b = x[3];
                         uint<<4>> nibble = x[4..8];
@@ -1471,32 +1315,27 @@ public final class CheckerTest {
                 }
                 """));
         error("slice bounds must be constant", """
-                struct Main
-                {
+                struct Main {
                     void run() { uint x; int i; uint<<4>> n = x[i..8]; }
                 }
                 """, "`i` is not a compile-time constant");
         error("unknown type", """
-                struct Main
-                {
+                struct Main {
                     Missing m;
                 }
                 """, "unknown type Missing");
         error("int width too large", """
-                struct Main
-                {
+                struct Main {
                     int<<65>> big;
                 }
                 """, "integer width must be between 1 and 64, not 65");
         error("wrong cast", """
-                struct Main
-                {
+                struct Main {
                     void run() { addr<int> p; int x = (int)p; }
                 }
                 """, "cannot cast addr<int> to int");
         error("shift amount must be int", """
-                struct Main
-                {
+                struct Main {
                     void run() { uint x; uint n; uint y = x <<< n; }
                 }
                 """, "the shift amount must be an int, not uint");
@@ -1504,46 +1343,38 @@ public final class CheckerTest {
 
     private static void instantiation() {
         String buf = """
-                struct Buf<<int N>>
-                {
+                struct Buf<<int N>> {
                     array<uint<<8>>><<N - 1>> data;
                 }
                 """;
         error("negative size at instantiation", files("Buf", buf, "Main", """
-                struct Main
-                {
+                struct Main {
                     Buf<<0>> b;
                 }
                 """), "in Buf<<0>>: an array's length can't be negative: -1");
         ok("valid instantiation", files("Buf", buf, "Main", """
-                struct Main
-                {
+                struct Main {
                     Buf<<16>> b;
                 }
                 """));
         error("width from value", files("Word", """
-                struct Word<<int W>>
-                {
+                struct Word<<int W>> {
                     uint<<W>> value;
                 }
                 """, "Main", """
-                struct Main
-                {
+                struct Main {
                     Word<<100>> w;
                 }
                 """), "in Word<<100>>: integer width must be between 1 and 64, not 100");
         ok("sizeof", files("Main", """
-                struct Main
-                {
+                struct Main {
                     int<<8>> a;
                     int b;
                 }
                 """, "Sizes", """
-                struct Sizes<<int N>>
-                {
+                struct Sizes<<int N>> {
                     array<uint<<8>>><<N>> bytes;
-                    void f()
-                    {
+                    void f() {
                         Sizes<<sizeof(Main)>> s;
                         Sizes<<sizeof(array<uint<<16>>><<3>>)>> t;
                     }
@@ -1551,30 +1382,25 @@ public final class CheckerTest {
                 """));
         // Main is int<<8>> then int (32-bit aligned): 8 bits, padded to 32, plus 32 = 64.
         error("sizeof value", files("Main", """
-                struct Main
-                {
+                struct Main {
                     int<<8>> a;
                     int b;
                 }
                 """, "Check", """
-                struct Check<<int N>>
-                {
-                    void f()
-                    {
+                struct Check<<int N>> {
+                    void f() {
                         Check<<sizeof(Main)>> s;
                         Check<<65>> t = s;
                     }
                 }
                 """), "expected Check<<65>>, found Check<<64>>");
         error("NaN argument", """
-                struct Main<<double D>>
-                {
+                struct Main<<double D>> {
                     void f() { Main<<0.0 / 0.0>> m; }
                 }
                 """, "NaN cannot be a compile-time argument");
         error("compile-time division by zero", """
-                struct Main<<int N>>
-                {
+                struct Main<<int N>> {
                     void f() { Main<<1 / 0>> m; }
                 }
                 """, "divides by zero");
@@ -1582,10 +1408,8 @@ public final class CheckerTest {
 
     private static void operators() {
         ok("overloaded operators", files("BigUInt", BIGUINT, "Main", """
-                struct Main
-                {
-                    void run()
-                    {
+                struct Main {
+                    void run() {
                         BigUInt<<128>> a;
                         BigUInt<<128>> b;
                         BigUInt<<128>> c = a + b;
@@ -1599,8 +1423,7 @@ public final class CheckerTest {
                 }
                 """));
         String temp = """
-                struct Temp
-                {
+                struct Temp {
                     public double c;
 
                     @overload(Operator.CAST) public double celsius() { return c; }
@@ -1608,78 +1431,66 @@ public final class CheckerTest {
                 }
                 """;
         ok("a cast operator: (R)x calls the one returning R (§46)", files("Temp", temp, "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { Temp t; double d = (double)t; double k = (double)t + 1; }
                 }
                 """));
         error("no cast operator to that type", files("Temp", temp, "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { Temp t; float f = (float)t; }
                 }
                 """), "cannot cast Temp to float; Temp casts only to double, int");
         error("a private cast operator", files("Temp", temp, "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { Temp t; int i = (int)t; }
                 }
                 """), "the cast of Temp to int is private");
         error("two cast operators to one type", """
-                struct Temp
-                {
+                struct Temp {
                     public double c;
                     @overload(Operator.CAST) public double celsius() { return c; }
                     @overload(Operator.CAST) public double kelvin() { return c + 273.15; }
                 }
                 """, "Temp already casts to double, with celsius()");
         error("a cast operator returns what it casts to", """
-                struct Temp
-                {
+                struct Temp {
                     @overload(Operator.CAST) public void nothing() { }
                 }
                 """, "Operator.CAST returns the type it casts to, not void");
         error("a cast operator takes no parameters", """
-                struct Temp
-                {
+                struct Temp {
                     @overload(Operator.CAST) public int scaled(int k) { return k; }
                 }
                 """, "Operator.CAST ((T)x) takes no parameters; it casts to its return type");
         error("<<= needs its own overload", files("BigUInt", BIGUINT, "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { BigUInt<<128>> a; a <<= 3; }
                 }
                 """), "BigUInt<<128>> does not define operator <<=");
         error("undefined operator", files("BigUInt", BIGUINT, "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { BigUInt<<128>> a; BigUInt<<128>> b; BigUInt<<128>> c = a * b; }
                 }
                 """), "BigUInt<<128>> does not define operator *");
         error("operator on different shape", files("BigUInt", BIGUINT, "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { BigUInt<<128>> a; BigUInt<<256>> b; BigUInt<<128>> c = a + b; }
                 }
                 """), "expected BigUInt<<128>>, found BigUInt<<256>>");
         error("comparison must return bit", """
-                struct Foo
-                {
+                struct Foo {
                     @overload(Operator.LESS)
                     public int less(Foo o) { return 0; }
                 }
                 """, "comparison operator < must return bit");
         error("unknown decorator", """
-                struct Foo
-                {
+                struct Foo {
                     @inline
                     int f() { return 0; }
                 }
                 """, "unknown decorator @inline");
         ok("overloading in a class", files("Foo", """
-                class Foo
-                {
+                class Foo {
                     @overload(Operator.ADD)
                     public Foo add(Foo o) { return o; }
                 }
@@ -1700,8 +1511,7 @@ public final class CheckerTest {
                 struct Main { @overload(Operator.SUBTRACT) public Main neg() { return this; } }
                 """, "Operator.SUBTRACT (x - y) takes one parameter; for -x, use Operator.NEGATE");
         error("not overloadable", """
-                struct Foo
-                {
+                struct Foo {
                     @overload("=")
                     public void assign(Foo o) { }
                 }
@@ -1710,8 +1520,7 @@ public final class CheckerTest {
 
     private static void accessAndStatic() {
         String counter = """
-                struct Counter
-                {
+                struct Counter {
                     int secret;
                     private<Friend> int shared;
                     public int open;
@@ -1720,48 +1529,40 @@ public final class CheckerTest {
                 }
                 """;
         error("private member", files("Counter", counter, "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { Counter c; int x = c.secret; }
                 }
                 """), "`secret` is private to Counter");
         ok("public and friend access", files("Counter", counter, "Friend", """
-                struct Friend
-                {
-                    void run()
-                    {
+                struct Friend {
+                    void run() {
                         Counter c;
                         int x = c.shared + c.open + c.get() + Counter.twice(3);
                     }
                 }
                 """));
         error("friend list is exclusive", files("Counter", counter, "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { Counter c; int x = c.shared; }
                 }
                 """), "`shared` is private to Counter");
         error("instance method through class", files("Counter", counter, "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { int x = Counter.get(); }
                 }
                 """), "`get` is an instance member of Counter and needs an object");
         error("instance field in static method", """
-                struct Main
-                {
+                struct Main {
                     int x;
                     static int f() { return x; }
                 }
                 """, "`x` is an instance member of Main and needs an object");
         ok("a subclass listed in private<...>", files("Base", """
-                class Base
-                {
+                class Base {
                     private<Child> int inner;
                 }
                 """, "Child", """
-                class Child extends(Base)
-                {
+                class Child extends(Base) {
                     int peek() { return inner; }
                 }
                 """));
@@ -1769,25 +1570,21 @@ public final class CheckerTest {
 
     private static void statements() {
         error("missing return", """
-                struct Main
-                {
+                struct Main {
                     int f(bit b) { if (b) { return 1; } }
                 }
                 """, "method f can reach its end without returning a int");
         ok("returns on all paths", files("Main", """
-                struct Main
-                {
+                struct Main {
                     int f(bit b) { if (b) { return 1; } else { return 2; } }
                     int g() { while (true) { } }
                 }
                 """));
         ok("a char is an int wherever one is wanted", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static int twice(int n) { return n * 2; }
                     static int code(char c) { return c; }
-                    void f(bit b)
-                    {
+                    void f(bit b) {
                         char c = 'a';
                         int i = c;
                         i = c;
@@ -1799,11 +1596,9 @@ public final class CheckerTest {
                 }
                 """));
         ok("variables decide a binder before constants do", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static int<<W>> pick(int<<size W>> a, int<<W>> b) { return b; }
-                    void f()
-                    {
+                    void f() {
                         int<<64>> big = 5;
                         int<<64>> x = pick(0, big);
                         int<<64>> y = pick(big, 5000000000);
@@ -1814,32 +1609,27 @@ public final class CheckerTest {
                 }
                 """));
         ok("a constant can decide a binder that a narrower variable widens to", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static int<<W>> pick(int<<size W>> a, int<<W>> b) { return b; }
                     void f() { int<<8>> small = 1; int x = pick(small, 1000); }
                 }
                 """));
         error("a constant must fit the width a binder got", """
-                struct Main
-                {
+                struct Main {
                     static uint<<W>> pick(uint<<size W>> a, uint<<W>> b) { return b; }
                     void f() { uint<<8>> small = 1; pick(small, -1); }
                 }
                 """, "integer -1 does not fit in uint<<8>>");
         error("a constant that doesn't fit beside a variable", """
-                struct Main
-                {
+                struct Main {
                     void f() { ufixed<<0, 8>> x = 0.5; x = x + 1; }
                 }
                 """, "integer 1 does not fit in ufixed<<0, 8>>");
         ok("++ and -- keep the variable's type", files("Main", """
-                struct Main
-                {
+                struct Main {
                     int<<8>> small;
                     static int count;
-                    void f()
-                    {
+                    void f() {
                         char c = 'a';
                         char next = c++;
                         char prev = --c;
@@ -1855,109 +1645,92 @@ public final class CheckerTest {
                 }
                 """));
         error("++ on a struct", """
-                struct Main
-                {
+                struct Main {
                     void f() { Main m; m++; }
                 }
                 """, "++ needs a number or a char, not Main");
         error("-- on a bit", """
-                struct Main
-                {
+                struct Main {
                     void f() { bit b = true; b--; }
                 }
                 """, "-- needs a number or a char, not bit");
         error("++ on an address", """
-                struct Main
-                {
+                struct Main {
                     void f() { addr<int> p = null; ++p; }
                 }
                 """, "++ needs a number or a char, not addr<int>");
         error("++ on a value", """
-                struct Main
-                {
+                struct Main {
                     void f() { int x = 1; 5++; }
                 }
                 """, "cannot assign to this expression");
         error("x++++", """
-                struct Main
-                {
+                struct Main {
                     void f() { int x = 1; x++++; }
                 }
                 """, "cannot assign to this expression");
         error("++ on a const", """
-                struct Main
-                {
+                struct Main {
                     const int LIMIT = 3;
                     void f() { LIMIT++; }
                 }
                 """, "LIMIT is const");
         error("++ on a compile-time value", """
-                struct Main<<int N>>
-                {
+                struct Main<<int N>> {
                     void f() { N++; }
                 }
                 """, "N is a compile-time value and cannot be assigned");
         error("++ on a bit slice", """
-                struct Main
-                {
+                struct Main {
                     void f() { uint x = 0; x[0..4]++; }
                 }
                 """, "++ can't change a bit slice; write x[a..b] += 1");
         error("++ on a fixed point type that can't hold 1", """
-                struct Main
-                {
+                struct Main {
                     void f() { ufixed<<0, 8>> x = 0.5; x++; }
                 }
                 """, "++ steps by 1, which ufixed<<0, 8>> can't hold");
         error("++ in a lambda on a captured local", files("Main", """
-                struct Main
-                {
+                struct Main {
                     void f() { int x = 1; Runnable r = () -> { x++; }; }
                 }
                 """, "Runnable", "interface Runnable { public void run(); }"),
                 "a lambda can't assign x: it holds a copy");
         error("break outside loop", """
-                struct Main
-                {
+                struct Main {
                     void f() { break; }
                 }
                 """, "break outside a loop");
         error("assign compile-time value", """
-                struct Main<<int N>>
-                {
+                struct Main<<int N>> {
                     void f() { N = 3; }
                 }
                 """, "N is a compile-time value and cannot be assigned");
         error("assign const", """
-                struct Main
-                {
+                struct Main {
                     const int MAX = 10;
                     void f() { MAX = 3; }
                 }
                 """, "MAX is const");
         ok("const in <<>>", files("Main", """
-                struct Main
-                {
+                struct Main {
                     const int SIZE = 4;
                     array<int><<SIZE * 2>> data;
                     void f() { Main x; int n = SIZE; }
                 }
                 """));
         error("duplicate local", """
-                struct Main
-                {
+                struct Main {
                     void f() { int x; int x; }
                 }
                 """, "variable x is already declared in this scope");
         error("unknown name", """
-                struct Main
-                {
+                struct Main {
                     void f() { int x = y; }
                 }
                 """, "unknown name y");
         error("void return value", """
-                struct Main
-                {
+                struct Main {
                     void f() { return 3; }
                 }
                 """, "void method f cannot return a value");
@@ -1981,8 +1754,7 @@ public final class CheckerTest {
         String doc = "class Doc { public int pages; }";
         // A class name used as a type means a handle to it, everywhere a type can appear.
         ok("class types are handles everywhere", files("Doc", doc, "H", """
-                struct H
-                {
+                struct H {
                     Doc one;
                     array<Doc><<4>> many;
                     Doc f(Doc d) { Doc local = d; many[0] = local; return many[0]; }
@@ -1990,8 +1762,7 @@ public final class CheckerTest {
                 """));
         ok("a class inside a class is a handle", files("Doc", doc, "H", "class H { Doc inner; }"));
         ok("implicit and explicit handles are the same type", files("Doc", doc, "H", """
-                struct H
-                {
+                struct H {
                     void f() { Doc a = new Doc(); handle<Doc> b = a; Doc c = b; }
                 }
                 """));
@@ -2002,8 +1773,7 @@ public final class CheckerTest {
 
     private static void typeParameters() {
         String pair = """
-                struct Pair<T>
-                {
+                struct Pair<T> {
                     public T a;
                     public T b;
                     public bit less() { return a < b; }
@@ -2017,7 +1787,7 @@ public final class CheckerTest {
         String doc = "class Doc { }";
         genError("instantiating with a type that lacks the operator", files("Pair", pair, "Doc", doc, "Main", """
                 struct Main { static int main() { Pair<handle<Doc>> p; bit x = p.less(); return 0; } }
-                """), "Pair.seal:5:32: in Pair<handle<Doc>>.less");
+                """), "Pair.seal:4:32: in Pair<handle<Doc>>.less");
         genError("the instantiation error names the operator", files("Pair", pair, "Doc", doc, "Main", """
                 struct Main { static int main() { Pair<handle<Doc>> p; bit x = p.less(); return 0; } }
                 """), "Doc does not define operator <");
@@ -2028,21 +1798,18 @@ public final class CheckerTest {
                 struct Main { static int main() { Pair<handle<Doc>> p; p.a = null; return 0; } }
                 """));
         ok("members of T are checked for each type it is used with", files("Main", """
-                struct Main<T>
-                {
+                struct Main<T> {
                     T item;
                     int f() { return item.size(); }
                 }
                 """));
         error("T in a static member", """
-                struct Box<T>
-                {
+                struct Box<T> {
                     static T make() { }
                 }
                 """, "type parameter T is not available in a static member");
         error("native in a program", """
-                struct Main
-                {
+                struct Main {
                     @native("print_int") static void p(int x) { }
                 }
                 """, "unknown decorator @native");
@@ -2050,77 +1817,66 @@ public final class CheckerTest {
 
     private static void callsAndReturns() {
         error("wrong argument count", """
-                struct Main
-                {
+                struct Main {
                     static void f(int a) { }
                     static void g() { f(1, 2); }
                 }
                 """, "no overload of f takes (integer constant 1, integer constant 2)");
         error("ambiguous overloads", """
-                struct Main
-                {
+                struct Main {
                     static void f(int<<8>> a) { }
                     static void f(uint<<8>> a) { }
                     static void g() { f(5); }
                 }
                 """, "ambiguous call to f: 2 overloads match");
         ok("constants prefer int", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static void f(int a) { }
                     static void f(int<<64>> a) { }
                     static void g() { f(5); }
                 }
                 """));
         error("return type mismatch", """
-                struct Main
-                {
+                struct Main {
                     static int f() { return true; }
                 }
                 """, "return value: expected int, found bit");
         error("void used as a value", """
-                struct Main
-                {
+                struct Main {
                     static void f() { }
                     static void g() { int x = f(); }
                 }
                 """, "initializer of x: expression has no value");
         error("assigning to a call", """
-                struct Main
-                {
+                struct Main {
                     static int f() { return 1; }
                     static void g() { f() = 3; }
                 }
                 """, "cannot assign to this expression");
         error("value parameter out of range", """
-                struct Small<<int<<8>> N>>
-                {
+                struct Small<<int<<8>> N>> {
                     void f() { Small<<300>> x; }
                 }
                 """, "Small<<300>> matches no shape of Small");
         error("const defined in terms of itself", """
-                struct Main
-                {
+                struct Main {
                     const int A = B;
                     const int B = A;
                     array<int><<A>> data;
                 }
                 """, "defined in terms of itself");
         error("comparing different address types", """
-                struct Main
-                {
+                struct Main {
                     static bit f(addr<int> a, addr<uint> b) { return a < b; }
                 }
                 """, "cannot compare addr<int> with addr<uint>");
         ok("comparing addresses of one type", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static bit f(addr<int> a, addr<int> b) { return a < b; }
                 }
                 """));
         error("private constructor", files("A", "struct A { private new() { } }", "B", """
-                struct B
-                {
+                struct B {
                     void f() { A a = new A(); }
                 }
                 """), "the constructor of A taking () is private");
@@ -2128,10 +1884,8 @@ public final class CheckerTest {
 
     private static void fixedPointErrors() {
         ok("fixed-point basics", files("Main", """
-                struct Main
-                {
-                    static void f()
-                    {
+                struct Main {
+                    static void f() {
                         fixed<<8, 8>> a = 1.5;
                         fixed<<8, 8>> b = a * 2 - 0.25;
                         ufixed<<0, 8>> frac = 0.5;
@@ -2179,8 +1933,7 @@ public final class CheckerTest {
 
     private static void uniqueRules() {
         String file = """
-                unique File
-                {
+                unique File {
                     public int fd;
                     public new() { }
                     public new(int f) { fd = f; }
@@ -2220,12 +1973,10 @@ public final class CheckerTest {
                 unique Main { static File shared; File mine = shared; }
                 """), "initializer of mine: File is unique and can't be copied");
         ok("everything that doesn't copy", files("File", file, "Holder", "unique Holder { public File f; }", "Main", """
-                struct Main
-                {
+                struct Main {
                     static File open(int fd) { File f = new File(fd); return f; }   // moved out
                     static int use(File f) { return f.fd; }                          // lent
-                    static void g(Holder h)
-                    {
+                    static void g(Holder h) {
                         File a = new File(1);
                         File b = open(2);
                         a = new File(3);
@@ -2239,8 +1990,7 @@ public final class CheckerTest {
     private static void accessOnEveryKind() {
         for (String kind : List.of("struct", "unique", "class")) {
             String t = """
-                    KIND T
-                    {
+                    KIND T {
                         public int open;
                         int secret;
                         private<Friend> int shared;
@@ -2254,8 +2004,7 @@ public final class CheckerTest {
                     }
                     """.replace("KIND", kind);
             String friend = """
-                    struct Friend<<int N>>
-                    {
+                    struct Friend<<int N>> {
                         public static int read(T x) { return x.shared; }
                     }
                     """;
@@ -2276,8 +2025,7 @@ public final class CheckerTest {
             }
         }
         String base = """
-                class Base
-                {
+                class Base {
                     int mine;
                     private<Child> int family;
                 }
@@ -2290,8 +2038,7 @@ public final class CheckerTest {
                 "unknown type subclasses in private<...>");
         ok("a friend's every shape has access", files("Holder", "class Holder { private<Reader> int v; }",
                 "Reader", """
-                        struct Reader<<int N>>
-                        {
+                        struct Reader<<int N>> {
                             int get(Holder h) { return h.v + N; }
                         }
                         """));
@@ -2328,8 +2075,7 @@ public final class CheckerTest {
     /** `pure` (§17.2): static methods whose result depends only on their arguments. */
     private static void pureMethods() {
         ok("** on integers and floating point, and in compile-time values", files("Main", """
-                struct Main
-                {
+                struct Main {
                     const int BIG = 2 ** 16 - 1;
                     static int<<2 ** 4>> h;
                     static int<<3 > 2 ? 2 ** 3 : 4>> c;
@@ -2351,8 +2097,7 @@ public final class CheckerTest {
         String box = "class Box { public int v; public static int shared; public int get() { return v; } }";
         ok("pure methods may use their arguments, their own variables, const fields and other pure methods", files("Box", box,
                 "Spot", "struct Spot { public int x; public int y; }", "Main", """
-                struct Main
-                {
+                struct Main {
                     const int K = 3;
                     static pure int twice(int n) { return n * 2; }
                     static pure int sum(Spot s, Box b) { Spot c = s; c.x += K; array<int><<2>> t = [c.x, s.y]; return twice(t[0] + t[1]) + b.v; }
@@ -2401,13 +2146,11 @@ public final class CheckerTest {
     /** size, the type of widths (§37.2): 0 to 64, a cast alone makes a number one, and binders of widths are sizes. */
     private static void sizes() {
         ok("size variables, fields, consts and arithmetic", files("Main", """
-                struct Main
-                {
+                struct Main {
                     const size BITS = 12;
                     static size kept = 64;
                     static int<<W>> same(int<<size W>> x) { return x; }
-                    static int main()
-                    {
+                    static int main() {
                         size s = 0;
                         int n = s + BITS;
                         int<<64>> wide = s;
@@ -2445,8 +2188,7 @@ public final class CheckerTest {
                 struct Main { const size S = (size)70; static int main() { return 0; } }
                 """), "70 isn't a size: a size is 0 to 64");
         error("a pure method making a size past 64", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static pure size grow(size s) { return (size)(s * 3); }
                     static int<<grow(30)>> wide;
                     static int main() { return 0; }

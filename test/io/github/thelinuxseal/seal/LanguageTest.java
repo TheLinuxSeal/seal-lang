@@ -75,8 +75,7 @@ public final class LanguageTest {
     private static void inheritance() {
         output("three levels with overrides and super", files(
                 "A", """
-                        class A
-                        {
+                        class A {
                             public int x;
                             public new() { x = 1; }
                             public int who() { return 1; }
@@ -84,15 +83,13 @@ public final class LanguageTest {
                         }
                         """,
                 "B", """
-                        class B extends(A)
-                        {
+                        class B extends(A) {
                             public new() { super(); x += 10; }
                             public int who() { return 2; }
                         }
                         """,
                 "C", """
-                        class C extends(B)
-                        {
+                        class C extends(B) {
                             public int y = 5;
                             public new() { super(); x += 100; }
                             public int who() { return super.who() * 10 + 3; }
@@ -110,16 +107,14 @@ public final class LanguageTest {
         output("virtual methods returning objects", files(
                 "Point", "struct Point { public int x; public int y; }",
                 "Shape", """
-                        class Shape
-                        {
+                        class Shape {
                             public int id = 7;
                             public Point corner() { Point p; p.x = id; return p; }
                             public int area() { return corner().x; }
                         }
                         """,
                 "Square", """
-                        class Square extends(Shape)
-                        {
+                        class Square extends(Shape) {
                             public Point corner() { Point p = super.corner(); p.y = p.x * 2; return p; }
                         }
                         """,
@@ -156,8 +151,7 @@ public final class LanguageTest {
     private static void construction() {
         output("constructor with a binder", files(
                 "Buf", """
-                        struct Buf<<int N>>
-                        {
+                        struct Buf<<int N>> {
                             public int total;
                             public new() { total = N; }
                             public new<<int N>>(Buf<<int K>> other) { total = N * 10 + K; }
@@ -167,8 +161,7 @@ public final class LanguageTest {
         output("constructors guarded per shape", files(
                 "Two", """
                         struct Two<<int N>>
-                        struct Two<<int N, int M>>
-                        {
+                        struct Two<<int N, int M>> {
                             public int v;
                             public new<<int N>>() { v = N; }
                             public new<<int N, int M>>() { v = N * M; }
@@ -178,8 +171,7 @@ public final class LanguageTest {
         output("inline fields are constructed before the body", files(
                 "Inner", "struct Inner { public int v; public new() { v = 5; } }",
                 "Outer", """
-                        struct Outer
-                        {
+                        struct Outer {
                             public Inner in;
                             public int w = 2;
                             public int seen;
@@ -200,10 +192,8 @@ public final class LanguageTest {
     private static void destruction() {
         String noisy = "unique Noisy<<int ID>> { delete() { System.stdout.print(ID); } }";
         output("destructors on every exit path", files("Noisy", noisy, "Main", """
-                struct Main
-                {
-                    static int early(bit b)
-                    {
+                struct Main {
+                    static int early(bit b) {
                         Noisy<<1>> a;
                         if (b) {
                             Noisy<<2>> c;
@@ -213,8 +203,7 @@ public final class LanguageTest {
                         return 0;
                     }
 
-                    static void loop()
-                    {
+                    static void loop() {
                         for (int i = 0; i < 3; i += 1) {
                             Noisy<<4>> n;
                             if (i == 0) { continue; }
@@ -223,8 +212,7 @@ public final class LanguageTest {
                         }
                     }
 
-                    static int main()
-                    {
+                    static int main() {
                         early(true);
                         System.stdout.println();
                         early(false);
@@ -338,8 +326,7 @@ public final class LanguageTest {
                 "Main", main("Box<<3>> a; Box<<5>> b; pr(Util.len(a) + Util.len(b));")), "8 ");
         output("operators on type parameters", files(
                 "Pair", """
-                        struct Pair<T>
-                        {
+                        struct Pair<T> {
                             public T a;
                             public T b;
                             public T larger() { if (a < b) { return b; } return a; }
@@ -354,8 +341,7 @@ public final class LanguageTest {
         output("bare and valued shapes side by side", files(
                 "Buf", """
                         struct Buf<<>>
-                        struct Buf<<int N>>
-                        {
+                        struct Buf<<int N>> {
                             array<int><<N>> data<<int N>>;
                             array<int><<2>> data<<>>;
                             public int cap<<int N>>() { return N; }
@@ -376,8 +362,7 @@ public final class LanguageTest {
 
     private static void operators() {
         String num = """
-                struct Num
-                {
+                struct Num {
                     public int v;
                     @overload(Operator.NEGATE) public Num neg() { Num r; r.v = -v; return r; }
                     @overload(Operator.SUBTRACT) public Num sub(Num o) { Num r; r.v = v - o.v; return r; }
@@ -407,14 +392,12 @@ public final class LanguageTest {
                         pr(h.n == h.n);
                         """)), "-4 true ");
         output("numbers narrow where stored or passed, as C's do", files("Main", """
-                class Main
-                {
+                class Main {
                     static int<<8>> clip(int x) { return x; }
                     static int half(double x) { return x / 2; }
                     static void show(int<<8>> b) { System.stdout.print("show " + b + " "); }
 
-                    static void main()
-                    {
+                    static void main() {
                         int a = 2.5;
                         int<<8>> b = a;
                         int big = 1000;
@@ -434,18 +417,15 @@ public final class LanguageTest {
                 }
                 """), "2 2 -24 C 4294967295 -3 2 -24\nshow -24 44 3\n");
         output("string.format and printf, as Java's (§42.6)", files("Point", """
-                class Point
-                {
+                class Point {
                     int x;
                     int y;
                     public new(int x, int y) { this.x = x; this.y = y; }
                     @overload(Operator.CAST) public string text() { return "(" + x + ", " + y + ")"; }
                 }
                 """, "Main", """
-                class Main
-                {
-                    static void main()
-                    {
+                class Main {
+                    static void main() {
                         string name = "Ada";
                         System.stdout.println(string.format("%-8s|%10.2f|%5d|", name, 1234.5, 42));
                         System.stdout.println(string.format("%,d %,.3f %+d % d %05d", 1234567, 9876543.21, 42, 42, 42));
@@ -469,10 +449,8 @@ public final class LanguageTest {
                 [ -3.14] [2.0   ] [-002.5] 100% NaN
                 """);
         output("string.format errors, as exceptions", files("Main", """
-                class Main
-                {
-                    static void attempt(string fmt, int n)
-                    {
+                class Main {
+                    static void attempt(string fmt, int n) {
                         try {
                             System.stdout.println(string.format(fmt, n));
                         } catch (IllegalArgumentException e) {
@@ -480,8 +458,7 @@ public final class LanguageTest {
                         }
                     }
 
-                    static void main()
-                    {
+                    static void main() {
                         attempt("%q", 1);
                         attempt("%d %d", 1);
                         attempt("%.2d", 1);
@@ -502,8 +479,7 @@ public final class LanguageTest {
                 "zoo/animals/Animal", """
                         package zoo.animals;
 
-                        abstract class Animal implements(zoo.util.Named)
-                        {
+                        abstract class Animal implements(zoo.util.Named) {
                             private<app.Main> int secret = 7;
                             public abstract string sound();
                             public string name() { return "animal"; }
@@ -512,8 +488,7 @@ public final class LanguageTest {
                 "zoo/animals/Dog", """
                         package zoo.animals;
 
-                        class Dog extends(Animal)
-                        {
+                        class Dog extends(Animal) {
                             public string sound() { return "woof"; }
                             public string name() { return "dog"; }
                         }
@@ -524,8 +499,7 @@ public final class LanguageTest {
 
                         import seal.util.function.Function;
 
-                        class Box<T>
-                        {
+                        class Box<T> {
                             public T value;
                             public new(T v) { value = v; }
                             public <R> Box<R> map(Function<T, R> f) { return new Box<R>(f.apply(value)); }
@@ -544,10 +518,8 @@ public final class LanguageTest {
                         import zoo.util.Box;
                         import zoo.util.Named;
 
-                        class Main
-                        {
-                            static void main()
-                            {
+                        class Main {
+                            static void main() {
                                 Animal a = new Dog();
                                 Named n = a;
                                 Box<string> sounds = new Box<Animal>(a).map(x -> x.sound());
@@ -562,8 +534,7 @@ public final class LanguageTest {
                         """), "dog says woof 7 5\ncaught escaped\n");
         output("abstract and default fields, default methods (§30.4)", files(
                 "Named", """
-                        interface Named
-                        {
+                        interface Named {
                             string name;                         // every class implementing Named holds one
                             default string greeting = "Hello";   // the value a class gets, unless it gives its own
 
@@ -572,8 +543,7 @@ public final class LanguageTest {
                         }
                         """,
                 "Shape", """
-                        abstract class Shape implements(Named)
-                        {
+                        abstract class Shape implements(Named) {
                             public abstract int sides;
                             public default string color = "red";
 
@@ -582,16 +552,14 @@ public final class LanguageTest {
                         }
                         """,
                 "Square", """
-                        class Square extends(Shape)
-                        {
+                        class Square extends(Shape) {
                             public int sides = 4;
                             public string name;
                             public new(string n) { name = n; }
                         }
                         """,
                 "Triangle", """
-                        class Triangle extends(Shape)
-                        {
+                        class Triangle extends(Shape) {
                             public int sides = 3;
                             public string name = "triangle";
                             public string color = "blue";
@@ -599,17 +567,14 @@ public final class LanguageTest {
                         }
                         """,
                 "Op", """
-                        interface Op
-                        {
+                        interface Op {
                             int apply(int x);
                             default int twice(int x) { return apply(apply(x)); }
                         }
                         """,
                 "Main", """
-                        class Main
-                        {
-                            static void main()
-                            {
+                        class Main {
+                            static void main() {
                                 Square sq = new Square("square");
                                 Shape t = new Triangle();
                                 System.stdout.println(sq.describe() + " | " + t.describe());
@@ -632,33 +597,28 @@ public final class LanguageTest {
                 """);
         output("records (§2.5)", files(
                 "Point", """
-                        record Point(int x, int y)
-                        {
+                        record Point(int x, int y) {
                             public static Point origin() { return new Point(0, 0); }
                             public Point plus(Point o) { return new Point(x + o.x, y + o.y()); }
                         }
                         """,
                 "Range", """
-                        record Range(int lo, int hi)
-                        {
-                            new
-                            {
+                        record Range(int lo, int hi) {
+                            new {
                                 if (lo > hi) { throw new IllegalArgumentException("lo " + lo + " is above hi " + hi); }
                             }
                             public int size() { return hi - lo; }
                         }
                         """,
                 "Animal", """
-                        class Animal
-                        {
+                        class Animal {
                             string name;
                             public new(string name) { this.name = name; }
                             @overload(Operator.CAST) public string text() { return name; }
                         }
                         """,
                 "Owner", """
-                        record Owner(string name, Animal pet)
-                        {
+                        record Owner(string name, Animal pet) {
                             @overload(Operator.CAST) public string text() { return name + " and " + pet; }
                         }
                         """,
@@ -666,10 +626,8 @@ public final class LanguageTest {
                 "Main", """
                         import seal.util.HashMap;
                         import seal.util.List;
-                        class Main
-                        {
-                            static void main()
-                            {
+                        class Main {
+                            static void main() {
                                 Point p = new Point(3, 4);
                                 Point q = new Point(3, 4);
                                 System.stdout.println(p + " " + p.x() + " " + p.y + " " + (p == q) + " " + (p != Point.origin())
@@ -708,8 +666,7 @@ public final class LanguageTest {
                 "Main", main("Point p = new Point(1, 2); p.x = 3;")),
                 "x is a component of record Point, fixed when it is made; make a new Point with the value instead");
         compileError("a record's own methods can't change its components", files("Point", """
-                record Point(int x, int y)
-                {
+                record Point(int x, int y) {
                     public void move() { x++; }
                 }
                 """, "Main", main("")), "x is a component of record Point, fixed when it is made");
@@ -727,26 +684,22 @@ public final class LanguageTest {
                 """)), "<ul>\n    <li>\"one\"</li>\n</ul>\na b \nc|30");
         output("switch expressions (§41.3)", files("Color", "enum Color { RED, GREEN, BLUE; }",
                 "Guard", """
-                        unique Guard
-                        {
+                        unique Guard {
                             int id;
                             public new(int id) { this.id = id; }
                             delete() { System.stdout.print("~" + id + " "); }
                         }
                         """,
                 "Animal", """
-                        class Animal
-                        {
+                        class Animal {
                             string name;
                             public new(string name) { this.name = name; }
                             @overload(Operator.CAST) public string text() { return name; }
                         }
                         """,
                 "Main", """
-                        class Main
-                        {
-                            static string describe(int n)
-                            {
+                        class Main {
+                            static string describe(int n) {
                                 return switch (n) {
                                     case 0 -> "zero";
                                     case 1, 2, 3 -> "small";
@@ -757,13 +710,11 @@ public final class LanguageTest {
                                 };
                             }
 
-                            static int score(Color c)
-                            {
+                            static int score(Color c) {
                                 return switch (c) { case RED -> 1; case GREEN -> 2; case BLUE -> 3; };
                             }
 
-                            static Animal pick(string kind)
-                            {
+                            static Animal pick(string kind) {
                                 return switch (kind) {
                                     case "cat" -> new Animal("Tom");
                                     case "dog" -> new Animal("Rex");
@@ -771,8 +722,7 @@ public final class LanguageTest {
                                 };
                             }
 
-                            static string colon(int n)
-                            {
+                            static string colon(int n) {
                                 return switch (n) {
                                     case 1:
                                     case 2:
@@ -784,8 +734,7 @@ public final class LanguageTest {
                                 };
                             }
 
-                            static void main()
-                            {
+                            static void main() {
                                 for (int n = -1; n <= 5; n += 2) { System.stdout.print(describe(n) + " "); }
                                 System.stdout.println(score(Color.RED) + score(Color.BLUE) * 10);
                                 double d = 1 + switch (score(Color.GREEN)) { case 2 -> 0.5; default -> 1; };
@@ -828,18 +777,15 @@ public final class LanguageTest {
                 "Main", main("Color c = Color.RED; int n = switch (c) { case RED -> 1; case GREEN -> 2; };")),
                 "a switch expression needs a value for every case: add a default, or cases for BLUE");
         output("labeled break and continue", files("Guard", """
-                unique Guard
-                {
+                unique Guard {
                     int id;
                     public new(int id) { this.id = id; }
                     delete() { System.stdout.print("~" + id + " "); }
                 }
                 """, "Main", """
                 import seal.util.List;
-                class Main
-                {
-                    static void main()
-                    {
+                class Main {
+                    static void main() {
                         array<int><<2, 3>> grid = [[1, 2, 3], [4, 5, 6]];
                         outer:
                         for (int r = 0; r < 2; r++) {
@@ -887,8 +833,7 @@ public final class LanguageTest {
                 """), "at 1,1 00 10 11 20 21 22 abc\nbody1 fin1 ~1 fin2 ~2 fin3 ~3 n=3\n");
         output("a cast to string is an object's text, as Java's toString() (§46)", files(
                 "Point", """
-                        struct Point
-                        {
+                        struct Point {
                             public int x;
                             public int y;
                             public new() { }
@@ -897,8 +842,7 @@ public final class LanguageTest {
                         }
                         """,
                 "Account", """
-                        class Account
-                        {
+                        class Account {
                             string owner;
                             public new(string owner) { this.owner = owner; }
                             @overload(Operator.CAST) public string describe() { return "account of " + owner; }
@@ -906,8 +850,7 @@ public final class LanguageTest {
                         """,
                 "Color", "enum Color { RED, GREEN; }",
                 "Suit", """
-                        enum Suit
-                        {
+                        enum Suit {
                             HEARTS, SPADES;
                             @overload(Operator.CAST) public string symbol() { if (this == HEARTS) { return "<3"; } return "^"; }
                         }
@@ -915,10 +858,8 @@ public final class LanguageTest {
                 "Main", """
                         import seal.util.BigUInt;
                         import seal.util.List;
-                        class Main
-                        {
-                            static void main()
-                            {
+                        class Main {
+                            static void main() {
                                 Point p = new Point(1, 2);
                                 Account a = new Account("Ada");
                                 System.stdout.println("p " + p + ", " + a + ", " + Color.GREEN + ", " + Suit.HEARTS);
@@ -958,8 +899,7 @@ public final class LanguageTest {
                 "in seal.io.Writer.println[T=handle<Box>]: Box has no cast to string");
         output("cast operators (§46)", files(
                 "Meters", """
-                        struct Meters
-                        {
+                        struct Meters {
                             public double v;
 
                             public new(double v) { this.v = v; }
@@ -974,8 +914,7 @@ public final class LanguageTest {
                 "Feet", "struct Feet { public double v; public new(double v) { this.v = v; } }",
                 "Label", "class Label { public string text; public new(string t) { text = t; } }",
                 "Account", """
-                        class Account
-                        {
+                        class Account {
                             int<<64>> cents;
 
                             public new(int<<64>> c) { cents = c; }
@@ -985,12 +924,10 @@ public final class LanguageTest {
                         """,
                 "Savings", "class Savings extends(Account) { public new(int<<64>> c) { super(c); } }",
                 "Main", """
-                        class Main
-                        {
+                        class Main {
                             static Meters make(double v) { return new Meters(v); }
 
-                            static void main()
-                            {
+                            static void main() {
                                 Meters m = new Meters(2.5);
                                 Feet f = (Feet)m;
                                 Label l = (Label)m;
@@ -1043,13 +980,11 @@ public final class LanguageTest {
                 pr(w);
                 """)), "8 0 10 -16 9223372036854775808 ");
         output("string literals are string<<length>> when nothing else decides", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static void show(string s) { System.stdout.print("bare "); }
                     static void show(string<<5>> s) { System.stdout.print("five "); }
                     static void show(string<<9>> s) { System.stdout.print("nine "); }
-                    static int main()
-                    {
+                    static int main() {
                         System.stdout.print("hello".length()); System.stdout.print(" ");
                         show("hello");
                         string<<4>> ab = "ab" + "cd";
@@ -1067,8 +1002,7 @@ public final class LanguageTest {
                 }
                 """), "5 five abcd abc true true true abcdef");
         compileError("no overload takes the literal's own length", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static void show(string s) { }
                     static void show(string<<5>> s) { }
                     static int main() { show("hi"); return 0; }
@@ -1079,13 +1013,11 @@ public final class LanguageTest {
                 string<<3>> s = a + "cd";
                 """)), "expected string<<3>>, found string<<4>>");
         output("array literals", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static int sum(array<int><<3>> xs) { return xs[0] + xs[1] + xs[2]; }
                     static void show(array<int><<2>> xs) { System.stdout.print("int "); }
                     static void show(array<int<<64>>><<2>> xs) { System.stdout.print("long "); }
-                    static int main()
-                    {
+                    static int main() {
                         array<int><<3>> a = [1, 2, 3];
                         a = [a[2], a[1], a[0]];
                         System.stdout.print(a[0] * 100 + a[1] * 10 + a[2]); System.stdout.print(" ");
@@ -1112,18 +1044,15 @@ public final class LanguageTest {
                 }
                 """), "321 255 15 20 6 z there bcd 2.5 1.0 7 int 3000000000");
         String file = """
-                unique Fd
-                {
+                unique Fd {
                     public int fd;
                     public new(int f) { fd = f; System.stdout.print(fd); System.stdout.print("+ "); }
                     delete() { System.stdout.print(fd); System.stdout.print("- "); }
                 }
                 """;
         output("an array literal of uniques takes fresh values", files("Fd", file, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         array<Fd><<2>> fs = [new Fd(1), new Fd(2)];
                         fs = [new Fd(3), new Fd(4)];
                         System.stdout.print(fs[0].fd + fs[1].fd); System.stdout.print(" ");
@@ -1136,16 +1065,13 @@ public final class LanguageTest {
                 array<Fd><<1>> fs = [f];
                 """)), "array element: Fd is unique and can't be copied");
         output("an array literal of handles keeps its own references", files("Box", """
-                class Box
-                {
+                class Box {
                     public int v;
                     public new(int n) { v = n; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Box keep = new Box(1);
                         array<Box><<2>> boxes = [keep, new Box(2)];
                         boxes = [boxes[1], null];
@@ -1157,12 +1083,10 @@ public final class LanguageTest {
                 }
                 """), "2true");
         output("joining strings with + and converting fixed strings", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static string bare(string s) { return s; }
                     static string<<2>> two() { return "xy"; }
-                    static int main()
-                    {
+                    static int main() {
                         int n = 42;
                         string name = "Ada";
                         System.stdout.print("n=" + n + " " + name + "! ");
@@ -1189,16 +1113,14 @@ public final class LanguageTest {
                 System.stdout.print(" " + s);
                 """)), "3 apples 3!true 2.5 4x");
         compileError("@implicit is the library's", files("Meters", """
-                struct Meters
-                {
+                struct Meters {
                     public int v;
                     public new() { }
                     @implicit public new(int x) { v = x; }
                 }
                 """, "Main", main("")), "@implicit is for the standard library's string only: an object is made with new");
         compileError("a struct is made with new, not from a number", files("Meters", """
-                struct Meters
-                {
+                struct Meters {
                     public double v;
                     public new(double v) { this.v = v; }
                 }
@@ -1209,16 +1131,14 @@ public final class LanguageTest {
                 pr(t.length());
                 """)), "5 ");
         output("for-each over arrays, strings, lists and Iterables", files("Node", """
-                class Node
-                {
+                class Node {
                     public int value;
                     public Node next;
                     public new(int v, Node n) { value = v; next = n; }
                 }
                 """, "Walk", """
                 import seal.util.Iterator;
-                class Walk implements(Iterator<int>)
-                {
+                class Walk implements(Iterator<int>) {
                     Node at;
                     public new(Node start) { at = start; }
                     public bit hasNext() { return at != null; }
@@ -1226,19 +1146,16 @@ public final class LanguageTest {
                 }
                 """, "Chain", """
                 import seal.util.Iterator;
-                class Chain implements(Iterable<int>)
-                {
+                class Chain implements(Iterable<int>) {
                     Node head;
                     public void push(int v) { head = new Node(v, head); }
                     public Iterator<int> iterator() { return new Walk(head); }
                 }
                 """, "Main", """
                 import seal.util.List;
-                struct Main
-                {
+                struct Main {
                     static array<int><<3>> three() { return [7, 8, 9]; }
-                    static int main()
-                    {
+                    static int main() {
                         array<int><<4>> xs = [1, 2, 3, 4];
                         int sum = 0;
                         for (int x : xs) { sum += x; }
@@ -1266,10 +1183,8 @@ public final class LanguageTest {
                 }
                 """), "10 78956 HEY ann cy32123456");
         output("++ and --", files("Main", """
-                struct Main
-                {
-                    static class Counter
-                    {
+                struct Main {
+                    static class Counter {
                         public int hits;
                         public static int made;
                     }
@@ -1279,8 +1194,7 @@ public final class LanguageTest {
 
                     static <T> T twice(T x) { x++; x++; return x; }
 
-                    static void main()
-                    {
+                    static void main() {
                         int i = 5;
                         int a = i++;
                         int b = ++i;
@@ -1347,10 +1261,8 @@ public final class LanguageTest {
                 3.5 c 42
                 """);
         output("a char is an int wherever one is wanted, as in Java", files("Main", """
-                struct Main
-                {
-                    static class Box
-                    {
+                struct Main {
+                    static class Box {
                         public string made;
                         public new(char c) { made = "char"; }
                         public new(int n) { made = "int"; }
@@ -1363,8 +1275,7 @@ public final class LanguageTest {
                     static string pair(int a, int b) { return "int,int"; }
                     static <T> T second(T a, T b) { return b; }
 
-                    static void main()
-                    {
+                    static void main() {
                         char c = 'A';
                         int i = c;
                         System.stdout.println(i + " " + twice(c) + " " + kind(c) + " " + kind(i) + " " + pair(c, 1));
@@ -1383,13 +1294,11 @@ public final class LanguageTest {
                 A
                 """);
         output("++ on elements reached through [] and []=", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static int calls;
                     static int at(int i) { calls++; return i; }
 
-                    static void main()
-                    {
+                    static void main() {
                         array<int> counts = new array<int>(4);
                         int v = counts[1]++;
                         int w = ++counts[1];
@@ -1416,10 +1325,8 @@ public final class LanguageTest {
                 a c c
                 """);
         output("Math on every kind of number", files("Main", """
-                struct Main
-                {
-                    static void main()
-                    {
+                struct Main {
+                    static void main() {
                         int i = -7;
                         int<<64>> big = -9000000000;
                         int<<8>> small = -3;
@@ -1455,17 +1362,14 @@ public final class LanguageTest {
                 0.47943115234375 0.8775787353515625 5.0 3.8890838623046875 0.7853981633974483 2.718281828459045 1.0
                 """);
         output("Math in generic code", files("Main", """
-                struct Main
-                {
-                    static <T> T largest(array<T> xs)
-                    {
+                struct Main {
+                    static <T> T largest(array<T> xs) {
                         T best = xs[0];
                         for (T x : xs) { best = Math.max(best, x); }
                         return best;
                     }
 
-                    static void main()
-                    {
+                    static void main() {
                         array<int> ints = new array<int>(3);
                         ints[1] = 9;
                         array<double> ds = new array<double>(2);
@@ -1478,15 +1382,13 @@ public final class LanguageTest {
                 }
                 """), "9 -0.5 1.25\n");
         output("numbers widen as in Java", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static double half(double x) { return x / 2; }
                     static int<<64>> twice(int<<64>> x) { return x * 2; }
                     static double asDouble(int x) { return x; }
                     static fixed<<16, 16>> scaled(fixed<<16, 16>> x) { return x; }
 
-                    static void main()
-                    {
+                    static void main() {
                         int i = 7;
                         int<<8>> b = -3;
                         uint<<8>> ub = 255;
@@ -1551,10 +1453,8 @@ public final class LanguageTest {
         output("widening in lambdas and for-each", files("Main", """
                 import seal.util.function.Function;
                 import seal.util.function.Supplier;
-                struct Main
-                {
-                    static void main()
-                    {
+                struct Main {
+                    static void main() {
                         Function<int, double> half = x -> x / 2.0;
                         Function<int, double> same = x -> x;
                         Supplier<int<<64>>> big = () -> 7;
@@ -1569,10 +1469,8 @@ public final class LanguageTest {
                 }
                 """), "1.5 4.0 7 3.0 6000000000\n");
         output("compound assignments narrow back, as Java's do", files("Main", """
-                struct Main
-                {
-                    static void main()
-                    {
+                struct Main {
+                    static void main() {
                         int i = 10;
                         i += 2.5;
                         int j = -1;
@@ -1604,10 +1502,8 @@ public final class LanguageTest {
                 }
                 """), "12 0 10 76 d 705032705 4 1.75\n-56 2 4\n");
         output("mixed signs meet in int, or else int<<64>>", files("Main", """
-                struct Main
-                {
-                    static void main()
-                    {
+                struct Main {
+                    static void main() {
                         int i = -5;
                         uint u = 4000000000;
                         int<<64>> m = Math.max(i, u);
@@ -1619,10 +1515,8 @@ public final class LanguageTest {
                 }
                 """), "4000000000 -5 200 3999999995 -400\n");
         output("Math widens its arguments as Java does", files("Main", """
-                struct Main
-                {
-                    static void main()
-                    {
+                struct Main {
+                    static void main() {
                         int i = 3;
                         int<<64>> big = 5000000000;
                         int<<8>> small = 1;
@@ -1636,28 +1530,24 @@ public final class LanguageTest {
                 }
                 """), "5000000000 1000 3.0 15.625\n");
         compileError("ceil on a format that can't hold 1", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static void main() { ufixed<<0, 8>> f = 0.5; Math.ceil(f); }
                 }
                 """), "in Math.ceil[M=8, N=0]: integer 1 does not fit in ufixed<<0, 8>>");
         compileError("++ in generic code is checked for each type", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static <T> T next(T x) { return ++x; }
                     static void main() { next("a"); }
                 }
                 """), "++ needs a number or a char, not string");
         compileError("an enum's main() must be static", files("Main", """
-                enum Main
-                {
+                enum Main {
                     A, B;
                     void main() { }
                 }
                 """), "but Main is an enum, whose only values are its constants; make main() static");
         output("enums and switch", files("Color", "enum Color { RED, GREEN, BLUE }", "Planet", """
-                enum Planet
-                {
+                enum Planet {
                     MERCURY(3, 24),
                     JUPITER(18980, 699);
 
@@ -1667,18 +1557,15 @@ public final class LanguageTest {
                     public bit isBig() { return mass > 100; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static string describe(Color c)
-                    {
+                struct Main {
+                    static string describe(Color c) {
                         switch (c) {
                             case RED -> { return "warm"; }
                             case Color.BLUE -> { return "cool"; }
                             default -> { return "plain"; }
                         }
                     }
-                    static int main()
-                    {
+                    static int main() {
                         for (Color c : Color.values()) { System.stdout.print(describe(c) + " "); }
                         Color d;
                         System.stdout.print(d.name() + Color.valueOf("BLUE").ordinal() + " ");
@@ -1711,8 +1598,7 @@ public final class LanguageTest {
                 """), "warm plain cool RED2 MERCURYfalse JUPITERtrue 1157 stop ab");
         output("lambdas", files("Counter", """
                 import seal.util.function.Supplier;
-                class Counter
-                {
+                class Counter {
                     int count;
                     public Runnable incrementer() { return () -> count += 1; }
                     public int get() { return count; }
@@ -1725,11 +1611,9 @@ public final class LanguageTest {
                 import seal.util.function.Function;
                 import seal.util.function.Predicate;
                 import seal.util.function.Supplier;
-                struct Main
-                {
+                struct Main {
                     static int applyTwice(Function<int, int> f, int x) { return f.apply(f.apply(x)); }
-                    static int main()
-                    {
+                    static int main() {
                         Function<int, int> twice = x -> x * 2;
                         int base = 100;
                         Function<int, int> addBase = x -> x + base;
@@ -1774,39 +1658,33 @@ public final class LanguageTest {
         compileError("an explicit parameter type must match", files("Main", main("Function<int, int> f = (bit b) -> 1;")),
                 "lambda parameter b is bit, but Function.apply passes int");
         String res = """
-                unique Res
-                {
+                unique Res {
                     public int id;
                     public new(int i) { id = i; System.stdout.print("+" + i + " "); }
                     delete() { System.stdout.print("-" + id + " "); }
                 }
                 """;
         String box = """
-                class Box
-                {
+                class Box {
                     public int v;
                     public new(int n) { v = n; }
                 }
                 """;
         output("an exception unwinds frames, destroying and releasing what they hold", files("Res", res, "Box", box,
                 "BadInput", """
-                class BadInput extends(IllegalArgumentException)
-                {
+                class BadInput extends(IllegalArgumentException) {
                     public int code;
                     public new(string m, int c) { super(m); code = c; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int depth(int n)
-                    {
+                struct Main {
+                    static int depth(int n) {
                         Res r = new Res(n);
                         Box b = new Box(n);
                         if (n == 0) { throw new BadInput("bottom", 42); }
                         return depth(n - 1);
                     }
-                    static int main()
-                    {
+                    static int main() {
                         try {
                             depth(2);
                         } catch (BadInput e) {
@@ -1817,10 +1695,8 @@ public final class LanguageTest {
                 }
                 """), "+2 +1 +0 -0 -1 -2 caught bottom 42");
         output("finally runs on every way out", files("Main", """
-                struct Main
-                {
-                    static int withFinally(int x)
-                    {
+                struct Main {
+                    static int withFinally(int x) {
                         try {
                             if (x > 0) { return x; }
                             throw new IllegalStateException("x is " + x);
@@ -1828,8 +1704,7 @@ public final class LanguageTest {
                             System.stdout.print("[f" + x + "] ");
                         }
                     }
-                    static int main()
-                    {
+                    static int main() {
                         System.stdout.print("" + withFinally(5) + " ");
                         try { withFinally(-1); } catch (RuntimeException e) { System.stdout.print(e.getMessage() + " "); }
                         for (int i = 0; i < 4; i += 1) {
@@ -1876,21 +1751,18 @@ public final class LanguageTest {
         output("the conditional operator", files("Drawable", "interface Drawable { void draw(); }",
                 "Named", "interface Named { string name(); }", "Thing", "interface Thing extends(Drawable, Named) { int id(); }",
                 "Shape", """
-                abstract class Shape implements(Drawable)
-                {
+                abstract class Shape implements(Drawable) {
                     public abstract int area();
                 }
                 """, "Square", """
-                class Square extends(Shape)
-                {
+                class Square extends(Shape) {
                     public int side;
                     public new(int s) { side = s; }
                     public int area() { return side * side; }
                     public void draw() { }
                 }
                 """, "Circle", """
-                class Circle extends(Shape)
-                {
+                class Circle extends(Shape) {
                     public int r;
                     public new(int radius) { r = radius; }
                     public int area() { return 3 * r * r; }
@@ -1898,11 +1770,9 @@ public final class LanguageTest {
                 }
                 """, "Main", """
                 import seal.util.function.Function;
-                struct Main
-                {
+                struct Main {
                     static int sign(int x) { return x > 0 ? 1 : x < 0 ? -1 : 0; }
-                    static int main()
-                    {
+                    static int main() {
                         System.stdout.print(sign(5) + " " + sign(-3) + " " + sign(0) + " ");
                         int<<8>> small = true ? 100 : 7;
                         double d = false ? 1 : 2.5;
@@ -1923,12 +1793,10 @@ public final class LanguageTest {
                 "the two sides of ?: have different types: int and string");
         compileError("?: needs a bit condition", files("Main", main("int x = 1 ? 2 : 3;")), "condition must be a bit, not integer constant 1");
         output("char is its own type", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static void show(char c) { System.stdout.print("char "); }
                     static void show(int n) { System.stdout.print("int "); }
-                    static int main()
-                    {
+                    static int main() {
                         char c = 'q';
                         show(c); show('q'); show(113);
                         System.stdout.print(c);
@@ -1960,8 +1828,7 @@ public final class LanguageTest {
         output("a char next to a narrower int is an int", files("Main", main("char c = 'a'; int<<8>> b = -1; pr(c + b);")),
                 "96 ");
         output("this", files("Point", """
-                struct Point
-                {
+                struct Point {
                     public int x;
                     public int y;
                     public new() { }
@@ -1972,8 +1839,7 @@ public final class LanguageTest {
                 }
                 """, "Node", """
                 import seal.util.function.Supplier;
-                class Node
-                {
+                class Node {
                     public int value;
                     public Node next;
                     public new(int value, Node next) { this.value = value; this.next = next; }
@@ -1983,10 +1849,8 @@ public final class LanguageTest {
                 }
                 """, "Main", """
                 import seal.util.function.Supplier;
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Point p = new Point(1, 2);
                         Point q = p.moved(10);
                         p.shift(5);
@@ -2007,8 +1871,7 @@ public final class LanguageTest {
         compileError("this of a unique can't be copied", files("U", "unique U { public void f() { U other = this; } }", "Main", main("")),
                 "U is unique and can't be copied");
         output("comparing with null never calls an overloaded ==", files("Name", """
-                class Name
-                {
+                class Name {
                     public string text;
                     public new(string t) { text = t; }
                     @overload(Operator.EQUALS)
@@ -2029,8 +1892,7 @@ public final class LanguageTest {
                 System.rawAssembly(op);
                 """)), "System.rawAssembly needs its code as a string literal");
         compileError("a member T doesn't have is reported where T is chosen", files("Box", """
-                class Box<T>
-                {
+                class Box<T> {
                     public T item;
                     public new(T x) { item = x; }
                     public int size() { return item.length(); }
@@ -2043,8 +1905,7 @@ public final class LanguageTest {
                 """)), "in Box<int>.size: int has no methods");
         output("generic methods", files("Box", """
                 import seal.util.function.Function;
-                class Box<T>
-                {
+                class Box<T> {
                     public T value;
                     public new(T v) { value = v; }
                     public <R> Box<R> map(Function<T, R> f) { return new Box<R>(f.apply(value)); }
@@ -2052,29 +1913,24 @@ public final class LanguageTest {
                 """, "Main", """
                 import seal.util.List;
                 import seal.util.function.Function;
-                struct Main
-                {
-                    static <T> T largest(List<T> xs)
-                    {
+                struct Main {
+                    static <T> T largest(List<T> xs) {
                         T best = xs.get(0);
                         for (T x : xs) { if (best < x) { best = x; } }
                         return best;
                     }
-                    static <T> List<T> listOf(T a, T b, T c)
-                    {
+                    static <T> List<T> listOf(T a, T b, T c) {
                         List<T> out = new List();
                         out.add(a); out.add(b); out.add(c);
                         return out;
                     }
-                    static <T, R> List<R> mapAll(List<T> xs, Function<T, R> f)
-                    {
+                    static <T, R> List<R> mapAll(List<T> xs, Function<T, R> f) {
                         List<R> out = new List();
                         for (T x : xs) { out.add(f.apply(x)); }
                         return out;
                     }
                     static <T> List<T> empty() { return new List(); }
-                    static int main()
-                    {
+                    static int main() {
                         List<int> nums = listOf(3, 9, 4);
                         System.stdout.print(largest(nums) + " " + largest(listOf("pear", "apple", "zebra")) + " "
                                 + largest(listOf(1.5, 0.5, 2.5)) + " ");
@@ -2100,8 +1956,7 @@ public final class LanguageTest {
                 struct Main { static <T> void f(T x) { } static int main() { Main.<int, int>f(1); return 0; } }
                 """), "f takes 1 type argument(s), not 2");
         compileError("an operator T lacks", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static <T> bit less(T a, T b) { return a < b; }
                     static int main() { bit x = less(new Object(), new Object()); return 0; }
                 }
@@ -2111,26 +1966,22 @@ public final class LanguageTest {
         compileError("a method's type parameter can't hide its class's", files("Box", "class Box<T> { public <T> void f(T x) { } }",
                 "Main", main("")), "type parameter T of f hides Box's own T");
         output("arrays", files("Grid", """
-                class Grid
-                {
+                class Grid {
                     public array<int> cells;
                     public new(int n) { cells = new array<int>(n); }
                     public int total() { int t = 0; for (int c : cells) { t += c; } return t; }
                 }
                 """, "Main", """
-                struct Main
-                {
+                struct Main {
                     static void fill(array<int> xs, int v) { for (int i = 0; i < xs.length(); i += 1) { xs[i] = v + i; } }
                     static int sum(array<int> xs) { int t = 0; for (int x : xs) { t += x; } return t; }
-                    static array<int> squares(int n)
-                    {
+                    static array<int> squares(int n) {
                         array<int> out = new array<int>(n);
                         for (int i = 0; i < n; i += 1) { out[i] = i * i; }
                         return out;
                     }
                     static <T> int count(array<T> xs, T v) { int c = 0; for (T x : xs) { if (x == v) { c += 1; } } return c; }
-                    static int main()
-                    {
+                    static int main() {
                         array<int> xs = new array<int>(5);
                         fill(xs, 10);
                         xs[2] += 100;
@@ -2158,8 +2009,7 @@ public final class LanguageTest {
                 }
                 """), "10 14 112 224 371 55 19 3 fig kiwi 1 6 z3 0 8 index 10 out of range for an array of length 5");
         output("a class can define [] and []=", files("Ring", """
-                class Ring
-                {
+                class Ring {
                     array<int> slots;
                     public new(int n) { slots = new array<int>(n); }
                     @overload(Operator.INDEX) public int at(int i) { return slots[i % slots.length()]; }
@@ -2183,17 +2033,14 @@ public final class LanguageTest {
         output("fixed arrays: values with methods, any length, nesting, exceptions", files("Holder", """
                 class Holder { public array<int><<4>> nums = [4, 3, 2, 1]; }
                 """, "Main", """
-                struct Main
-                {
-                    static <T> int countIn(array<T><<int N>> xs, T v)
-                    {
+                struct Main {
+                    static <T> int countIn(array<T><<int N>> xs, T v) {
                         int c = 0;
                         for (int i = 0; i < N; i += 1) { if (xs[i] == v) { c += 1; } }
                         return c;
                     }
                     static int total(array<int><<int N>> xs) { int t = 0; for (int x : xs) { t += x; } return t; }
-                    static int main()
-                    {
+                    static int main() {
                         array<int><<5>> a = [5, 1, 4, 2, 3];
                         array<int><<5>> b = a;
                         b.sort();
@@ -2217,12 +2064,10 @@ public final class LanguageTest {
         compileError("a constant index outside a fixed array is caught when compiling", files("Main", main(
                 "array<int><<2>> xs; pr(xs[2]);")), "index 2 is out of bounds for array<int><<2>>");
         output("fixed arrays with several dimensions", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static <T> int cells(array<T><<int R, int C>> g) { return R * C; }
                     static int trace(array<int><<int N, int M>> m) { int t = 0; for (int i = 0; i < N; i += 1) { t += m[i][i]; } return t; }
-                    static int main()
-                    {
+                    static int main() {
                         array<int><<3, 3>> m = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
                         array<array<int><<3>>><<3>> same = m;
                         array<int><<3>> row = m[2];
@@ -2239,44 +2084,37 @@ public final class LanguageTest {
                 "expected array<double><<2, 2>>, found integer constant 5");
         output("nested types", files("Inventory", """
 import seal.util.List;
-class Inventory
-{
+class Inventory {
     public enum Kind { TOOL, FOOD, BLOCK }
 
-    public interface Visitor
-    {
+    public interface Visitor {
         void visit(Item item);
     }
 
-    public static class Item
-    {
+    public static class Item {
         public string name;
         public Kind kind;
         int count;                       // private, but Inventory may use it
         public new(string name, Kind kind) { this.name = name; this.kind = kind; }
 
-        public static class Stats
-        {
+        public static class Stats {
             public static int made = 0;
         }
     }
 
-    struct Slot                          // private: only for Inventory
-    {
+    struct Slot {                        // private: only for Inventory
         public int index;
         public Item item;
     }
 
-    class Counter implements(Visitor)
-    {
+    class Counter implements(Visitor) {
         public int foods;
         public void visit(Item item) { if (item.kind == Kind.FOOD) { foods += item.count; } }
     }
 
     List<Slot> slots = new List();
 
-    public void add(string name, Kind kind, int count)
-    {
+    public void add(string name, Kind kind, int count) {
         Item item = new Item(name, kind);
         item.count = count;
         Item.Stats.made += 1;
@@ -2288,8 +2126,7 @@ class Inventory
 
     public void each(Visitor v) { for (Slot s : slots) { v.visit(s.item); } }
 
-    public int foods()
-    {
+    public int foods() {
         Counter c = new Counter();
         each(c);
         return c.foods;
@@ -2297,10 +2134,8 @@ class Inventory
 }
 """, "Tree", """
 import seal.util.List;
-class Tree<T>
-{
-    static class Node<V>
-    {
+class Tree<T> {
+    static class Node<V> {
         public V value;
         public Node<V> left;
         public Node<V> right;
@@ -2310,8 +2145,7 @@ class Tree<T>
     Node<T> root;
     int size;
 
-    public void add(T v)
-    {
+    public void add(T v) {
         size += 1;
         if (root == null) { root = new Node<T>(v); return; }
         Node<T> at = root;
@@ -2326,15 +2160,13 @@ class Tree<T>
         }
     }
 
-    public List<T> inOrder()
-    {
+    public List<T> inOrder() {
         List<T> out = new List();
         walk(root, out);
         return out;
     }
 
-    void walk(Node<T> n, List<T> out)
-    {
+    void walk(Node<T> n, List<T> out) {
         if (n == null) { return; }
         walk(n.left, out);
         out.add(n.value);
@@ -2342,12 +2174,10 @@ class Tree<T>
     }
 }
 """, "Main", """
-struct Main
-{
+struct Main {
     enum Mode { FAST, SLOW }
 
-    static int main()
-    {
+    static int main() {
         Inventory inv = new Inventory();
         inv.add("apple", Inventory.Kind.FOOD, 3);
         inv.add("axe", Inventory.Kind.TOOL, 1);
@@ -2418,19 +2248,16 @@ struct Main
     private static void statements() {
         String point = "struct Point { public int x; public int y; public Point twice() { Point r; r.x = x * 2; return r; } }";
         output("objects returned and used directly", files("Point", point, "Main", """
-                struct Main
-                {
+                struct Main {
                 """ + HELPERS + """
                     static Point make(int v) { Point p; p.x = v; return p; }
-                    static Point sum(int n)
-                    {
+                    static Point sum(int n) {
                         if (n == 0) { Point zero; return zero; }
                         Point p = sum(n - 1);
                         p.x += n;
                         return p;
                     }
-                    static int main()
-                    {
+                    static int main() {
                         pr(make(4).x);
                         pr(make(3).twice().x);
                         pr(sum(10).x);
@@ -2459,8 +2286,7 @@ struct Main
         output("static fields of every kind", files(
                 "Point", point,
                 "Registry", """
-                        struct Registry
-                        {
+                        struct Registry {
                             public static array<int><<4>> slots;
                             public static Point origin;
                             public static int count = 2;
@@ -2497,33 +2323,28 @@ struct Main
 
     private static void resources() {
         compileError("try-with-resources needs an AutoCloseable", files("Doc", "class Doc { public void close() { } }", "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { try (Doc d = new Doc()) { } }
                 }
                 """), "a resource of try-with-resources must implement AutoCloseable, so that it can be closed; Doc doesn't"
                         + " (it has close(): add implements(AutoCloseable))");
         compileError("a resource can't be assigned", files("Doc", "class Doc implements(AutoCloseable) { public void close() { } }", "Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { try (Doc d = new Doc()) { d = new Doc(); } }
                 }
                 """), "d is a resource of try-with-resources, closed at the end of its block, so it can't be assigned");
         output("try-with-resources with two resources, catch and finally", files(
                 "Doc", "class Doc implements(AutoCloseable) { public int n; public new(int i) { n = i; } public void close() { System.stdout.print(\"~\" + n); } }",
                 "Main", """
-                struct Main
-                {
-                    static int run()
-                    {
+                struct Main {
+                    static int run() {
                         try (Doc a = new Doc(1); Doc b = new Doc(a.n + 1);) { return b.n; } catch (IllegalStateException e) { return -1; } finally { System.stdout.print(" f "); }
                     }
                     static int main() { System.stdout.print(run()); return 0; }
                 }
                 """), "~2~1 f 2");
         compileError("string methods that would change it", files("Main", """
-                struct Main
-                {
+                struct Main {
                     void run() { string s = "a"; s.append("b"); }
                 }
                 """), "string has no method append; strings are immutable: s += x stores a new string in s");
@@ -2633,8 +2454,7 @@ struct Main
 
     private static void statics() {
         String shape = """
-                class Shape
-                {
+                class Shape {
                     public static int instances = 0;
                     public static Shape unit;
                     public int size;
@@ -2645,8 +2465,7 @@ struct Main
                 }
                 """;
         String square = """
-                class Square extends(Shape)
-                {
+                class Square extends(Shape) {
                     public new(int s) { super(s); }
                     public static int sides() { return 4; }
                     public static Shape twoOf() { return make(2); }
@@ -2663,8 +2482,7 @@ struct Main
                 """)), "1 4 4 2 ");
         output("static members of a struct and a unique", files(
                 "Vec", """
-                        struct Vec
-                        {
+                        struct Vec {
                             public static int made = 0;
                             public int x;
                             public static Vec of(int x) { made += 1; Vec v; v.x = x; return v; }
@@ -2673,8 +2491,7 @@ struct Main
                         }
                         """,
                 "Fd", """
-                        unique Fd
-                        {
+                        unique Fd {
                             public static int open = 0;
                             public int fd;
                             public new(int f) { fd = f; open += 1; }
@@ -2698,8 +2515,7 @@ struct Main
                 "Pool", """
                 // unique with two shapes, per-shape field types, and per-shape destructors
                 unique Pool<<>>
-                unique Pool<<int N>>
-                {
+                unique Pool<<int N>> {
                     public int used;
                     array<int><<N>> slots<<int N>>;
                     array<int><<2>> slots<<>>;
@@ -2714,8 +2530,7 @@ struct Main
                 "Grid", """
                 // class with two shapes, guarded members, per-shape fields, and a binder method
                 class Grid<<int W>>
-                class Grid<<int W, int H>>
-                {
+                class Grid<<int W, int H>> {
                     array<int><<W>> row<<int W>>;
                     array<int><<W, H>> cells<<int W, int H>>;
                     public int area<<int W>>() { return W; }
@@ -2725,19 +2540,16 @@ struct Main
                 }
                 """,
                 "Big", """
-                class Big<<int W>> extends(Grid<<W>>)
-                {
+                class Big<<int W>> extends(Grid<<W>>) {
                     public int describe() { return area() * 100; }       // overrides the parent's virtual method
                 }
                 """,
                 "Main", """
-                struct Main
-                {
+                struct Main {
                     static int capacityOf(Pool<<int N>> p) { return N; }            // a unique lent to a binder parameter
                     static int fill(Pool<<int N>> p) { p.put(N); return p.total(); }
 
-                    static int main()
-                    {
+                    static int main() {
                         {
                             Pool small;
                             Pool<<4>> large = new Pool();
@@ -2768,8 +2580,7 @@ struct Main
     private static void genericsOnEveryKind() {
         output("generics on a unique and a class", files(
                 "Fd", """
-                unique Fd
-                {
+                unique Fd {
                     public int fd;
                     public new() { fd = -1; }
                     public new(int f) { fd = f; }
@@ -2778,8 +2589,7 @@ struct Main
                 """,
                 "Owned", """
                 // a generic unique: type and value parameters, deferred operators, a destructor
-                unique Owned<T><<int N>>
-                {
+                unique Owned<T><<int N>> {
                     public array<T><<N>> items;
                     public int count;
                     public void add(T v) { items[count] = v; count += 1; }
@@ -2789,42 +2599,36 @@ struct Main
                 """,
                 "Slot", """
                 // a generic unique holding another unique
-                unique Slot<T>
-                {
+                unique Slot<T> {
                     public T inner;
                 }
                 """,
                 "Base", """
                 // generic classes with inheritance between them
-                class Base<T>
-                {
+                class Base<T> {
                     public T value;
                     public T get() { return value; }
                     public int kind() { return 1; }
                 }
                 """,
                 "Derived", """
-                class Derived<T> extends(Base<T>)
-                {
+                class Derived<T> extends(Base<T>) {
                     public int kind() { return 2; }
                     public T twice() { return value + value; }
                 }
                 """,
                 "Holder", """
                 // a generic class holding a unique (classes may hold uniques without destructors)
-                class Holder<T>
-                {
+                class Holder<T> {
                     public T item;
                 }
                 """,
                 "Pin", "unique Pin { public int n; public new() { } public new(int i) { n = i; } }",
                 "Main", """
-                struct Main
-                {
+                struct Main {
                     static int peek(Owned<int><<int N>> o) { return N * 100 + o.count; }   // lent, with a binder
 
-                    static int main()
-                    {
+                    static int main() {
                         {
                             Owned<int><<4>> o = new Owned();
                             o.add(3); o.add(9); o.add(5);
@@ -2865,8 +2669,7 @@ struct Main
 
     private static void operatorsOnEveryKind() {
         output("operators on a unique", files("Amount", """
-                unique Amount
-                {
+                unique Amount {
                     public int cents;
                     public new() { }
                     public new(int c) { cents = c; }
@@ -2878,10 +2681,8 @@ struct Main
                     @overload(Operator.EQUALS) public bit same(Amount o) { return cents == o.cents; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Amount a = new Amount(100);
                         Amount b = new Amount(250);
                         Amount c = a + b;
@@ -2897,8 +2698,7 @@ struct Main
                 "350 -100~-100  truefalsetrue 450 | ~450 ~250 ~100 ");
         output("operators on a class", files(
                 "Money", """
-                class Money
-                {
+                class Money {
                     public int cents;
                     public new(int c) { cents = c; }
                     @overload(Operator.ADD) public Money plus(Money o) { return new Money(cents + o.cents); }
@@ -2910,23 +2710,19 @@ struct Main
                 }
                 """,
                 "Euro", """
-                class Euro extends(Money)
-                {
+                class Euro extends(Money) {
                     public new(int c) { super(c); }
                 }
                 """,
                 "Tag", """
-                class Tag
-                {
+                class Tag {
                     public int id;
                     @overload(Operator.EQUALS) public bit same(Tag o) { return id == o.id; }
                 }
                 """,
                 "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Money a = new Money(100);
                         Money b = new Money(250);
                         Money c = a + b;
@@ -2961,11 +2757,9 @@ struct Main
                 "Tk", "unique Tk { public int id; public new(int i) { id = i; } delete() { System.stdout.print(id); System.stdout.print(\"~ \"); } }",
                 "Main", """
                         import seal.util.List;
-                        struct Main
-                        {
+                        struct Main {
                             static Tk make(int i) { Tk t = new Tk(i); return t; }
-                            static int main()
-                            {
+                            static int main() {
                                 for (int i = 0; i < 4; i += 1) {
                                     if (i % 2 == 1 && make(i).id > 0) { System.stdout.print("y "); }
                                 }
@@ -2983,8 +2777,7 @@ struct Main
         String p = "struct P { public int x; public new() { x = 7; } }";
         String q = "struct Q { public int y = 5; public int z; }";
         String r = """
-                unique R
-                {
+                unique R {
                     public int id;
                     public new() { System.stdout.print("+"); }
                     delete() { System.stdout.print("-"); }
@@ -3044,19 +2837,16 @@ struct Main
 
     private static void uniques() {
         String file = """
-                unique Fd
-                {
+                unique Fd {
                     public int fd;
                     public new(int f) { fd = f; System.stdout.print(fd); System.stdout.print("+ "); }
                     delete() { System.stdout.print(fd); System.stdout.print("- "); }
                 }
                 """;
         output("lending lets a function change the caller's unique", files("Fd", file, "Main", """
-                struct Main
-                {
+                struct Main {
                     static void bump(Fd f) { f.fd += 10; }
-                    static int main()
-                    {
+                    static int main() {
                         Fd a = new Fd(1);
                         bump(a);
                         bump(a);
@@ -3067,11 +2857,9 @@ struct Main
                 }
                 """), "1+ 21 21- ");
         output("a temporary argument is destroyed after the statement", files("Fd", file, "Main", """
-                struct Main
-                {
+                struct Main {
                     static int read(Fd f) { return f.fd; }
-                    static int main()
-                    {
+                    static int main() {
                         int x = read(new Fd(5));
                         System.stdout.print("| ");
                         return 0;
@@ -3079,11 +2867,9 @@ struct Main
                 }
                 """), "5+ 5- | ");
         output("returning a local moves it: destroyed once", files("Fd", file, "Main", """
-                struct Main
-                {
+                struct Main {
                     static Fd open(int fd) { Fd f = new Fd(fd); return f; }
-                    static int main()
-                    {
+                    static int main() {
                         {
                             Fd a = open(7);
                             System.stdout.print("| ");
@@ -3094,10 +2880,8 @@ struct Main
                 }
                 """), "7+ | 7- end ");
         output("assigning a new value destroys the old one", files("Fd", file, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Fd a = new Fd(1);
                         a = new Fd(2);
                         System.stdout.print("| ");
@@ -3109,11 +2893,9 @@ struct Main
                 "Fd", "unique Fd { public int fd; public new(int f) { fd = f; System.stdout.print(fd); System.stdout.print(\"+ \"); } }",
                 "Holder", "class Holder { public Fd f = new Fd(3); }",
                 "Main", """
-                        struct Main
-                        {
+                        struct Main {
                             static void bump(Fd f) { f.fd += 1; }
-                            static int main()
-                            {
+                            static int main() {
                                 Holder h = new Holder();
                                 bump(h.f);
                                 System.stdout.print(h.f.fd);
@@ -3123,17 +2905,14 @@ struct Main
                         }
                         """), "3+ 4 ");
         output("arrays of uniques", files("Fd", """
-                unique Fd
-                {
+                unique Fd {
                     public int fd;
                     public new() { }
                     delete() { System.stdout.print(fd); System.stdout.print("- "); }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         { array<Fd><<2>> fs; fs[0].fd = 8; fs[1].fd = 9; }
                         return 0;
                     }
@@ -3146,8 +2925,7 @@ struct Main
         String named = "interface Named { string name(); }";
         String thing = "interface Thing extends(Drawable, Named) { int id(); }";
         String shape = """
-                abstract class Shape implements(Drawable)
-                {
+                abstract class Shape implements(Drawable) {
                     public int calls;
                     public new() { calls = 0; }
                     public abstract int area();
@@ -3155,8 +2933,7 @@ struct Main
                 }
                 """;
         String square = """
-                class Square extends(Shape) implements(Thing)
-                {
+                class Square extends(Shape) implements(Thing) {
                     public int side;
                     public new(int s) { super(); side = s; }
                     public int area() { return side * side; }
@@ -3166,8 +2943,7 @@ struct Main
                 }
                 """;
         String circle = """
-                class Circle extends(Shape)
-                {
+                class Circle extends(Shape) {
                     public int r;
                     public new(int radius) { r = radius; }
                     public int area() { return 3 * r * r; }
@@ -3176,10 +2952,8 @@ struct Main
                 """;
         output("abstract methods and interface methods dispatch to the object's class", files("Drawable", drawable,
                 "Named", named, "Thing", thing, "Shape", shape, "Square", square, "Circle", circle, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Shape s = new Circle(2);
                         s.describe();
                         s.draw();
@@ -3199,18 +2973,15 @@ struct Main
                 """), "12 () () [] square square7 9 1 true ");
         output("a generic interface", files("Comparable", "interface Comparable<T> { int compareTo(T other); }",
                 "Version", """
-                class Version implements(Comparable<Version>)
-                {
+                class Version implements(Comparable<Version>) {
                     public int n;
                     public new(int v) { n = v; }
                     public int compareTo(Version other) { return n - other.n; }
                 }
                 """, "Main", """
                 import seal.util.List;
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         List<Comparable<Version>> xs = new List();
                         xs.add(new Version(3));
                         System.stdout.print(xs.get(0).compareTo(new Version(1)));
@@ -3220,10 +2991,8 @@ struct Main
                 """), "2");
         output("instanceof tests and binds", files("Drawable", drawable,
                 "Named", named, "Thing", thing, "Shape", shape, "Square", square, "Circle", circle, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         array<Drawable><<3>> ds = [new Square(2), new Circle(1), null];
                         for (int i = 0; i < 3; i += 1) {
                             if (ds[i] instanceof Thing t && t.id() == 7) { System.stdout.print(t.name()); }
@@ -3239,10 +3008,8 @@ struct Main
                 """), "square 3 null truefalse ");
         trap("casting to an interface the object doesn't implement", files("Drawable", drawable,
                 "Named", named, "Thing", thing, "Shape", shape, "Square", square, "Circle", circle, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Drawable d = new Circle(1);
                         Thing t = (Thing)d;
                         return 0;
@@ -3263,15 +3030,13 @@ struct Main
                 System.stdout.println(Math.max(s, (size)3) + " " + Math.abs(s));
                 """)), "8\ns is 8, s * 8 is 64, s - 9 is -1\n8 bits, 8\n8 8\n");
         output("sizes in fields, arrays, consts, binders and widths", files("Main", """
-                struct Main
-                {
+                struct Main {
                     const size BITS = 12;
                     static size kept = 3;
                     size field;
                     static size widthOf(int<<size W>> x) { return W; }
                     static pure size wider(size a, size b) { return a > b ? a : b; }
-                    static int main()
-                    {
+                    static int main() {
                         array<size> sizes = new array<size>(3);
                         sizes[1] = 64;
                         int<<BITS>> twelve = 2047;
@@ -3318,8 +3083,7 @@ struct Main
         String util = """
                 package some.util;
 
-                class HashMap
-                {
+                class HashMap {
                     public static int made = 0;
                     public new() { made++; }
                     public int size() { return 42; }
@@ -3338,10 +3102,8 @@ struct Main
                         import static seal.lang.Math.max as biggest;
                         import static some.util.HashMap.made as count;
 
-                        struct Main
-                        {
-                            static int main()
-                            {
+                        struct Main {
+                            static int main() {
                                 SealHashMap<string, int> ages = new SealHashMap();
                                 ages.put("ada", 36);
                                 UtilHashMap mine = new UtilHashMap();
@@ -3390,17 +3152,14 @@ struct Main
                 """), "no type Math to import from; an import names a type in full, as in import static seal.lang.Math.max;");
         output("a program's own type in no package may take a name from seal.util: in its package, it comes before what"
                 + " a * import brings", files("List", """
-                class List
-                {
+                class List {
                     public int size() { return 5; }
                 }
                 """, "Main", """
                 import seal.util.*;
 
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         List mine = new List();
                         Queue<int> q = new Queue();
                         q.push(7);
@@ -3433,8 +3192,7 @@ struct Main
                 pr(zero ** minus);
                 """)), "division by zero");
         output("a struct defines its own **", files("Num", """
-                struct Num
-                {
+                struct Num {
                     public int v;
                     public new(int v) { this.v = v; }
                     @overload(Operator.POWER) public Num pow(int n) { Num r = new Num(1); for (int i = 0; i < n; i++) { r.v *= v; } return r; }
@@ -3448,8 +3206,7 @@ struct Main
                 """)), "1024 32 ");
         output("every operator in a compile-time value", files(
                 "Word", """
-                        struct Word<<int N>>
-                        {
+                        struct Word<<int N>> {
                             public int<<N > 32 ? 64 : 32>> value;
                             public array<bit><<2 ** N>> bits;
                             public array<int><<N % 2 == 0 ? N / 2 : (N + 1) / 2>> halves;
@@ -3457,8 +3214,7 @@ struct Main
                         """,
                 "Quantity", "struct Quantity<<string U>> { public string unit() { return U; } }",
                 "Main", """
-                        struct Main
-                        {
+                        struct Main {
                             const int LIMIT = 2 ** 16 - 1;
                             const int SQUARE = -2 ** 2;
                             const int XOR = 2 ^ 16 - 1;
@@ -3467,8 +3223,7 @@ struct Main
                             const int TRUNC = (int)-3.7 * 2;
                             const int BITS = ~(-8) | (1 <<< 4) & 31 ^ 2;
                             const int LOGIC = !(1 > 2) && (2 <= 3 || 1 / 0 == 0) ? 1 : 0;
-                            static int main()
-                            {
+                            static int main() {
                                 array<int><<2 ** 16 - 1>> big;
                                 Word<<5>> five;
                                 Quantity<<"k" + "m">> q;
@@ -3489,10 +3244,8 @@ struct Main
 
     private static void pureMethods() {
         String bits = """
-                struct Bits
-                {
-                    public static pure int<<64>> fib(int n)
-                    {
+                struct Bits {
+                    public static pure int<<64>> fib(int n) {
                         if (n < 0) { throw new IllegalArgumentException("fib of a negative number"); }
                         int<<64>> a = 0;
                         int<<64>> b = 1;
@@ -3508,13 +3261,11 @@ struct Main
         output("pure methods run while compiling: in <<...>>, array sizes and const fields (§17.2)", files("Bits", bits,
                 "Quantity", "struct Quantity<<string U>> { public double v; public string unit() { return U; } }",
                 "Main", """
-                struct Main
-                {
+                struct Main {
                     const int SIZE = Bits.fib(10);
                     static uint<<Bits.bitsFor(1000)>> small = 1000;
                     static array<int><<Bits.fib(6)>> table;
-                    static int main()
-                    {
+                    static int main() {
                         System.stdout.print(SIZE + " " + sizeof(uint<<Bits.bitsFor(1000)>>) + " " + small + " " + table.length());
                         Quantity<<Bits.unit(1)>> t;
                         System.stdout.print(" " + t.unit() + " " + sizeof(array<bit><<Bits.sum([1, 2, 3, 4])>>));
@@ -3532,16 +3283,14 @@ struct Main
                         """)), "6 56 448 ");
         output("pure methods compute as the program does: widths, bits, fixed point, floats, arrays, recursion", files(
                 "Calc", """
-                        struct Calc
-                        {
+                        struct Calc {
                             public static pure uint<<8>> wrap(uint<<8>> x) { return x * 3 + 7; }
                             public static pure int<<64>> bitsSet(uint<<64>> x) { int<<64>> n = 0; while (x != 0) { if (x[0]) { n++; } x = x <<< -1; } return n; }
                             public static pure uint<<16>> swap(uint<<16>> x) { uint<<16>> r = 0; r[0..8] = x[8..16]; r[8..16] = x[0..8]; return r; }
                             public static pure fixed<<8, 8>> half(fixed<<8, 8>> x) { return x / 2 + x * 0.25; }
                             public static pure double mean(array<double><<3>> xs) { double s = 0; for (double x : xs) { s += x; } return s / 3; }
                             public static pure int gcd(int a, int b) { return b == 0 ? a : gcd(b, a % b); }
-                            public static pure int primes(int n)
-                            {
+                            public static pure int primes(int n) {
                                 array<bit><<200>> composite;
                                 int count = 0;
                                 for (int i = 2; i < n; i++) {
@@ -3549,8 +3298,7 @@ struct Main
                                 }
                                 return count;
                             }
-                            public static pure int ackermann(int m, int n)
-                            {
+                            public static pure int ackermann(int m, int n) {
                                 if (m == 0) { return n + 1; }
                                 if (n == 0) { return ackermann(m - 1, 1); }
                                 return ackermann(m - 1, ackermann(m, n - 1));
@@ -3559,8 +3307,7 @@ struct Main
                         }
                         """,
                 "Main", """
-                        struct Main
-                        {
+                        struct Main {
                             const int WRAP = Calc.wrap(100);
                             const int SET = Calc.bitsSet(18446744073709551615);
                             const int SWAP = Calc.swap(4660);
@@ -3570,8 +3317,7 @@ struct Main
                             const int PRIMES = Calc.primes(200);
                             const int ACK = Calc.ackermann(2, 3);
                             const char UP = Calc.upper('q');
-                            static int main()
-                            {
+                            static int main() {
                                 System.stdout.println(WRAP + " " + SET + " " + SWAP + " " + HALF + " " + MEAN + " " + GCD + " " + PRIMES
                                         + " " + ACK + " " + UP);
                                 System.stdout.println(Calc.wrap(100) + " " + Calc.bitsSet(18446744073709551615) + " " + Calc.swap(4660)
@@ -3587,34 +3333,29 @@ struct Main
         compileError("a pure call that fails while compiling says why, and where", files("Bits", bits, "Main", main("""
                         int<<Bits.fib(-1) + 1>> x = 0;
                         """)), "Bits.fib(-1) can't be worked out while compiling: it threw IllegalArgumentException: "
-                + "fib of a negative number (Bits.seal:5)");
+                + "fib of a negative number (Bits.seal:3)");
         compileError("dividing by zero while compiling", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static pure int ratio(int a, int b) { return a / b; }
                     static int main() { array<int><<ratio(4, 0)>> xs; return 0; }
                 }
-                """), "Main.ratio(4, 0) can't be worked out while compiling: it divided by zero (Main.seal:3)");
+                """), "Main.ratio(4, 0) can't be worked out while compiling: it divided by zero (Main.seal:2)");
         compileError("only pure methods run while compiling", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static int count(int n) { return n; }
                     static int main() { array<int><<count(3)>> xs; return 0; }
                 }
                 """), "Main.count isn't pure, so it can't run while compiling; declare it `static pure`");
         String stats = """
-                struct Stats
-                {
+                struct Stats {
                     public static pure int sum(array<int> xs) { int s = 0; for (int x : xs) { s += x; } return s; }
-                    public static pure array<int> squares(int n)
-                    {
+                    public static pure array<int> squares(int n) {
                         array<int> out = new array<int>(n);
                         for (int i = 0; i < n; i++) { out[i] = i * i; }
                         return out;
                     }
                     public static pure int median(array<int> xs) { array<int> sorted = xs.copy(); sorted.sort(); return sorted[sorted.length() / 2]; }
-                    public static pure int primesBelow(int n)
-                    {
+                    public static pure int primesBelow(int n) {
                         array<bit> composite = new array<bit>(n);
                         int count = 0;
                         for (int i = 2; i < n; i++) {
@@ -3622,14 +3363,12 @@ struct Main
                         }
                         return count;
                     }
-                    public static pure int histogram(array<int> xs, int bucket)
-                    {
+                    public static pure int histogram(array<int> xs, int bucket) {
                         array<int> counts = new array<int>(10);
                         for (int x : xs) { counts[x % 10]++; counts[x % 10] += 0; }
                         return counts[bucket];
                     }
-                    public static pure int tail(array<int> xs)
-                    {
+                    public static pure int tail(array<int> xs) {
                         array<int> t = xs.slice(1, xs.length());
                         t.reverse();
                         return t[0] * 100 + t.indexOf(2) + (t.contains(9) ? 1000 : 0);
@@ -3639,8 +3378,7 @@ struct Main
                 }
                 """;
         output("pure methods make and use arrays while compiling, as when the program runs", files("Stats", stats, "Main", """
-                struct Main
-                {
+                struct Main {
                     const int SUM = Stats.sum([1, 2, 3, 4]);
                     const int SQ = Stats.sum(Stats.squares(10));
                     const int MED = Stats.median([9, 1, 7, 3, 5]);
@@ -3649,8 +3387,7 @@ struct Main
                     const int TAIL = Stats.tail([5, 2, 9, 4]);
                     const int GROW = Stats.grow(5);
                     const double SPREAD = Stats.spread([2.5, -1.0, 4.25]);
-                    static int main()
-                    {
+                    static int main() {
                         array<int><<Stats.sum([1, 2, 3])>> six;
                         System.stdout.println(SUM + " " + SQ + " " + MED + " " + PRIMES + " " + H + " " + TAIL + " " + GROW + " " + SPREAD
                                 + " " + six.length());
@@ -3664,12 +3401,10 @@ struct Main
         compileError("an index outside an array, while compiling", files("Stats", stats, "Main", main("""
                         array<int><<Stats.median(Stats.squares(0))>> xs;
                         """)), "Stats.median(Stats.squares(0)) can't be worked out while compiling: it threw IndexOutOfBoundsException: "
-                + "index 0 out of range for an array of length 0 (Stats.seal:10)");
+                + "index 0 out of range for an array of length 0 (Stats.seal:8)");
         output("a pure method makes arrays and changes them, and reads the arrays it is given", files("Main", """
-                struct Main
-                {
-                    static pure int f(array<int> given)
-                    {
+                struct Main {
+                    static pure int f(array<int> given) {
                         array<int> mine = given.copy();
                         mine[0] = given[1] + given.length();
                         mine[1]++;
@@ -3700,8 +3435,7 @@ struct Main
                 struct Main { static pure int f(array<int> xs) { List<int> l = xs.toList(); return l.size(); } static int main() { return 0; } }
                 """), "a pure method can use an array's own methods, but not toList(), which makes a List, a class object");
         compileError("a pure method that never ends is stopped", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static pure int spin(int n) { while (n > 0) { n++; n--; } return n; }
                     static int main() { array<int><<spin(1)>> xs; return 0; }
                 }
@@ -3709,7 +3443,7 @@ struct Main
     }
 
     private static String main(String body) {
-        return Imports.of(body) + "struct Main\n{\n" + HELPERS + "    static int main()\n    {\n" + body + "        return 0;\n    }\n}\n";
+        return Imports.of(body) + "struct Main {\n" + HELPERS + "    static int main() {\n" + body + "        return 0;\n    }\n}\n";
     }
 
     private static Map<String, String> files(String... pairs) {

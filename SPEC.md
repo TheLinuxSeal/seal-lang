@@ -77,8 +77,7 @@ A source file may begin with multiple headers followed by one shared body.
 
 ```text
 struct Array<T><<int N>>
-struct Array<T><<int N, int K>>
-{
+struct Array<T><<int N, int K>> {
     ...
 }
 ```
@@ -90,8 +89,7 @@ The headers describe the possible **shapes** of the type. Every header uses the 
 A type can be declared inside another: a `class`, `struct`, `unique`, `interface`, `enum` or `abstract class`, nested as deeply as needed. Each source file holds one top-level type, named after the file, and any number of nested ones.
 
 ```text
-class HashMap<K, V>
-{
+class HashMap<K, V> {
     public static class Entry<A, B> { ... }   // used outside as HashMap.Entry<string, int>
     struct Slot { ... }                       // private: only for HashMap
     ...
@@ -115,8 +113,7 @@ package com.example.game;            // this file's type is com.example.game.Pla
 import com.example.util.Vec2;        // one type, by name
 import com.example.net.*;            // every type of a package
 
-class Player
-{
+class Player {
     Vec2 pos;                        // com.example.util.Vec2
     Connection link;                 // com.example.net.Connection
     com.example.util.Color tint;     // a type can always be named in full
@@ -175,15 +172,12 @@ array<int><<SIZE>> cells;                   // an imported constant is a compile
 A record is a struct made only to hold some values, its components, as Java's records are. It says what they are, and the rest is written for it:
 
 ```text
-record Point(int x, int y)
-{
+record Point(int x, int y) {
     public Point plus(Point o) { return new Point(x + o.x, y + o.y); }   // methods as in any struct
 }
 
-record Range(int lo, int hi)
-{
-    new                                   // a compact constructor: checks (or adjusts) the components
-    {
+record Range(int lo, int hi) {
+    new {                                 // a compact constructor: checks (or adjusts) the components
         if (lo > hi) { throw new IllegalArgumentException("lo is above hi"); }
     }
 }
@@ -338,8 +332,7 @@ A class may have multiple headers representing different shapes.
 
 ```text
 struct Array<T><<int N>>
-struct Array<T><<int N, int K>>
-{
+struct Array<T><<int N, int K>> {
     ...
 }
 ```
@@ -355,8 +348,7 @@ Using an unbound parameter as an actual value is a compile-time error.
 For example, a hypothetical:
 
 ```text
-struct Foo<<int N, int K>>
-{
+struct Foo<<int N, int K>> {
     ...
 }
 ```
@@ -506,8 +498,7 @@ An empty guard `<<>>` is a shape guard. It matches only the bare shape, in which
 
 ```text
 struct Buf<<>>
-struct Buf<<int N>>
-{
+struct Buf<<int N>> {
     array<char><<N>> data<<int N>>;
     array<char><<16>> data<<>>;
 }
@@ -543,10 +534,8 @@ A parameter type may contain value binders of the form `<<int K>>`, or for a wid
 
 ```text
 struct string<<>>
-struct string<<int N>>
-{
-    public string<<N + K>> add<<int N>>(string<<int K>> other)
-    {
+struct string<<int N>> {
+    public string<<N + K>> add<<int N>>(string<<int K>> other) {
         ...
     }
 }
@@ -688,15 +677,13 @@ Within a class body, members are referred to by bare name, or through `this`.
 `this` is the object a method or constructor runs on, as in Java:
 
 ```text
-struct Point
-{
+struct Point {
     public int x;
     public int y;
     public new(int x, int y) { this.x = x; this.y = y; }   // fields, past parameters of the same name
 }
 
-class Node
-{
+class Node {
     public Node next;
     public Node prepend(int v) { return new Node(v, this); }   // passing the object on
     public Iterator<int> iterator() { return new NodeIterator(this); }
@@ -712,8 +699,7 @@ class Node
 A method can have type parameters of its own, written before its return type, as in Java:
 
 ```text
-static <T> T largest(List<T> xs)
-{
+static <T> T largest(List<T> xs) {
     T best = xs.get(0);
     for (T x : xs) { if (best < x) { best = x; } }
     return best;
@@ -721,8 +707,7 @@ static <T> T largest(List<T> xs)
 
 static <T, R> List<R> mapAll(List<T> xs, Function<T, R> f) { ... }
 
-class Box<T>
-{
+class Box<T> {
     public T value;
     public <R> Box<R> map(Function<T, R> f) { return new Box<R>(f.apply(value)); }
 }
@@ -740,8 +725,7 @@ class Box<T>
 
 ```text
 struct Array<T><<int N>>
-struct Array<T><<int N, int K>>
-{
+struct Array<T><<int N, int K>> {
     int occupied;
 
     array<T><<N>> data<<int N>>;
@@ -805,8 +789,7 @@ The class name is not repeated. Only a `unique` has a destructor (§16): a `stru
 Example:
 
 ```text
-public new<<int N>>(int initial)
-{
+public new<<int N>>(int initial) {
     occupied = initial;
 }
 ```
@@ -814,13 +797,11 @@ public new<<int N>>(int initial)
 A constructor or destructor may also be unguarded:
 
 ```text
-public new()
-{
+public new() {
     ...
 }
 
-delete()
-{
+delete() {
     ...
 }
 ```
@@ -942,8 +923,7 @@ There is no `protected` access modifier. To give subclasses access, list them: `
 A member marked `static` belongs to the class rather than an instance and is called through the class name:
 
 ```text
-struct Integer
-{
+struct Integer {
     public static string toString(int x) { ... }
 }
 
@@ -965,20 +945,16 @@ Access control is a compile-time restriction. Since `addr<T>` provides low-level
 A `pure` method's result depends only on its arguments, so it can also run while compiling: wherever a compile-time value goes (§8), in `<<...>>`, an array's size or a `const` field.
 
 ```text
-struct Bits
-{
-    public static pure int needed(int n)
-    {
+struct Bits {
+    public static pure int needed(int n) {
         int bits = 1;
         while ((1 <<< bits) <= n) { bits++; }
         return bits;
     }
 }
 
-struct Fib
-{
-    public static pure int of(int n)
-    {
+struct Fib {
+    public static pure int of(int n) {
         if (n < 0) { throw new IllegalArgumentException("n must not be negative"); }
         int a = 0;
         int b = 1;
@@ -1117,8 +1093,7 @@ The compiler knows their complete size from their static type.
 A class cannot contain itself inline:
 
 ```text
-struct Node
-{
+struct Node {
     Node next;       // invalid
 }
 ```
@@ -1126,8 +1101,7 @@ struct Node
 but it may contain an address to itself:
 
 ```text
-struct Node
-{
+struct Node {
     addr<Node> next;
 }
 ```
@@ -1351,8 +1325,7 @@ Classes may contain:
 Structs and uniques cannot contain class objects inline; a field of class type is always a handle:
 
 ```text
-struct Holder
-{
+struct Holder {
     Doc doc;            // a handle<Doc>
     array<Doc><<4>> docs;        // four handles
     List<Doc> more;     // a list of handles
@@ -1392,14 +1365,12 @@ Abstract classes, abstract methods and interfaces are likewise only for classes.
 `abstract class` declares a class that can't be created with `new`; it exists to be extended. It can have everything a class has (fields, constructors, static members, ordinary methods) plus abstract methods: public methods with no body, ending in `;`.
 
 ```text
-abstract class Shape
-{
+abstract class Shape {
     public abstract int area();
     public string describe() { ... area() ... }   // calls the subclass's area
 }
 
-class Square extends(Shape)
-{
+class Square extends(Shape) {
     int side;
     public int area() { return side * side; }
 }
@@ -1420,23 +1391,19 @@ Rules:
 An interface is a list of method signatures, which classes promise to implement, and of fields they promise to hold (§30.4):
 
 ```text
-interface Describable
-{
+interface Describable {
     string describe();
 }
 
-interface Comparable<T>
-{
+interface Comparable<T> {
     int compareTo(T other);
 }
 
-interface Thing extends(Describable, Named)   // an interface extends interfaces
-{
+interface Thing extends(Describable, Named) { // an interface extends interfaces
     int id();
 }
 
-class Circle extends(Shape) implements(Describable, Comparable<Circle>)
-{
+class Circle extends(Shape) implements(Describable, Comparable<Circle>) {
     ...
 }
 ```
@@ -1494,8 +1461,7 @@ and `List<T>` takes them in `sort(Comparator<T>)` (stable), `forEach(Consumer<T>
 An interface or abstract class can name fields that the classes below it hold, as it names methods they implement. An **abstract field** has no value: every class that isn't abstract must hold it and give it one. A **default field** has a value, which a class gets unless it declares the field itself. An interface's **default methods** have a body its classes get, unless they implement the method themselves; like an abstract class's methods, they can use the fields:
 
 ```text
-interface Named
-{
+interface Named {
     string name;                         // every class implementing Named holds a name
     default string greeting = "Hello";   // and a greeting, "Hello" unless it says otherwise
 
@@ -1503,16 +1469,14 @@ interface Named
     default void rename(string to) { name = to; }
 }
 
-abstract class Shape implements(Named)
-{
+abstract class Shape implements(Named) {
     public abstract int sides;            // each kind of shape gives its own
     public default string color = "red";
 
     public string describe() { return color + " " + name + " with " + sides + " sides"; }
 }
 
-class Square extends(Shape)
-{
+class Square extends(Shape) {
     public int sides = 4;                 // fills in Shape's sides
     public string name;                   // fills in Named's name, given in the constructor
     public new(string n) { name = n; }
@@ -1718,8 +1682,7 @@ Widths greater than 64 bits are represented using user-defined classes.
 For example:
 
 ```text
-struct BigUInt<<int BITS>>
-{
+struct BigUInt<<int BITS>> {
     ...
 }
 ```
@@ -1816,8 +1779,7 @@ uint<<1>>
 In particular, Boolean conditions require an actual `bit`.
 
 ```text
-if (condition)
-{
+if (condition) {
     ...
 }
 ```
@@ -1852,8 +1814,7 @@ c == Color.GREEN         // compares ordinals; <, <=, >, >= too
 Like Java's, an enum can have fields, constructors and methods. The constants come first, with their constructor arguments, then `;` and the members:
 
 ```text
-enum Planet
-{
+enum Planet {
     MERCURY(3, 24),
     JUPITER(18980, 699);
 
@@ -2155,8 +2116,7 @@ Animal a = switch (kind) { case "cat" -> new Cat(); default -> throw new Illegal
 Errors a program can handle are exceptions, as in Java: objects of classes extending `Exception`, thrown with `throw` and caught with `try`/`catch`.
 
 ```text
-class BadInput extends(IllegalArgumentException)
-{
+class BadInput extends(IllegalArgumentException) {
     public int code;
     public new(string m, int c) { super(m); code = c; }
 }
@@ -2227,8 +2187,7 @@ The standard library's exceptions, and what throws them:
 `assert cond;` and `assert cond : message;` state what must be true, as in Java. They run only when the program is compiled with `-Wassert` (Java's `-ea`); otherwise they are checked by the compiler but skipped when running, condition and message alike, so they can't slow a program or change what it does:
 
 ```text
-static int divide(int a, int b)
-{
+static int divide(int a, int b) {
     assert b != 0 : "divide by zero: " + a + " / " + b;
     return a / b;
 }
@@ -2605,19 +2564,16 @@ Operator overloading uses decorators.
 Example:
 
 ```text
-struct BigUInt<<int BITS>>
-{
+struct BigUInt<<int BITS>> {
     array<uint<<64>>><<(BITS + 63) / 64>> words;
 
     @overload(Operator.ADD)
-    public BigUInt<<BITS>> add(BigUInt<<BITS>> o)
-    {
+    public BigUInt<<BITS>> add(BigUInt<<BITS>> o) {
         ...
     }
 
     @overload(Operator.LESS)
-    public bit isLess(BigUInt<<BITS>> o)
-    {
+    public bit isLess(BigUInt<<BITS>> o) {
         ...
     }
 }
@@ -2682,8 +2638,7 @@ Comparisons do not chain: `a < b < c` is an error and must be parenthesized.
 A class, struct or unique defines an operator with a method marked `@overload`, naming the operator by a constant of the standard library's `Operator` enum:
 
 ```text
-struct Vec2
-{
+struct Vec2 {
     public double x;
     public double y;
     @overload(Operator.ADD)    public Vec2 plus(Vec2 o) { return new Vec2(x + o.x, y + o.y); }    // a + b
@@ -2732,8 +2687,7 @@ Indexing is for types that act like containers:
 A type casts itself to other types with `CAST` methods, one per type it casts to. `(T)x` calls the one returning `T` exactly, so overloads differ only in their return type:
 
 ```text
-struct Meters
-{
+struct Meters {
     public double v;
     @overload(Operator.CAST) public double toDouble() { return v; }       // (double)m
     @overload(Operator.CAST) public int toInt() { return (int)v; }        // (int)m
@@ -2744,8 +2698,7 @@ struct Meters
 * A cast operator is only called by an explicit cast, never implicitly (§41.6), with one exception: **a cast to `string` is the type's text**, which Java calls `toString()`. String `+` and `+=` (§39), `print` and `println` (§42.2) and `%s` (§42.6) use it, and an enum has one already that gives the constant's name (declaring its own replaces it):
 
   ```text
-  struct Point
-  {
+  struct Point {
       public int x;
       public int y;
       @overload(Operator.CAST) public string text() { return "(" + x + ", " + y + ")"; }
@@ -2960,31 +2913,26 @@ This distinction is fundamental to the memory model.
 A large unsigned integer can be expressed entirely in user code:
 
 ```text
-struct BigUInt<<int BITS>>
-{
+struct BigUInt<<int BITS>> {
     array<uint<<64>>><<(BITS + 63) / 64>> words;
 
     @overload(Operator.ADD)
-    public BigUInt<<BITS>> add(BigUInt<<BITS>> o)
-    {
+    public BigUInt<<BITS>> add(BigUInt<<BITS>> o) {
         ...
     }
 
     @overload(Operator.LESS)
-    public bit isLess(BigUInt<<BITS>> o)
-    {
+    public bit isLess(BigUInt<<BITS>> o) {
         ...
     }
 
     @overload(Operator.SHIFT)
-    public BigUInt<<BITS>> shifted(int n)
-    {
+    public BigUInt<<BITS>> shifted(int n) {
         ...
     }
 
     @overload(Operator.SHIFT_ASSIGN)
-    public void shiftInPlace(int n)
-    {
+    public void shiftInPlace(int n) {
         ...
     }
 }
@@ -3039,12 +2987,10 @@ The compiler, in the Java package `io.github.thelinuxseal.seal` (`src/io/github/
 * As in Java 25, `main` may be static or not, and a static one is chosen first. For an instance `main()`, the program creates a `Main` with its no-argument constructor (which may be private), calls `main()` on it, and releases the object when `main` returns, before static fields (§26.1). Any kind that can be created works: a class, a struct or a unique. An abstract class, an enum, or a type with type parameters or shapes needs a static `main()`.
 
   ```text
-  class Main
-  {
+  class Main {
       int count;
 
-      void main()
-      {
+      void main() {
           count++;
           System.stdout.println("count " + count);
       }
@@ -3314,40 +3260,33 @@ The following areas remain unresolved or proposed.
 
 ```text
 struct Matrix<T><<int N>>
-struct Matrix<T><<int N, int M>>
-{
+struct Matrix<T><<int N, int M>> {
     int flags;
 
     array<T><<N>> data<<int N>>;
     array<T><<N, M>> data<<int N, int M>>;
 
-    public new()
-    {
+    public new() {
         flags = 0;
     }
 
-    public int size<<int N>>()
-    {
+    public int size<<int N>>() {
         return N;
     }
 
-    public int size<<int N, int M>>()
-    {
+    public int size<<int N, int M>>() {
         return N * M;
     }
 
-    public T get<<int N>>(int x)
-    {
+    public T get<<int N>>(int x) {
         return data[x];
     }
 
-    public T get<<int N, int M>>(int x, int y)
-    {
+    public T get<<int N, int M>>(int x, int y) {
         return data[x][y];
     }
 
-    public int getFlags()
-    {
+    public int getFlags() {
         return flags;
     }
 }
@@ -3367,8 +3306,7 @@ The class cannot additionally contain an unguarded `get()` because the name `get
 class Shape<<int KIND>>
     extends(Base)
     extends<<0>>(Circle)
-    extends<<1>>(Square)
-{
+    extends<<1>>(Square) {
     ...
 }
 ```
@@ -3394,8 +3332,7 @@ Object
 A struct buffer:
 
 ```text
-struct Buffer<<int N>>
-{
+struct Buffer<<int N>> {
     array<uint<<8>>><<N>> data;
 }
 ```
@@ -3412,8 +3349,7 @@ Its complete layout is known statically.
 A buffer class:
 
 ```text
-class SharedBuffer
-{
+class SharedBuffer {
     ...
 }
 ```

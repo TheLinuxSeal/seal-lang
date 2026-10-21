@@ -121,8 +121,7 @@ public final class LexerTest {
         // A whole class from the spec.
         String array = """
                 struct Array<T><<int N>>
-                struct Array<T><<int N, int K>>
-                {
+                struct Array<T><<int N, int K>> {
                     int occupied;
                     T[N] data<<int N>>;
                     public T get<<int N>>(int x) {

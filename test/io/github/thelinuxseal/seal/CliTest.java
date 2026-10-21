@@ -40,10 +40,8 @@ public final class CliTest {
 
     private static void tests(Path dir) throws IOException {
         Path ok = write(dir, "ok/Main.seal", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         System.stdout.println("hi");
                         return 7;
                     }
@@ -57,7 +55,7 @@ public final class CliTest {
 
         r = run("dump", ok.getParent().toString());
         check(r.code() == 0 && r.out().startsWith("class Main  (Main.seal)") && r.out().contains("static main()int")
-                && r.out().contains("; Main.seal:5") && r.out().contains("ldc \"hi\""), "dump: prints the class files " + r);
+                && r.out().contains("; Main.seal:3") && r.out().contains("ldc \"hi\""), "dump: prints the class files " + r);
 
         // Seal's VM is removed (docs/JVM.md §13): --vm says so; --jvm, the only backend, is still accepted.
         r = run("run", "--vm", ok.getParent().toString());
@@ -82,51 +80,46 @@ public final class CliTest {
             check(code == 7 && printed.equals("hi\n"), "java runs what build wrote: exit " + code + ", " + printed);
         }
         Path divide = write(dir, "divide/Main.seal", """
-                struct Main
-                {
+                struct Main {
                     static int main() { int zero = 0; System.stdout.print("x"); return 1 / zero; }
                 }
                 """);
         r = run("run", "--jvm", divide.getParent().toString());
         check(r.code() == 70 && r.out().equals("x") && r.err().startsWith("trap: division by zero")
-                        && r.err().contains("at Main.main (Main.seal:3)"),
+                        && r.err().contains("at Main.main (Main.seal:2)"),
                 "run --jvm: a fault is a trap, with the Seal lines " + r);
         Path pointers = write(dir, "pointers/Main.seal", """
-                struct Main
-                {
+                struct Main {
                     static int main() { addr<int> p = new<int>(1); &p = 4; System.stdout.print(&p); delete p; delete p; return 0; }
                 }
                 """);
         r = run("run", "--jvm", pointers.getParent().toString());
         check(r.code() == 70 && r.out().equals("4") && r.err().startsWith("trap: delete of an address that was not allocated with new")
-                        && r.err().contains("at Main.main (Main.seal:3)"),
+                        && r.err().contains("at Main.main (Main.seal:2)"),
                 "run --jvm: addresses work, and a second delete is a trap " + r);
 
         Path bad = write(dir, "bad/Main.seal", """
-                struct Main
-                {
+                struct Main {
                     static int main() { int x = y; return 0; }
                 }
                 """);
         r = run("run", bad.getParent().toString());
-        check(r.code() == 1 && r.err().contains("Main.seal:3:33: unknown name y") && r.out().isEmpty(),
+        check(r.code() == 1 && r.err().contains("Main.seal:2:33: unknown name y") && r.out().isEmpty(),
                 "run: compile errors exit 1 and go to stderr " + r);
         r = run("check", bad.toString());
         check(r.code() == 1 && r.err().contains("unknown name y"), "check: a single file " + r);
 
         Path lossy = write(dir, "lossy/Main.seal", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         int i = 10;
                         i += 2.5;
                         return i;
                     }
                 }
                 """);
-        String widen = "lossy/Main.seal:6:9: warning: [-WautoCast] implicit cast from int to double in operand of +=";
-        String narrow = "lossy/Main.seal:6:9: warning: [%s] implicit cast from double to int in compound assignment may lose data";
+        String widen = "lossy/Main.seal:4:9: warning: [-WautoCast] implicit cast from int to double in operand of +=";
+        String narrow = "lossy/Main.seal:4:9: warning: [%s] implicit cast from double to int in compound assignment may lose data";
         r = run("run", lossy.getParent().toString());
         check(r.code() == 12 && r.err().isEmpty(), "run: a narrowing compound assignment, no warning by default " + r);
         r = run("run", "-WautoCast", lossy.getParent().toString());
@@ -142,12 +135,10 @@ public final class CliTest {
                 "-W with an unknown name " + r);
 
         Path asserts = write(dir, "asserts/Main.seal", """
-                class Main
-                {
+                class Main {
                     static int calls = 0;
                     static bit counted() { calls++; return true; }
-                    static int main()
-                    {
+                    static int main() {
                         assert counted();
                         int x = -3;
                         assert x >= 0;
@@ -158,29 +149,25 @@ public final class CliTest {
         r = run("run", asserts.getParent().toString());
         check(r.code() == 0 && r.err().isEmpty(), "asserts are skipped, conditions and all, without -Wassert " + r);
         r = run("run", "-Wassert", asserts.getParent().toString());
-        check(r.code() == 70 && r.err().startsWith("uncaught AssertionError: x >= 0\n    at Main.main (Main.seal:9)"),
+        check(r.code() == 70 && r.err().startsWith("uncaught AssertionError: x >= 0\n    at Main.main (Main.seal:7)"),
                 "-Wassert runs asserts; a failure names the condition " + r);
 
         Path trap = write(dir, "trap/Main.seal", """
-                struct Main
-                {
+                struct Main {
                     static int main() { System.stdout.print(1); int z = 0; return 1 / z; }
                 }
                 """);
         r = run("run", trap.getParent().toString());
         check(r.code() == 70 && r.out().equals("1") && r.err().startsWith("trap: division by zero")
-                && r.err().contains("at Main.main (Main.seal:3)"), "run: traps exit 70 with a stack trace " + r);
+                && r.err().contains("at Main.main (Main.seal:2)"), "run: traps exit 70 with a stack trace " + r);
 
         Path uncaught = write(dir, "uncaught/Main.seal", """
-                struct Main
-                {
-                    static void check(int n)
-                    {
+                struct Main {
+                    static void check(int n) {
                         if (n < 0) { throw new IllegalArgumentException("negative: " + n); }
                     }
 
-                    static int main()
-                    {
+                    static int main() {
                         check(-3);
                         return 0;
                     }
@@ -189,15 +176,13 @@ public final class CliTest {
         r = run("run", uncaught.getParent().toString());
         check(r.code() == 70 && r.err().equals("""
                 uncaught IllegalArgumentException: negative: -3
-                    at Main.check (Main.seal:5)
-                    at Main.main (Main.seal:10)
+                    at Main.check (Main.seal:3)
+                    at Main.main (Main.seal:7)
                 """), "run: an uncaught exception names its class, message and where it was thrown " + r);
 
         Path streams = write(dir, "streams/Main.seal", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         System.stdout.print("name? ");
                         string name = System.stdin.readLine();
                         int total = 0;
@@ -233,17 +218,14 @@ public final class CliTest {
                 "run: System.fail prints to stderr and stops " + r);
 
         Path deep = write(dir, "deep/Main.seal", """
-                struct Main
-                {
-                    static int divide(int a, int b)
-                    {
+                struct Main {
+                    static int divide(int a, int b) {
                         int q = 0;
                         q = a / b;
                         return q;
                     }
 
-                    static int main()
-                    {
+                    static int main() {
                         string s = "abc";
                         System.stdout.print(divide(4, 2));
                         System.stdout.print(divide(1,
@@ -255,17 +237,15 @@ public final class CliTest {
         r = run("run", deep.getParent().toString());
         check(r.code() == 70 && r.err().equals("""
                 trap: division by zero
-                    at Main.divide (Main.seal:6)
-                    at Main.main (Main.seal:14)
+                    at Main.divide (Main.seal:4)
+                    at Main.main (Main.seal:11)
                 """), "run: each frame names its source line; a call spanning lines names its first " + r);
 
         Path instance = write(dir, "instance/Main.seal", """
-                class Main
-                {
+                class Main {
                     int zero;
 
-                    void main()
-                    {
+                    void main() {
                         System.stdout.print(1 / zero);
                     }
                 }
@@ -273,14 +253,12 @@ public final class CliTest {
         r = run("run", instance.getParent().toString());
         check(r.code() == 70 && r.err().equals("""
                 trap: division by zero
-                    at Main.main (Main.seal:7)
+                    at Main.main (Main.seal:5)
                 """), "run: an instance main's trace starts at main " + r);
 
         Path inLib = write(dir, "inlib/Main.seal", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         string s = "abc";
                         return (int)s.charAt(5);
                     }
@@ -288,11 +266,10 @@ public final class CliTest {
                 """);
         r = run("run", inLib.getParent().toString());
         check(r.code() == 70 && r.err().contains("at string.charAt (string.seal:")
-                && r.err().contains("at Main.main (Main.seal:6)"), "run: library frames name their file " + r);
+                && r.err().contains("at Main.main (Main.seal:4)"), "run: library frames name their file " + r);
 
         Path other = write(dir, "other/Start.seal", """
-                struct Start
-                {
+                struct Start {
                     static void main() { System.stdout.print(5); }
                 }
                 """);
@@ -326,12 +303,11 @@ public final class CliTest {
         r = run("run");
         check(r.code() == 2 && r.err().contains("usage"), "usage message " + r);
 
-        Path apps = write(dir, "apps/app/Main.seal", "package app;\n\nclass Main\n{\n    static int main() { return 3; }\n}\n");
+        Path apps = write(dir, "apps/app/Main.seal", "package app;\n\nclass Main {\n    static int main() { return 3; }\n}\n");
         write(dir, "apps/tool/Main.seal", """
                 package tool;
 
-                class Main
-                {
+                class Main {
                     static void main() { throw new IllegalStateException("from tool"); }
                 }
                 """);
@@ -343,7 +319,7 @@ public final class CliTest {
         check(r.code() == 3, "--main with a package " + r);
         r = run("run", "--main", "tool.Main", root);
         check(r.code() == 70 && r.err().contains("uncaught IllegalStateException: from tool")
-                && r.err().contains("at tool.Main.main (Main.seal:5)"), "traces name the package " + r);
+                && r.err().contains("at tool.Main.main (Main.seal:4)"), "traces name the package " + r);
 
         Path wrongName = write(dir, "named/Wrong.seal", "struct Right { }");
         r = run("check", wrongName.getParent().toString());
@@ -364,10 +340,8 @@ public final class CliTest {
         String plain = write(dir, "java-files/plain/Main.seal", """
                 import seal.java.*;
 
-                class Main
-                {
-                    static void main()
-                    {
+                class Main {
+                    static void main() {
                         System.stdout.println((string) Helper.shout(JavaString.of("hi")) + " " + (int) Helper.twice(JavaInt.of(21)));
                     }
                 }
@@ -391,10 +365,8 @@ public final class CliTest {
                 import com.example.util.Counter;
                 import seal.java.*;
 
-                class Main
-                {
-                    static void main()
-                    {
+                class Main {
+                    static void main() {
                         Counter c = new Counter();
                         c.add(JavaInt.of(3));
                         System.stdout.println((string) Names.joined() + " " + (int) c.total());
@@ -435,12 +407,10 @@ public final class CliTest {
                 import com.example.glue.Format;
                 import seal.java.*;
 
-                class Hooks
-                {
+                class Hooks {
                     static int calls = 0;
 
-                    public static JavaString called(JavaString who)
-                    {
+                    public static JavaString called(JavaString who) {
                         calls++;
                         return Format.bracket(JavaString.of((string) who + " #" + calls));
                     }
@@ -487,8 +457,7 @@ public final class CliTest {
 
                 import com.example.hooks.Caller;
 
-                class Uses
-                {
+                class Uses {
                     static void go() { Again.twice(); }
                 }
                 """);
@@ -501,8 +470,7 @@ public final class CliTest {
 
                 import com.example.hooks.*;
 
-                class Uses
-                {
+                class Uses {
                     static void go() { Again.twice(); }
                 }
                 """);
@@ -534,8 +502,7 @@ public final class CliTest {
     private static void jarsAndLibraries(Path dir) throws IOException {
         String javaCommand = ProcessHandle.current().info().command().orElse("java");
         String app = write(dir, "jar-app/Main.seal", """
-                class Main
-                {
+                class Main {
                     static string greeting = "from a jar";
                     static void main() { System.stdout.println(greeting); }
                 }
@@ -557,8 +524,7 @@ public final class CliTest {
         String lib = write(dir, "jar-lib/com/example/Greeter.seal", """
                 package com.example;
 
-                class Greeter
-                {
+                class Greeter {
                     static string prefix = "hello, ";
                     static int made = 0;
                     string name;
@@ -637,10 +603,8 @@ public final class CliTest {
                 import demo.Counter;
                 import seal.java.*;
 
-                class Main
-                {
-                    static void main()
-                    {
+                class Main {
+                    static void main() {
                         Greeter g = new Greeter();
                         System.stdout.println(g.greet(JavaString.of("Ada")) + " " + (int)Counter.take());
                     }

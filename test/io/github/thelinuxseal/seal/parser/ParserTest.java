@@ -264,8 +264,7 @@ public final class ParserTest {
     private static void specExamples() {
         String array = """
                 struct Array<T><<int N>>
-                struct Array<T><<int N, int K>>
-                {
+                struct Array<T><<int N, int K>> {
                     int occupied;
 
                     array<T><<N>> data<<int N>>;
@@ -307,26 +306,22 @@ public final class ParserTest {
 
         String string = """
                 struct string<<>>
-                struct string<<int N>>
-                {
+                struct string<<int N>> {
                     int length;
 
                     array<uint<<16>>><<N>> data<<int N>>;
                     addr<uint<<16>>> data<<>>;
                     int capacity<<>>;
 
-                    public uint<<16>> charAt<<int N>>(int i)
-                    {
+                    public uint<<16>> charAt<<int N>>(int i) {
                         return data[i];
                     }
 
-                    public uint<<16>> charAt<<>>(int i)
-                    {
+                    public uint<<16>> charAt<<>>(int i) {
                         return &(data + i * sizeof(uint<<16>>));
                     }
 
-                    public string<<N + K>> add<<int N>>(string<<int K>> other)
-                    {
+                    public string<<N + K>> add<<int N>>(string<<int K>> other) {
                         string<<N + K>> result;
                         for (int i = 0; i < N; i += 1) {
                             result.data[i] = data[i];
@@ -340,8 +335,7 @@ public final class ParserTest {
         check(r.ast().members().size() == 7, "string example has 7 members: " + r.ast().members().size());
 
         String bigint = """
-                struct BigUInt<<int BITS>>
-                {
+                struct BigUInt<<int BITS>> {
                     array<uint<<64>>><<(BITS + 63) / 64>> words;
 
                     @overload(Operator.ADD)
@@ -363,8 +357,7 @@ public final class ParserTest {
         String dog = """
                 class Dog extends(Animal)
                 class Dog<<int size>> extends(Pet<<size>>)
-                class Dog<<int size, int weight>>
-                {
+                class Dog<<int size, int weight>> {
                     public new() { super(); }
                     delete() { }
                 }
@@ -420,8 +413,7 @@ public final class ParserTest {
 
     private static void records() {
         Parser.Result r = Parser.parse("""
-                record Range(int lo, int hi)
-                {
+                record Range(int lo, int hi) {
                     new { if (lo > hi) { throw new IllegalArgumentException("backwards"); } }
                     public int size() { return hi - lo; }
                 }
@@ -449,8 +441,7 @@ public final class ParserTest {
 
     private static void nestedTypes() {
         Parser.Result r = Parser.parse("""
-                class Outer
-                {
+                class Outer {
                     public static struct Point { public int x; }
                     abstract class Shape { public abstract int area(); }
                     enum Kind { A, B; int weight; }
@@ -486,8 +477,7 @@ public final class ParserTest {
 
         // Recovery: one bad member doesn't stop the rest from parsing.
         Parser.Result r = Parser.parse("""
-                struct Foo
-                {
+                struct Foo {
                     int a = ;
                     int b;
                     void f() { x = ; y = 2; }
@@ -500,8 +490,8 @@ public final class ParserTest {
         check(f.body().stmts().size() == 1, "recovery keeps the good statement in f");
 
         // Errors carry positions.
-        r = Parser.parse("struct Foo\n{\n    int x = a << b;\n}");
-        check(r.errors().size() == 1 && r.errors().get(0).line() == 3 && r.errors().get(0).column() == 15,
+        r = Parser.parse("struct Foo {\n    int x = a << b;\n}");
+        check(r.errors().size() == 1 && r.errors().get(0).line() == 2 && r.errors().get(0).column() == 15,
                 "error position: " + r.errors());
     }
 

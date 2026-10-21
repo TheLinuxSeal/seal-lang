@@ -113,12 +113,10 @@ public final class RunTest {
                 for (int j = 10; j > 0; j -= 4) { p(j); }
                 """), "1 2 4 5 10 6 2 ");
         output("short circuit", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static int calls;
                     static bit hit() { calls += 1; return true; }
-                    static int main()
-                    {
+                    static int main() {
                         bit a = false && hit();
                         bit b = true || hit();
                         bit c = true && hit();
@@ -128,12 +126,10 @@ public final class RunTest {
                 }
                 """), "1");
         output("recursion", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static int fib(int n) { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); }
                     static int<<64>> fact(int<<64>> n) { if (n <= 1) { return 1; } return n * fact(n - 1); }
-                    static int main()
-                    {
+                    static int main() {
                         System.stdout.print(fib(20)); System.stdout.println();
                         System.stdout.print(fact(20));
                         return 0;
@@ -144,10 +140,8 @@ public final class RunTest {
 
     private static void generics() {
         output("Array from the spec", files("Array", CheckerTest.ARRAY, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Array<int><<5>> a = new Array();
                         for (int i = 0; i < 5; i += 1) { a.set(i, i * i); }
                         int sum = 0;
@@ -162,16 +156,13 @@ public final class RunTest {
                 }
                 """), "30\n6\n0.0\n192");
         output("distinct instantiations", files("Box", """
-                struct Box<<int N>>
-                {
+                struct Box<<int N>> {
                     public array<int><<N>> items;
                     public int count() { return N; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Box<<2>> a;
                         Box<<7>> b;
                         System.stdout.print(a.count() + b.count());
@@ -181,15 +172,12 @@ public final class RunTest {
                 }
                 """), "9288");
         output("value binders", files("Pair", """
-                struct Pair<<int N>>
-                {
+                struct Pair<<int N>> {
                     public int both<<int N>>(Pair<<int K>> other) { return N * 10 + K; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Pair<<3>> a;
                         Pair<<4>> b;
                         Pair<<9>> c;
@@ -199,8 +187,7 @@ public final class RunTest {
                 }
                 """), "343993");
         output("type parameters", files("Stack", """
-                struct Stack<T><<int N>>
-                {
+                struct Stack<T><<int N>> {
                     array<T><<N>> items;
                     int top;
                     public void push(T v) { items[top] = v; top += 1; }
@@ -208,10 +195,8 @@ public final class RunTest {
                     public bit empty() { return top == 0; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Stack<double><<4>> s;
                         s.push(1.5); s.push(2.5);
                         Stack<int<<8>>><<3>> t;
@@ -226,8 +211,7 @@ public final class RunTest {
     private static void strings() {
         String string = """
                 struct string<<>>
-                struct string<<int N>>
-                {
+                struct string<<int N>> {
                     int size;
                     array<uint<<16>>><<N>> chars<<int N>>;
                     addr<uint<<16>>> chars<<>>;
@@ -237,8 +221,7 @@ public final class RunTest {
                     public uint<<16>> charAt<<int N>>(int i) { return chars[i]; }
                     public uint<<16>> charAt<<>>(int i) { return &(chars + i * sizeof(uint<<16>>)); }
 
-                    public string<<N + K>> add<<int N>>(string<<int K>> other)
-                    {
+                    public string<<N + K>> add<<int N>>(string<<int K>> other) {
                         string<<N + K>> result;
                         for (int i = 0; i < N; i += 1) { result.chars[i] = chars[i]; }
                         for (int i = 0; i < K; i += 1) { result.chars[N + i] = other.charAt(i); }
@@ -248,10 +231,8 @@ public final class RunTest {
                 }
                 """;
         output("string literals and add", files("string", string, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         string<<5>> a = "Hello";
                         string<<6>> b = ", you";
                         string<<11>> c = a.add(b);
@@ -282,19 +263,16 @@ public final class RunTest {
                 delete buf;
                 """), "32 7 60 ");
         output("objects through addresses", files("Point", """
-                struct Point
-                {
+                struct Point {
                     public int x;
                     public int y;
                     public new(int a, int b) { x = a; y = b; }
                     public int sum() { return x + y; }
                 }
                 """, "Main", """
-                struct Main
-                {
+                struct Main {
                     static void bump(addr<Point> p) { (&p).x += 100; }
-                    static int main()
-                    {
+                    static int main() {
                         addr<Point> p = new Point(1, 2);
                         Point local = new Point(3, 4);
                         bump(p);
@@ -317,19 +295,16 @@ public final class RunTest {
 
     private static void objects() {
         String point = """
-                struct Point
-                {
+                struct Point {
                     public int x;
                     public int y;
                 }
                 """;
         output("value semantics", files("Point", point, "Main", """
-                struct Main
-                {
+                struct Main {
                     static void change(Point p) { p.x = 99; }
                     static Point make(int v) { Point p; p.x = v; p.y = v + 1; return p; }
-                    static int main()
-                    {
+                    static int main() {
                         Point a;
                         a.x = 1;
                         Point b = a;
@@ -342,8 +317,7 @@ public final class RunTest {
                 }
                 """), "1215");
         output("constructors and field initializers", files("Counter", """
-                struct Counter
-                {
+                struct Counter {
                     public int start = 10;
                     public int step;
                     public new() { step = 1; }
@@ -351,10 +325,8 @@ public final class RunTest {
                     public int next() { start += step; return start; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Counter a;
                         Counter b = new Counter(5);
                         a.next();
@@ -364,17 +336,14 @@ public final class RunTest {
                 }
                 """), "12 15");
         output("nested objects", files("Point", point, "Line", """
-                struct Line
-                {
+                struct Line {
                     public Point from;
                     public Point to;
                     public int length() { return to.x - from.x + to.y - from.y; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Line l;
                         l.to.x = 3; l.to.y = 4;
                         System.stdout.print(l.length());
@@ -386,22 +355,18 @@ public final class RunTest {
 
     private static void destructors() {
         output("destruction order", files("Noisy", """
-                unique Noisy<<int ID>>
-                {
+                unique Noisy<<int ID>> {
                     delete() { System.stdout.print(ID); }
                 }
                 """, "Pair", """
-                unique Pair
-                {
+                unique Pair {
                     Noisy<<1>> first;
                     Noisy<<2>> second;
                     delete() { System.stdout.print(0); }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         {
                             Pair p;
                             Noisy<<3>> n;
@@ -422,8 +387,7 @@ public final class RunTest {
 
     private static void dynamicClasses() {
         String animals = """
-                class Animal
-                {
+                class Animal {
                     public int legs;
                     public new() { legs = 2; }
                     public int speak() { return 1; }
@@ -431,18 +395,15 @@ public final class RunTest {
                 }
                 """;
         String dog = """
-                class Dog extends(Animal)
-                {
+                class Dog extends(Animal) {
                     public new() { super(); legs = 4; }
                     public int speak() { return 2; }
                     public int both() { return speak() * 10 + super.speak(); }
                 }
                 """;
         output("virtual dispatch", files("Animal", animals, "Dog", dog, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         handle<Animal> a = new Animal();
                         handle<Animal> d = new Dog();
                         System.stdout.print(a.describe()); System.stdout.print(' ');
@@ -454,17 +415,14 @@ public final class RunTest {
                 }
                 """), "102 204 21");
         output("a unique's destructor runs at the end of its scope", files("Res", """
-                unique Res
-                {
+                unique Res {
                     public int id;
                     public new(int i) { id = i; }
                     delete() { System.stdout.print(id); }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         { Res r = new Res(7); System.stdout.print('|'); }
                         System.stdout.print('|');
                         return 0;
@@ -472,22 +430,18 @@ public final class RunTest {
                 }
                 """), "|7|");
         output("fixed values inside dynamic objects", files("Point", """
-                struct Point
-                {
+                struct Point {
                     public int x;
                     public void move(int d) { x += d; }
                 }
                 """, "Holder", """
-                class Holder
-                {
+                class Holder {
                     public Point p;
                     public array<int><<3>> nums;
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         handle<Holder> h = new Holder();
                         h.p.x = 5;
                         h.p.move(10);
@@ -504,14 +458,11 @@ public final class RunTest {
                 """, "Shape", """
                 class Shape<<int K>>
                     extends<<0>>(Circle)
-                    extends<<1>>(Square)
-                {
+                    extends<<1>>(Square) {
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         handle<Shape<<0>>> c = new Shape();
                         handle<Shape<<1>>> s = new Shape();
                         System.stdout.print(c.kind()); System.stdout.print(s.kind());
@@ -523,13 +474,11 @@ public final class RunTest {
 
     private static void operators() {
         output("overloaded operators", files("BigUInt", """
-                struct BigUInt<<int BITS>>
-                {
+                struct BigUInt<<int BITS>> {
                     public array<uint<<64>>><<(BITS + 63) / 64>> words;
 
                     @overload(Operator.ADD)
-                    public BigUInt<<BITS>> add(BigUInt<<BITS>> o)
-                    {
+                    public BigUInt<<BITS>> add(BigUInt<<BITS>> o) {
                         BigUInt<<BITS>> r;
                         uint<<64>> carry = 0;
                         for (int i = 0; i < (BITS + 63) / 64; i += 1) {
@@ -545,8 +494,7 @@ public final class RunTest {
                     }
 
                     @overload(Operator.EQUALS)
-                    public bit same(BigUInt<<BITS>> o)
-                    {
+                    public bit same(BigUInt<<BITS>> o) {
                         for (int i = 0; i < (BITS + 63) / 64; i += 1) {
                             if (words[i] != o.words[i]) { return false; }
                         }
@@ -560,10 +508,8 @@ public final class RunTest {
                     public void addInPlace(BigUInt<<BITS>> o) { words = add(o).words; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         BigUInt<<128>> a;
                         BigUInt<<128>> b;
                         a.words[0] = 18446744073709551615;
@@ -583,18 +529,15 @@ public final class RunTest {
 
     private static void statics() {
         output("static fields", files("Config", """
-                struct Config
-                {
+                struct Config {
                     public static int count = 3;
                     public static double scale = 1.5;
                     public const int LIMIT = 4 * 8;
                     public static int bump() { count += 1; return count; }
                 }
                 """, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Config.bump();
                         System.stdout.print(Config.bump()); System.stdout.print(' ');
                         System.stdout.print(Config.scale); System.stdout.print(' ');
@@ -607,8 +550,7 @@ public final class RunTest {
 
     private static void entryPoints() {
         output("instance main runs on a new Main", files("Main", """
-                class Main
-                {
+                class Main {
                     int count = 2;
                     new() { count += 3; }
                     int main() { bump(); System.stdout.print(count); return count; }
@@ -616,27 +558,23 @@ public final class RunTest {
                 }
                 """), "6", 6);
         output("a unique in a static field is destroyed after main returns", files("Last", """
-                unique Last
-                {
+                unique Last {
                     delete() { System.stdout.print(2); }
                 }
                 """, "Main", """
-                class Main
-                {
+                class Main {
                     static Last last;
                     void main() { System.stdout.print(0); }
                 }
                 """), "02");
         output("instance main of a struct", files("Main", """
-                struct Main
-                {
+                struct Main {
                     int n = 4;
                     void main() { n += 1; System.stdout.print(n); }
                 }
                 """), "5");
         output("instance main of a unique", files("Main", """
-                unique Main
-                {
+                unique Main {
                     int n;
                     new() { n = 7; }
                     delete() { System.stdout.print(-n); }
@@ -644,53 +582,45 @@ public final class RunTest {
                 }
                 """), "7-7");
         output("an inherited main", files("App", """
-                abstract class App
-                {
+                abstract class App {
                     public abstract int setup();
                     void main() { System.stdout.print(setup()); }
                 }
                 """, "Main", """
-                class Main extends(App)
-                {
+                class Main extends(App) {
                     public int setup() { return 9; }
                 }
                 """), "9");
         output("a private constructor is fine", files("Main", """
-                class Main
-                {
+                class Main {
                     private new() { System.stdout.print(1); }
                     void main() { }
                 }
                 """), "1");
         output("static main comes first", files("Main", """
-                class Main
-                {
+                class Main {
                     new() { System.stdout.print(1); }
                     static void main() { System.stdout.print(2); }
                 }
                 """), "2");
         output("instance main of an abstract class", files("Main", """
-                abstract class Main
-                {
+                abstract class Main {
                     void main() { }
                 }
                 """), "error: main() is not static, so the program creates a Main to run it, but Main is abstract; make main() static", -1);
         output("instance main without a no-argument constructor", files("Main", """
-                class Main
-                {
+                class Main {
                     new(int x) { }
                     void main() { }
                 }
                 """), "but Main has no no-argument constructor; make main() static", -1);
         output("instance main of a generic class", files("Main", """
-                class Main<T>
-                {
+                class Main<T> {
                     void main() { }
                 }
                 """), "but Main has type parameters or shapes", -1);
         output("no main at all", files("Main", """
-                class Main
-                {
+                class Main {
                     void main(int x) { }
                 }
                 """), "no entry point: expected `void main()` or `int main()` in class Main", -1);
@@ -699,10 +629,8 @@ public final class RunTest {
     private static void traps() {
         trap("division by zero", main("int z = 0; p(1 / z);"), "division by zero");
         trap("array bounds", files("Array", CheckerTest.ARRAY, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Array<int><<3>> a = new Array();
                         int i = 3;
                         return a.get(i);
@@ -715,10 +643,8 @@ public final class RunTest {
                 "delete of an address that was not allocated with new");
         String box = "class Box { public int v; }";
         trap("using a variable set to null", files("Box", box, "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         Box b = new Box();
                         b = null;
                         return b.v;
@@ -726,10 +652,8 @@ public final class RunTest {
                 }
                 """), "null handle");
         trap("bad downcast", files("Box", box, "Other", "class Other extends(Box) { }", "Main", """
-                struct Main
-                {
-                    static int main()
-                    {
+                struct Main {
+                    static int main() {
                         handle<Box> b = new Box();
                         handle<Other> o = (handle<Other>)b;
                         return 0;
@@ -737,20 +661,17 @@ public final class RunTest {
                 }
                 """), "cannot cast Box to Other");
         trap("deep recursion", files("Main", """
-                struct Main
-                {
+                struct Main {
                     static int down(int n) { return down(n + 1); }
                     static int main() { return down(0); }
                 }
                 """), "call stack overflow");
         output("instantiation errors are reported", files("Buf", """
-                struct Buf<<int N>>
-                {
+                struct Buf<<int N>> {
                     public int get() { array<int><<N>> a; return a[5]; }
                 }
                 """, "Main", """
-                struct Main
-                {
+                struct Main {
                     static int main() { Buf<<3>> b; return b.get(); }
                 }
                 """), "error: index 5 is out of bounds for array<int><<3>>", -1);
@@ -761,8 +682,7 @@ public final class RunTest {
     /** A Main class whose body is {@code body}, with a helper p(x) that prints an int and a space. */
     private static Map<String, String> main(String body) {
         return files("Main", """
-                struct Main
-                {
+                struct Main {
                     static void p(int<<64>> x) { System.stdout.print(x); System.stdout.print(' '); }
                     static void p(uint<<64>> x) { System.stdout.print(x); System.stdout.print(' '); }
                     static void p(int x) { System.stdout.print(x); System.stdout.print(' '); }
@@ -770,8 +690,7 @@ public final class RunTest {
                     static void p(int<<8>> x) { System.stdout.print((int)x); System.stdout.print(' '); }
                     static void p(uint<<8>> x) { System.stdout.print((uint)x); System.stdout.print(' '); }
                     static void p(uint<<4>> x) { System.stdout.print((uint)x); System.stdout.print(' '); }
-                    static int main()
-                    {
+                    static int main() {
                 """ + body + """
                         return 0;
                     }
