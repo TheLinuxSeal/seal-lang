@@ -1,8 +1,7 @@
 package shop.stock;
 
 /** How many of a product are on the shelf: an Item too, but not the one in shop.model. */
-class Item
-{
+class Item {
     public string product;
     public int onShelf;
 

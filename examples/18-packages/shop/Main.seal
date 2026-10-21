@@ -13,10 +13,8 @@ import shop.report.Receipt;
 import shop.stock.Item as StockItem;            // a second Item, under another name
 import static shop.pricing.Money.text as dollars; // a static method, renamed too
 
-class Main
-{
-    static void main()
-    {
+class Main {
+    static void main() {
         Item notebook = new Item("Notebook", Category.PAPER, 3.50);
         Item pen = new Item("Pen", Category.PENS, 1.20);
         Item novel = new Item("Novel", Category.BOOKS, 14.99);

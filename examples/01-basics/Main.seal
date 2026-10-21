@@ -1,15 +1,12 @@
 // The basics: integers of any width, control flow, functions, and the
 // language's single shift operator.
-struct Main
-{
-    static int<<64>> factorial(int n)
-    {
+struct Main {
+    static int<<64>> factorial(int n) {
         if (n <= 1) { return 1; }
         return (int<<64>>)n * factorial(n - 1);
     }
 
-    static int gcd(int a, int b)
-    {
+    static int gcd(int a, int b) {
         while (b != 0) {
             int t = a % b;
             a = b;
@@ -18,8 +15,7 @@ struct Main
         return a;
     }
 
-    static int main()
-    {
+    static int main() {
         System.stdout.println("== integers of any width (they wrap) ==");
         int<<8>> small = 127;
         small++;

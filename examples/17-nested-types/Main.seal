@@ -3,13 +3,11 @@
 // nested type that isn't public is private to its outer type.
 import seal.util.List;
 
-struct Main
-{
+struct Main {
     enum Priority { LOW, NORMAL, URGENT }
 
     /** Something to do. Main may use its private fields: nested types share privates with their outer type. */
-    class Task
-    {
+    class Task {
         string title;
         Priority priority;
         bit done;
@@ -20,13 +18,11 @@ struct Main
     }
 
     /** What a filter accepts. */
-    interface Rule
-    {
+    interface Rule {
         bit accepts(Task t);
     }
 
-    class OpenAndAtLeast implements(Rule)
-    {
+    class OpenAndAtLeast implements(Rule) {
         Priority least;
 
         public new(Priority least) { this.least = least; }
@@ -34,10 +30,8 @@ struct Main
     }
 
     /** A list of tasks, with its own nested type for counts. */
-    class Board
-    {
-        public struct Counts
-        {
+    class Board {
+        public struct Counts {
             public int open;
             public int done;
         }
@@ -46,15 +40,13 @@ struct Main
 
         public void add(string title, Priority p) { tasks.add(new Task(title, p)); }
 
-        public void finish(string title)
-        {
+        public void finish(string title) {
             for (Task t : tasks) {
                 if (t.title == title) { t.done = true; }
             }
         }
 
-        public Counts counts()
-        {
+        public Counts counts() {
             Counts c;
             for (Task t : tasks) {
                 if (t.done) { c.done++; } else { c.open++; }
@@ -62,16 +54,14 @@ struct Main
             return c;
         }
 
-        public void print(Rule rule)
-        {
+        public void print(Rule rule) {
             for (Task t : tasks) {
                 if (rule.accepts(t)) { System.stdout.println("  " + t.describe()); }
             }
         }
     }
 
-    static int main()
-    {
+    static int main() {
         Board board = new Board();
         board.add("water the plants", Priority.LOW);
         board.add("fix the build", Priority.URGENT);

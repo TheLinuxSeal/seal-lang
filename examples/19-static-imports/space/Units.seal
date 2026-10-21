@@ -1,8 +1,7 @@
 package space;
 
 /** Physical constants, in SI units. */
-class Units
-{
+class Units {
     public const double G = 6.674e-11;              // the gravitational constant
     public const double EARTH_MASS = 5.972e24;       // kg
     public const double EARTH_RADIUS = 6.371e6;      // m

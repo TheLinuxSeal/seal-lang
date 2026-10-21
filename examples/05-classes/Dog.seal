@@ -1,11 +1,9 @@
-class Dog extends(Animal)
-{
+class Dog extends(Animal) {
     public new(string<<12>> n) { super(n); }
 
     public string sound() { return "woof"; }
 
-    public void fetch()
-    {
+    public void fetch() {
         System.stdout.print(name);
         System.stdout.println(" fetches the ball");
     }

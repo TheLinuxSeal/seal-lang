@@ -1,5 +1,4 @@
-class Rect extends(Shape)
-{
+class Rect extends(Shape) {
     int w;
     int h;
 

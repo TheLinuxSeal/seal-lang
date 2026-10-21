@@ -6,8 +6,7 @@
 //   array<int><<Bits.fib(-1)>> xs;
 //   Bits.fib(-1) can't be worked out while compiling: it threw
 //   IllegalArgumentException: fib of a negative number (Bits.seal:23)
-struct Main
-{
+struct Main {
     const int<<64>> FIB = Bits.fib(90);
     const int PRIMES = Primes.count(Primes.below(100));
     const int MIDDLE = Primes.median(Primes.below(50));
@@ -21,8 +20,7 @@ struct Main
     const int MASK = (1 <<< 4) | 3;
     const int BYTE = (uint<<8>>)300;
 
-    static int main()
-    {
+    static int main() {
         System.stdout.println("== pure methods in types and consts ==");
         uint<<Bits.needed(1000)>> counter = 1000;
         System.stdout.println("a counter up to 1000 is a uint<<" + sizeof(uint<<Bits.needed(1000)>>) + ">>: " + counter);

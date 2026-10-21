@@ -3,10 +3,8 @@ package shop.model;
 import seal.util.List;
 
 /** Items and how many of each. Other packages name the nested type Cart.Entry. */
-class Cart
-{
-    public class Entry
-    {
+class Cart {
+    public class Entry {
         public Item item;
         public int count;
 

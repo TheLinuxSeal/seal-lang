@@ -1,7 +1,6 @@
 // A class: a shared object, like a Java object. Variables refer to it, and
 // it is freed once nothing refers to it any more.
-class Note
-{
+class Note {
     public int n;
 
     public new(int v) { n = v; }

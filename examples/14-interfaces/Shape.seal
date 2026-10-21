@@ -2,8 +2,7 @@
 // (no body, just `;`) must be implemented by every class that can be.
 // It can still have fields, constructors and ordinary methods that call the
 // abstract ones.
-abstract class Shape implements(Describable, Comparable<Shape>)
-{
+abstract class Shape implements(Describable, Comparable<Shape>) {
     public static int made = 0;
 
     public new() { made++; }

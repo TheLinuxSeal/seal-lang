@@ -1,7 +1,5 @@
-struct Main
-{
-    static int main()
-    {
+struct Main {
+    static int main() {
         System.stdout.println("== one class, two shapes ==");
         Matrix<int><<3>> row;
         Matrix<int><<2, 3>> a;

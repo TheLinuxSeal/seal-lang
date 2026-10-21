@@ -1,9 +1,7 @@
-struct Main
-{
+struct Main {
     static void moveCopy(Point p) { p.x = 100; }    // Point is a struct: this changes a copy
 
-    static int firstOverLimit()
-    {
+    static int firstOverLimit() {
         Account temp = new Account(99);
         for (int i = 1; i <= 10; i++) {
             if (!Bank.deposit(temp, 300000)) {
@@ -13,8 +11,7 @@ struct Main
         return -1;
     }
 
-    static int main()
-    {
+    static int main() {
         System.stdout.println("== constructors and destructors ==");
         {
             Account a = new Account(1);

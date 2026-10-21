@@ -1,10 +1,8 @@
 // Fixed-point numbers (§37.1): exact, deterministic arithmetic on integer
 // instructions. Here the Mandelbrot set is drawn entirely in fixed<<10, 22>>:
 // 10 bits before the binary point (range ±512) and 22 after (steps of 2^-22).
-struct Main
-{
-    static int escapeTime(fixed<<10, 22>> cr, fixed<<10, 22>> ci, int limit)
-    {
+struct Main {
+    static int escapeTime(fixed<<10, 22>> cr, fixed<<10, 22>> ci, int limit) {
         fixed<<10, 22>> zr = 0;
         fixed<<10, 22>> zi = 0;
         for (int i = 0; i < limit; i++) {
@@ -17,8 +15,7 @@ struct Main
         return limit;
     }
 
-    static int main()
-    {
+    static int main() {
         System.stdout.println("== the Mandelbrot set in fixed point ==");
         string<<10>> shades = " .:-=+*#%@";
         int width = 64;

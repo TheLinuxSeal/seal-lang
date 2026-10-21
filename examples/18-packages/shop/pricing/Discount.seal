@@ -3,8 +3,7 @@ package shop.pricing;
 import shop.model.Cart;     // one type from another package, by name
 
 /** A deal: how much it takes off one line of the cart. */
-interface Discount
-{
+interface Discount {
     double saving(Cart.Entry e);
 
     string describe();

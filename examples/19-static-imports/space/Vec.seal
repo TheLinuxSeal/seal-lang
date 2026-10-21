@@ -1,8 +1,7 @@
 package space;
 
 /** A 2-D vector, with static helpers that Main imports one by one. */
-struct Vec
-{
+struct Vec {
     public double x;
     public double y;
 

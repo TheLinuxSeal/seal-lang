@@ -1,6 +1,5 @@
 // Inherits area() from Rect and replaces name().
-class Square extends(Rect)
-{
+class Square extends(Rect) {
     public new(int side) { super(side, side); }
 
     public string name() { return "square"; }

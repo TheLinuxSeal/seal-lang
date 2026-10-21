@@ -4,11 +4,9 @@ import seal.util.List;
 import seal.util.Queue;
 import seal.util.Random;
 
-struct Main
-{
+struct Main {
     /** Length of the Collatz sequence from n down to 1, memoized in an IntMap. */
-    static int collatz(int<<64>> n, IntMap<int> memo)
-    {
+    static int collatz(int<<64>> n, IntMap<int> memo) {
         if (n == 1) { return 1; }
         if (memo.has(n)) { return memo.get(n); }
         int<<64>> next = n / 2;
@@ -18,8 +16,7 @@ struct Main
         return length;
     }
 
-    static int main()
-    {
+    static int main() {
         System.stdout.println("== breadth-first search with a Queue ==");
         // A small graph as an array of adjacency lists.
         array<List<int>><<7>> edges;

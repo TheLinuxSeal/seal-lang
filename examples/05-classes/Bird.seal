@@ -1,7 +1,5 @@
-class Bird extends(Animal)
-{
-    public new(string<<12>> n)
-    {
+class Bird extends(Animal) {
+    public new(string<<12>> n) {
         super(n);
         legs = 2;
     }

@@ -1,9 +1,7 @@
 import seal.util.List;
 
-struct Main
-{
-    static int main()
-    {
+struct Main {
+    static int main() {
         System.stdout.println("== virtual dispatch through handles ==");
         List<Animal> zoo = new List();
         zoo.add(new Dog("Rex"));

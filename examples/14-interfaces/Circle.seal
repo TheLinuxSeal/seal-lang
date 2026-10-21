@@ -1,5 +1,4 @@
-class Circle extends(Shape)
-{
+class Circle extends(Shape) {
     int r;
 
     public new(int radius) { r = radius; }

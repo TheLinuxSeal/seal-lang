@@ -1,6 +1,5 @@
 // A struct: a plain value. Assignment and passing to a function copy it.
-struct Counter
-{
+struct Counter {
     public int n;
 
     // A method works on the object it is called on, not a copy.

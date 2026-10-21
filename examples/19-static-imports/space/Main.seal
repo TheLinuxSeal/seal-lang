@@ -10,13 +10,11 @@ import static space.Units.*;                // every constant of Units
 import static space.Vec.dot;                // one method
 import static space.Vec.length;
 
-class Main
-{
+class Main {
     /** Main's own round() is used below, not Math.round: a type's members come before imported ones. */
     static string round(double x) { return string.format("%.2f", x); }
 
-    static void main()
-    {
+    static void main() {
         // A circular orbit 400 km up, as the space station's: v = sqrt(G M / r)
         double r = EARTH_RADIUS + 400 * KM;
         double speed = sqrt(G * EARTH_MASS / r);

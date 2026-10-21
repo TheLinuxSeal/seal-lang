@@ -1,7 +1,5 @@
-struct Main
-{
-    static int main()
-    {
+struct Main {
+    static int main() {
         Vec2 a = new Vec2(3.0, 4.0);
         Vec2 b = new Vec2(1.0, 2.0);
         System.stdout.println("== arithmetic ==");

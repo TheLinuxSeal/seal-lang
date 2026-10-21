@@ -1,9 +1,7 @@
 import seal.util.BigUInt;
 
-struct Main
-{
-    static int main()
-    {
+struct Main {
+    static int main() {
         System.stdout.println("== one generic class, many element types ==");
         Stack<int><<5>> ints;
         ints.push(3); ints.push(41); ints.push(7);

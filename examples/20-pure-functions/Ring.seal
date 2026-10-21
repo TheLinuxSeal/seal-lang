@@ -1,15 +1,13 @@
 // A ring buffer whose capacity is N rounded up to a power of two: the pure call in
 // its type is worked out for each N the program uses, so Ring<<5>> holds 8 and
 // Ring<<16>> holds 16.
-struct Ring<<int N>>
-{
+struct Ring<<int N>> {
     array<int><<Bits.ceilPow2(N)>> slots;
     int next;
     int count;
 
     /** Adds x, dropping the oldest value once it is full. */
-    public void push(int x)
-    {
+    public void push(int x) {
         slots[next] = x;
         next = (next + 1) & (slots.length() - 1);   // a power of two, so wrapping is a mask
         if (count < slots.length()) { count++; }
@@ -17,8 +15,7 @@ struct Ring<<int N>>
 
     public int capacity() { return slots.length(); }
 
-    public int sum()
-    {
+    public int sum() {
         int s = 0;
         for (int i = 0; i < count; i++) { s += slots[i]; }
         return s;

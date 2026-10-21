@@ -1,17 +1,14 @@
-class Card
-{
+class Card {
     public int rank;
     public Suit suit;
 
-    public new(int r, Suit s)
-    {
+    public new(int r, Suit s) {
         if (r < 1 || r > 13) { throw new IllegalArgumentException("no card of rank " + r); }
         rank = r;
         suit = s;
     }
 
-    public string name()
-    {
+    public string name() {
         string s;
         switch (rank) {
             case 1 -> s = "A";

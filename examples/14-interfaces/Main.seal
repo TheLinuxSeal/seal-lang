@@ -1,10 +1,8 @@
 import seal.util.List;
 
-struct Main
-{
+struct Main {
     /** Insertion sort of anything comparable to itself. */
-    static void sort(List<Shape> xs)
-    {
+    static void sort(List<Shape> xs) {
         for (int i = 1; i < xs.size(); i++) {
             Shape x = xs.get(i);
             int j = i - 1;
@@ -16,8 +14,7 @@ struct Main
         }
     }
 
-    static int main()
-    {
+    static int main() {
         System.stdout.println("== shapes, sorted by area ==");
         List<Shape> shapes = new List();
         shapes.add(new Rect(3, 5));

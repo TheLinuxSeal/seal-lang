@@ -1,8 +1,6 @@
-struct Bank
-{
+struct Bank {
     // Account is unique, so it is lent: changes here are made to the caller's account.
-    public static bit deposit(Account a, int<<64>> amount)
-    {
+    public static bit deposit(Account a, int<<64>> amount) {
         if (amount <= 0 || a.balance + amount > Account.LIMIT) { return false; }
         a.balance += amount;
         return true;

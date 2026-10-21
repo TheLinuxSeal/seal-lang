@@ -1,7 +1,6 @@
 // Operator overloading with decorators (§44-48). The methods keep their
 // names and can also be called directly.
-struct Vec2
-{
+struct Vec2 {
     public double x;
     public double y;
 
@@ -35,8 +34,7 @@ struct Vec2
 
     public double length() { return Math.sqrt(x * x + y * y); }
 
-    public void print()
-    {
+    public void print() {
         System.stdout.print("(");
         System.stdout.print(x);
         System.stdout.print(", ");

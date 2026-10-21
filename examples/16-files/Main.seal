@@ -4,11 +4,9 @@
 import seal.io.*;           // Files, File, FileReader, FileWriter and their exceptions
 import seal.util.List;
 
-struct Main
-{
+struct Main {
     /** Counts lines in every file under `root`, by extension: kinds[i] has lines[i]. */
-    static void scan(string root, List<string> kinds, List<int> lines)
-    {
+    static void scan(string root, List<string> kinds, List<int> lines) {
         for (File f : new File(root).walk()) {
             if (!f.isFile()) { continue; }
             string kind = f.getExtension().isEmpty() ? "(none)" : f.getExtension();
@@ -22,8 +20,7 @@ struct Main
         }
     }
 
-    static int main()
-    {
+    static int main() {
         string root = Files.createTempDirectory("files-example");
 
         System.stdout.println("== making a project ==");

@@ -1,25 +1,21 @@
 // Pure methods (§17.2): static, and their result depends only on their arguments,
 // so the compiler can run them too, wherever a compile-time value goes.
-struct Bits
-{
+struct Bits {
     /** How many bits an unsigned number up to max needs: a width, so a size (§37.2). */
-    public static pure size needed(int<<64>> max)
-    {
+    public static pure size needed(int<<64>> max) {
         size bits = 1;
         while (bits < 64 && ((int<<64>>)1 <<< bits) <= max) { bits++; }
         return bits;
     }
 
     /** The smallest power of two that is at least n. */
-    public static pure int ceilPow2(int n)
-    {
+    public static pure int ceilPow2(int n) {
         int p = 1;
         while (p < n) { p *= 2; }
         return p;
     }
 
-    public static pure int<<64>> fib(int n)
-    {
+    public static pure int<<64>> fib(int n) {
         if (n < 0) { throw new IllegalArgumentException("fib of a negative number"); }
         int<<64>> a = 0;
         int<<64>> b = 1;

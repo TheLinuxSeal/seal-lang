@@ -3,7 +3,6 @@
 class Vehicle<<int WHEELS>>
     extends(Machine)
     extends<<2>>(Bike)
-    extends<<4>>(Car)
-{
+    extends<<4>>(Car) {
     public int wheels() { return WHEELS; }
 }

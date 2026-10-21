@@ -23,25 +23,21 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import seal.java.*;
 
-class Main
-{
+class Main {
     // A class, so its objects are JVM objects Java can hold; a struct or record has no Java form.
-    class Tag
-    {
+    class Tag {
         public string name;
         public new(string name) { this.name = name; }
     }
 
     // A Seal class extending Java's ArrayList: Java's own methods, and the add it overrides, which
     // Java's code calls too.
-    class Shouting extends(ArrayList<JavaString>)
-    {
+    class Shouting extends(ArrayList<JavaString>) {
         public JavaBoolean add(JavaString s) { return super.add(s.toUpperCase()); }
     }
 
     // Java's HashSet finds it by its ==, hashed by its hash(), and prints it by its cast to string.
-    class Point
-    {
+    class Point {
         public int x;
         public int y;
         public new(int x, int y) { this.x = x; this.y = y; }
@@ -50,8 +46,7 @@ class Main
         @overload(Operator.CAST) public string text() { return "(" + x + ", " + y + ")"; }
     }
 
-    static void main()
-    {
+    static void main() {
         System.stdout.println("== a java.util.TreeMap keeps its keys sorted ==");
         TreeMap<JavaString, JavaIntBoxed> ages = new TreeMap();    // Java's maps hold objects: an Integer
         ages.put(JavaString.of("Grace"), JavaIntBoxed.of(85));

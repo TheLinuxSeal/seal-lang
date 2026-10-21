@@ -5,13 +5,11 @@ import shop.pricing.*;
 import seal.util.List;
 
 /** The lines a cart and its deals come to. Line is in this package, so it needs no import. */
-class Receipt
-{
+class Receipt {
     List<Line> lines = new List();
     double total = 0;
 
-    public new(Cart cart, List<Discount> deals)
-    {
+    public new(Cart cart, List<Discount> deals) {
         for (Cart.Entry e : cart.entries) {
             add(new Line(e.count + " x " + e.item.name, e.total()));
             for (Discount d : deals) {
@@ -21,14 +19,12 @@ class Receipt
         }
     }
 
-    void add(Line line)
-    {
+    void add(Line line) {
         lines.add(line);
         total += line.amount;
     }
 
-    public void print()
-    {
+    public void print() {
         for (Line l : lines) {
             System.stdout.printf("%-24s %10s%n", l.label, Money.text(l.amount));
         }

@@ -1,6 +1,5 @@
 // Not a shape at all, but Describable too.
-class Note implements(Describable)
-{
+class Note implements(Describable) {
     string text;
 
     public new(string t) { text = t; }

@@ -2,19 +2,16 @@
 // a unique and a class, then strings and lists. No pointers anywhere.
 import seal.util.List;
 
-struct Main
-{
+struct Main {
     static void bumpCopy(Counter c) { c.bump(); }        // gets its own copy
     static void punch(Ticket t) { t.id += 100; }         // lent: changes the caller's ticket
-    static Ticket issue(int id)
-    {
+    static Ticket issue(int id) {
         Ticket t = new Ticket(id);
         return t;                                        // moved out to the caller, not closed
     }
     static void bumpNote(Note n) { n.n++; }           // the same object as the caller's
 
-    static int main()
-    {
+    static int main() {
         System.stdout.println("== struct: a value that is copied ==");
         Counter a;
         a.n = 1;

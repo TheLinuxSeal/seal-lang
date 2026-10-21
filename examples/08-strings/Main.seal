@@ -4,14 +4,12 @@
 // s, and a StringBuilder builds text a piece at a time.
 import seal.util.List;
 
-struct Main
-{
+struct Main {
     /** A string<<int N>> parameter accepts a fixed string of any capacity, and N is reused in the result. */
     static string<<N>> shout(string<<int N>> s) { return s.toUpper(); }
 
     /** ROT13: the new text is built with a StringBuilder, since a string never changes. */
-    static string rot13(string s)
-    {
+    static string rot13(string s) {
         StringBuilder out = new StringBuilder(s.length());
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
@@ -26,8 +24,7 @@ struct Main
         return out.toString();
     }
 
-    static int main()
-    {
+    static int main() {
         System.stdout.println("== fixed-capacity strings ==");
         string<<5>> hello = "Hello";
         string<<7>> world = ", world";

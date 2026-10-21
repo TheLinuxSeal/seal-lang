@@ -1,8 +1,7 @@
 // A bounded stack: a type parameter and a value parameter together.
 // largest() uses < on T. That is checked when Stack is instantiated, so it
 // works for any T that has <, including classes that overload it.
-struct Stack<T><<int N>>
-{
+struct Stack<T><<int N>> {
     array<T><<N>> items;
     int count;
 
@@ -10,22 +9,19 @@ struct Stack<T><<int N>>
     public bit isFull() { return count == N; }
     public int size() { return count; }
 
-    public void push(T value)
-    {
+    public void push(T value) {
         if (isFull()) { throw new IllegalStateException("stack overflow"); }
         items[count] = value;
         count++;
     }
 
-    public T pop()
-    {
+    public T pop() {
         if (isEmpty()) { throw new IllegalStateException("pop on an empty stack"); }
         count--;
         return items[count];
     }
 
-    public T largest()
-    {
+    public T largest() {
         T best = items[0];
         for (int i = 1; i < count; i++) {
             if (best < items[i]) { best = items[i]; }

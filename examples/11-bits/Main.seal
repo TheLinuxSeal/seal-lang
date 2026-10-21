@@ -1,10 +1,8 @@
 // Bit-level work: memory is bit-addressed, integers have any width, and
 // bits can be indexed and sliced (§40).
-struct Main
-{
+struct Main {
     /** Sieve of Eratosthenes in a bit array: one bit per number. */
-    static int countPrimes(int limit, addr<bit> composite)
-    {
+    static int countPrimes(int limit, addr<bit> composite) {
         int count = 0;
         for (int i = 2; i < limit; i++) {
             if (!&(composite + i)) {
@@ -16,8 +14,7 @@ struct Main
     }
 
     /** CRC-32 (the zip and PNG checksum), one bit at a time. */
-    static uint crc32(string text)
-    {
+    static uint crc32(string text) {
         uint crc = 4294967295;
         for (int i = 0; i < text.length(); i++) {
             crc = crc ^ (uint)text.charAt(i);
@@ -28,15 +25,13 @@ struct Main
         return ~crc;
     }
 
-    static uint<<8>> reverse(uint<<8>> x)
-    {
+    static uint<<8>> reverse(uint<<8>> x) {
         uint<<8>> r = 0;
         for (int i = 0; i < 8; i++) { r[7 - i] = x[i]; }
         return r;
     }
 
-    static int main()
-    {
+    static int main() {
         System.stdout.println("== a prime sieve in a bit array ==");
         int limit = 10000;
         addr<bit> composite = new<bit>(limit);

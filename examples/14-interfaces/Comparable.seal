@@ -1,5 +1,4 @@
 // Interfaces can be generic: Shape implements Comparable<Shape>.
-interface Comparable<T>
-{
+interface Comparable<T> {
     int compareTo(T other);
 }

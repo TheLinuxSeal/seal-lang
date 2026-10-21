@@ -2,8 +2,7 @@
 // blue in bits 0-4, green in bits 5-10, red in bits 11-15. Only 8-, 16-,
 // 32- and 64-bit values have alignment requirements (§22); other widths
 // can start at any bit.
-struct Color
-{
+struct Color {
     public uint<<5>> blue;
     public uint<<6>> green;
     public uint<<5>> red;

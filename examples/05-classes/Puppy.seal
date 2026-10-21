@@ -1,5 +1,4 @@
-class Puppy extends(Dog)
-{
+class Puppy extends(Dog) {
     public new(string<<12>> n) { super(n); }
 
     // super.sound() calls the parent's version directly.

@@ -1,8 +1,7 @@
 // One class, two shapes (§5): a row vector Matrix<T><<N>> and a matrix
 // Matrix<T><<N, M>>. Each instantiation is its own concrete type.
 struct Matrix<T><<int N>>
-struct Matrix<T><<int N, int M>>
-{
+struct Matrix<T><<int N, int M>> {
     // Guarded fields: the same name has a different type in each shape (§9.2).
     public array<T><<N>> data<<int N>>;
     public array<T><<N, M>> data<<int N, int M>>;
@@ -25,8 +24,7 @@ struct Matrix<T><<int N, int M>>
      * from the argument's type, and the result's type is computed from it.
      * Multiplying matrices of mismatched sizes does not compile.
      */
-    public Matrix<T><<N, K>> times<<int N, int M>>(Matrix<T><<M, int K>> other)
-    {
+    public Matrix<T><<N, K>> times<<int N, int M>>(Matrix<T><<M, int K>> other) {
         Matrix<T><<N, K>> result;
         for (int i = 0; i < N; i++) {
             for (int j = 0; j < K; j++) {

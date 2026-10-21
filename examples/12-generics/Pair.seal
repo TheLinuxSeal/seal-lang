@@ -1,7 +1,6 @@
 // Two type parameters. Generics are stamped out per instantiation (§55):
 // Pair<int, double> and Pair<double, int> are separate concrete types.
-struct Pair<A, B>
-{
+struct Pair<A, B> {
     public A first;
     public B second;
 }

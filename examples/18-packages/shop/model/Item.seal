@@ -1,14 +1,12 @@
 package shop.model;
 
 /** Something the shop sells. Category is in the same package, so it needs no import. */
-class Item
-{
+class Item {
     public string name;
     public Category category;
     public double price;
 
-    public new(string name, Category category, double price)
-    {
+    public new(string name, Category category, double price) {
         this.name = name;
         this.category = category;
         this.price = price;

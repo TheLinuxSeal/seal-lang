@@ -1,6 +1,5 @@
 // An enum with a field and a method; switch can name its constants bare.
-enum Suit
-{
+enum Suit {
     CLUBS('c'),
     DIAMONDS('d'),
     HEARTS('h'),
@@ -10,8 +9,7 @@ enum Suit
 
     new(char l) { letter = l; }
 
-    public bit isRed()
-    {
+    public bit isRed() {
         switch (ordinal()) {
             case 1, 2 -> { return true; }
             default -> { return false; }

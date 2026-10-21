@@ -1,8 +1,7 @@
 package shop.report;
 
 /** One line of a receipt: what, and how much (negative for a saving). */
-struct Line
-{
+struct Line {
     public string label;
     public double amount;
 

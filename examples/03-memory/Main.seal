@@ -1,9 +1,7 @@
 // Optional low-level memory access with addr<T> (§18-24). Addresses count bits, and the
 // address operators are the reverse of C: *x takes an address, &p follows one.
-struct Main
-{
-    static int main()
-    {
+struct Main {
+    static int main() {
         System.stdout.println("== *x takes an address, &p follows it ==");
         int x = 10;
         addr<int> p = *x;

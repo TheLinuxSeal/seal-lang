@@ -2,17 +2,14 @@
 // value parameters and operator overloading (BigUInt<<BITS>>, §54).
 import seal.util.BigUInt;
 
-struct Main
-{
-    static int digitSum(string s)
-    {
+struct Main {
+    static int digitSum(string s) {
         int sum = 0;
         for (int i = 0; i < s.length(); i++) { sum += Char.digitValue(s.charAt(i)); }
         return sum;
     }
 
-    static int main()
-    {
+    static int main() {
         System.stdout.println("== 100! ==");
         BigUInt<<1024>> factorial;
         factorial.set(1);
