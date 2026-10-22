@@ -95,6 +95,21 @@ nix flake check                            # build the package and run every tes
 
 With [direnv](https://direnv.net), the `.envrc` enters the dev shell by itself (run `direnv allow` once).
 
+The package itself is `package.nix`, written as nixpkgs holds a package (`pkgs/by-name/se/seal/package.nix`):
+it fetches a commit of this repository from GitHub, and the flake builds it from the checkout instead.
+Without the flake, or to install it from another configuration:
+
+```sh
+nix-build -E 'with import <nixpkgs> { }; callPackage ./package.nix { }'
+```
+
+```nix
+environment.systemPackages = [ (pkgs.callPackage /path/to/seal-lang/package.nix { }) ];  # NixOS
+home.packages = [ (pkgs.callPackage /path/to/seal-lang/package.nix { }) ];               # Home Manager
+```
+
+or, from a flake, take `inputs.seal.packages.${system}.default` with `inputs.seal.url = "github:TheLinuxSeal/seal-lang";`.
+
 A program is a folder of `.seal` files, each holding one top-level type and named after it, and
 any `.java` files it has, which the JDK's `javac` compiles with it. Its entry point is `main()` in
 the class `Main`.

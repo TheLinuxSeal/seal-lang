@@ -7,42 +7,17 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
-      version = "0-unstable-" + builtins.substring 0 8 (self.lastModifiedDate or "19700101");
+      date = self.lastModifiedDate or "19700101";
+      version = "0-unstable-${builtins.substring 0 4 date}-${builtins.substring 4 2 date}-${builtins.substring 6 2 date}";
     in
     {
       # nix build, nix run . -- run examples/01-basics
-      # The compiler with the standard library beside it, and a seal command that runs it.
+      # The compiler with the standard library beside it, and a seal command that runs it: package.nix,
+      # the file nixpkgs would hold, built from this checkout rather than the commit it fetches.
       packages = forAllSystems (pkgs: {
-        default = pkgs.stdenv.mkDerivation {
-          pname = "seal";
+        default = (pkgs.callPackage ./package.nix { }).overrideAttrs {
           inherit version;
           src = self;
-          nativeBuildInputs = [ pkgs.jdk25_headless pkgs.makeWrapper ];
-
-          buildPhase = ''
-            runHook preBuild
-            javac -d classes $(find src -name '*.java')
-            runHook postBuild
-          '';
-
-          installPhase = ''
-            runHook preInstall
-            mkdir -p $out/share/seal $out/bin
-            cp -r classes $out/share/seal/classes
-            cp -r stdlib $out/share/seal/stdlib
-            makeWrapper ${pkgs.jdk25_headless}/bin/java $out/bin/seal \
-              --add-flags "-Dseal.stdlib=$out/share/seal/stdlib" \
-              --add-flags "-cp $out/share/seal/classes io.github.thelinuxseal.seal.Main"
-            runHook postInstall
-          '';
-
-          meta = {
-            description = "Compiler for Seal, a Java-like programming language, to JVM class files";
-            homepage = "https://github.com/TheLinuxSeal/seal-lang";
-            license = pkgs.lib.licenses.gpl3Only;
-            mainProgram = "seal";
-            platforms = pkgs.lib.platforms.unix;
-          };
         };
       });
 
@@ -66,8 +41,6 @@
           nativeBuildInputs = [ pkgs.jdk25_headless ];
           buildPhase = ''
             runHook preBuild
-            # Tests make temporary folders; the build sandbox's is $TMPDIR, not /tmp.
-            export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$TMPDIR"
             bash ./test.sh
             runHook postBuild
           '';

@@ -26,7 +26,8 @@ suites=(
 
 failed=0
 for suite in "${suites[@]}"; do
-    result=$(java -cp out "$suite" 2>&1)
+    # Tests make temporary folders in $TMPDIR when it is set, as in Nix's build sandbox, which has no /tmp.
+    result=$(java -Djava.io.tmpdir="${TMPDIR:-/tmp}" -cp out "$suite" 2>&1)
     status=$?
     printf "%-24s %s\n" "${suite#io.github.thelinuxseal.seal.}" "$(echo "$result" | grep -E '^[0-9]+ passed' | tail -1)"
     if [ $status -ne 0 ]; then
