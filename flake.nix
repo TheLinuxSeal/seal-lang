@@ -9,17 +9,24 @@
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
       date = self.lastModifiedDate or "19700101";
       version = "0-unstable-${builtins.substring 0 4 date}-${builtins.substring 4 2 date}-${builtins.substring 6 2 date}";
+      # The compiler with the standard library beside it, and a seal command that runs it: package.nix,
+      # the file nixpkgs would hold, built from this checkout rather than the commit it fetches.
+      sealFor = pkgs: (pkgs.callPackage ./package.nix { }).overrideAttrs {
+        inherit version;
+        src = self;
+      };
     in
     {
       # nix build, nix run . -- run examples/01-basics
-      # The compiler with the standard library beside it, and a seal command that runs it: package.nix,
-      # the file nixpkgs would hold, built from this checkout rather than the commit it fetches.
       packages = forAllSystems (pkgs: {
-        default = (pkgs.callPackage ./package.nix { }).overrideAttrs {
-          inherit version;
-          src = self;
-        };
+        default = sealFor pkgs;
       });
+
+      # nixpkgs.overlays = [ inputs.seal.overlays.default ]; in a configuration, and pkgs.seal is this
+      # package, built with that configuration's nixpkgs.
+      overlays.default = final: prev: {
+        seal = sealFor final;
+      };
 
       # nix develop (or direnv, with the .envrc): JDK 25, and the repository's seal script on PATH.
       devShells = forAllSystems (pkgs: {

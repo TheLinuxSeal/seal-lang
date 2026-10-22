@@ -108,7 +108,22 @@ environment.systemPackages = [ (pkgs.callPackage /path/to/seal-lang/package.nix 
 home.packages = [ (pkgs.callPackage /path/to/seal-lang/package.nix { }) ];               # Home Manager
 ```
 
-or, from a flake, take `inputs.seal.packages.${system}.default` with `inputs.seal.url = "github:TheLinuxSeal/seal-lang";`.
+From a system's flake, take it as an input, and its overlay makes it `pkgs.seal`:
+
+```nix
+inputs.seal = {
+  url = "github:TheLinuxSeal/seal-lang";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+```
+
+```nix
+nixpkgs.overlays = [ inputs.seal.overlays.default ];  # in a NixOS module (Home Manager has its own pkgs)
+environment.systemPackages = [ pkgs.seal ];
+```
+
+`nix flake update seal` moves it to the newest commit. Without the overlay, the package is
+`inputs.seal.packages.${pkgs.stdenv.hostPlatform.system}.default`.
 
 A program is a folder of `.seal` files, each holding one top-level type and named after it, and
 any `.java` files it has, which the JDK's `javac` compiles with it. Its entry point is `main()` in
