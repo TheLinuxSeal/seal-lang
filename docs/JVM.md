@@ -112,7 +112,7 @@ exact text. Conversions to and from `double` are inline: a multiplication by 2^�
 to nearest as the VM's `F2IR`. A literal becomes its scaled value when compiling, exactly from its
 digits. Natives and runtime methods get a fixed-point value as a `long`, and after the arguments
 the fraction bits of each, as the VM's natives do; `Fixed.toString` and `Format`'s `%f` are
-`@jvm` methods of `FixedPoint`, since their Seal bodies write into `addr` buffers. `mul` and `div`
+`@jvm` methods of `FixedPoint`, since their Seal bodies (removed with the VM) wrote into `addr` buffers. `mul` and `div`
 were checked against the VM's own on 3 million random operands.
 
 ## 4. Values: structs and uniques in storage
@@ -379,16 +379,16 @@ elements back to back). Done in M0: `List`, `Queue`, `IntMap` and `StringBuilder
 (growing with `copyOf(n)`, as Java's `Arrays.copyOf`) instead of `addr<T>`, so the collections use no
 pointers and free nothing.
 
-On the VM, `array<T>` keeps its implementation in `stdlib/array.seal`, an `addr<T>` buffer that its
-destructor frees: the one place in the library, with the natives' text buffers, that still uses
-pointers. `JvmGen` compiles its core (`new array<T>(n)`, `length`, `[]`, `[]=`) to JVM array
-instructions, and the rest of `array.seal` (`fill`, `copy`, `copyOf`, `slice`, `sort`, ...) as
-ordinary Seal code over that core.
+`JvmGen` compiles `array<T>`'s core (`new array<T>(n)`, `length`, `[]`, `[]=`) to JVM array
+instructions, and the rest of `stdlib/array.seal` (`fill`, `copy`, `copyOf`, `slice`, `sort`, ...)
+as ordinary Seal code over that core. (On the VM, `array.seal` held an `addr<T>` buffer that its
+destructor freed; that code is removed with the VM, §13.)
 
-Done in M2. A library method whose Seal body uses the VM's memory says what stands for it on the
-JVM with **`@jvm`** (library code only, as `@native`): `@jvm("Strings.at")` is a static method of
-the runtime's `Strings`, and `@jvm("array.get")` is one `JvmGen` generates itself. Checks that throw
-Seal exceptions stay in Seal, around them: `array.get` runs `array`'s own `check(i)`, then reads the
+Done in M2. A library method the runtime does says what stands for it on the JVM with
+**`@jvm`** (library code only, as `@native`), and has no Seal body: `@jvm("Strings.at")` is a
+static method of the runtime's `Strings`, and `@jvm("array.get")` is one `JvmGen` generates itself.
+Until the library's VM-only code was removed (§13), such a method kept the Seal body the VM ran.
+Checks that throw Seal exceptions stay in Seal, around them: `array.get` runs `array`'s own `check(i)`, then reads the
 Java array, and `string.charAt` checks the index, then calls `at`, which is `@jvm("Strings.at")`.
 Reading `len`, an array's length field, is `arraylength`. An array's methods are static methods
 taking the Java array first, in a class per element type (`lang.array$int`).
@@ -409,9 +409,9 @@ language (part of M0):
   is public, as Java's, on an `array<char>`.
 - Done in M0, on the VM: no `string` method changes a string any more; `toUpper`, `toLower`,
   `replace` and `repeat` return new ones, and `new string(chars)` makes one from an `array<char>`.
-  Copies of a bare string share a buffer (`StringChars`, VM only), and `s += x` adds to it in place
-  only past the end of every string using it, which needs no reference counts and keeps `+=` in a
-  loop cheap there. On the JVM, `+=` copies, as Java's does.
+  Copies of a bare string shared a buffer (`StringChars`, VM only, removed since), and `s += x`
+  added to it in place only past the end of every string using it, which needed no reference
+  counts and kept `+=` in a loop cheap there. On the JVM, `+=` copies, as Java's does.
 - **Decided:** on the JVM a bare `string` *is* a `java.lang.String`: no wrapper, and passing text to
   Java code or Minecraft costs nothing. Its methods compile to `String`'s where they match, or to
   runtime helpers.
@@ -568,7 +568,7 @@ frames correctly for every control-flow shape (the class-file API does this, giv
 | **M5**, **done** | `addr<T>`, bit-packed layouts; every suite passes on the JVM | the VM retires: the JVM is the default, the VM behind `--vm` |
 | **the VM deprecated**, **done** | `--vm` warns that the VM is deprecated, `vm/` and `codegen/` are `@Deprecated`, and the VM gets no new features: what comes next (Java's classes, docs/JAVA.md) is the JVM's alone; the suites still compare the two on what both run | `--vm` warns, every suite passes |
 | **the VM removed**, **done** | the VM, `codegen/`, `VMTest` and `RefCountTest`; `--vm` says the VM is removed; the suites check the JVM alone (§12) | every suite passes on the JVM alone |
-| next | the library's VM-only code: the string and array internals on `addr` buffers, `StringChars`, the Seal bodies behind `@jvm` | |
+| **the VM's library code removed**, **done** | the library's VM-only code: the string and array internals on `addr` buffers, `StringChars`, the Seal bodies behind `@jvm` and the natives only they called | every suite passes |
 | **M6**, **done** | jars, calling Java classes from Seal and Seal from Java (docs/JAVA.md, T1 to T5: a Fabric mod in Seal loads in Minecraft 26.3 and registers a block; Minecraft runs on Java 25, so the class-file version needed no change), then Mixins, as a program's own `.java` files (docs/JAVA.md §11) | a first Minecraft mod in Seal, with a mixin |
 
 ## 14. Later: Java and Minecraft
@@ -600,7 +600,7 @@ Not designed here, but the design keeps the door open:
 M0 to M5 are done (§13): every suite passes on the JVM, which is the default. On review, the VM was
 kept behind `--vm` for a while, and the suites ran every program on both and compared (§12); RunTest's
 one program for the VM's step limit, which the JVM has no counterpart to, went. The VM is removed
-since (§12, §13); the library's VM-only code is a step of its own.
+since (§12, §13), and so is the library's VM-only code.
 
 M1 went further than its row: every integer width already works (§3.1, planned for M4), and so do
 switch statements and labeled loops. M2 removed M1's stopgap for printing: `Writer` compiles as the

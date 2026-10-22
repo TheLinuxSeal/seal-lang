@@ -27,9 +27,9 @@ of milestone M6 in docs/JVM.md §13, and the way to a Minecraft mod in Seal.
   once: `--vm` still runs and dumps programs, after a warning on standard error; `vm/` and
   `codegen/` are `@Deprecated`; and it gets no new features. What it runs today it keeps running,
   and the suites keep comparing it with the JVM there; Java's classes are the JVM's alone. Since
-  then, it and its tests are removed (docs/JVM.md §13), and `--vm` says so; the library's code that
-  only the VM needed (strings and arrays on `addr` buffers, `StringChars`, the Seal bodies behind
-  `@jvm` methods) is a step of its own.
+  then, it and its tests are removed (docs/JVM.md §13), and `--vm` says so, and so is the
+  library's code that only the VM needed (strings and arrays on `addr` buffers, `StringChars`,
+  the Seal bodies behind `@jvm` methods).
 - **The standard library moves into packages** (done), as Java's is: `HashMap` is `seal.util.HashMap`,
   imported as any package's type. Built in, and visible everywhere with no import, are the
   primitive types, `array<T>` and `array<T><<N>>`, and `string` and `string<<N>>`. A `seal.lang`
@@ -44,10 +44,9 @@ of milestone M6 in docs/JVM.md §13, and the way to a Minecraft mod in Seal.
   | `seal.io` | `Files`, `File`, `Reader`, `Writer`, `FileReader`, `FileWriter`, `IOException`, `FileNotFoundException` |
   | `seal.java` | Java's types under Seal's names, and the conversions (§3), from T1 |
 
-  The built-in types' files (`string.seal`, `array.seal`, and the `FixedArray` and `StringChars`
-  they use) stay in no package, at the top of `stdlib/`. On the JVM, Seal's `seal.x` is
-  `io.github.thelinuxseal.seal.x`, and the built-in types are in `io.github.thelinuxseal.seal.lang`
-  with `seal.lang`. Every program, test and example that uses a type outside `seal.lang` gained an
+  The built-in types' files (`string.seal`, `array.seal`, and the `FixedArray` they use) stay in
+  no package, at the top of `stdlib/`. On the JVM, Seal's `seal.x` is `io.github.thelinuxseal.seal.x`,
+  and the built-in types are in `io.github.thelinuxseal.seal.lang` with `seal.lang`. Every program, test and example that uses a type outside `seal.lang` gained an
   import; imports name a type in full (`import static seal.lang.Math.*;`, as Java's
   `import static java.lang.Math.*;`); a program's type in no package can't take a `seal.lang` or
   built-in type's name, but can take `seal.util`'s and the others'; and a program can't declare a

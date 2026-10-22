@@ -7,7 +7,7 @@ package seal.lang;
 // functions compute in double: they give a double for integers (as Java's do), a float
 // for floats, and the same format for fixed point. Two-argument functions take two values
 // of the same type, like min and max; a constant takes the other argument's type.
-// The transcendental functions are implemented by the VM.
+// The transcendental functions are the runtime's: Java's Math.
 struct Math {
     public const double PI = 3.141592653589793;
     public const double E = 2.718281828459045;

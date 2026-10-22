@@ -11,8 +11,8 @@ struct System {
     public static Writer stderr = new Writer(3);
 
     /**
-     * Assembly code for a native compiler to place here as it is (§42.3). The VM has no
-     * machine code, so it ignores it: the call compiles to nothing. The code must be a
+     * Assembly code for a native compiler to place here as it is (§42.3). The JVM has no
+     * machine code to put it in, so the call compiles to nothing. The code must be a
      * string literal (or literals joined with +), since it would be assembled, not run.
      */
     public static void rawAssembly(string code) { }

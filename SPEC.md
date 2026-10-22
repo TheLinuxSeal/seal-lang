@@ -2326,7 +2326,6 @@ Library classes may declare `@native("name")` methods, which the runtime's `Nati
 | ---- | ------- | -------- |
 | `string` | built in | strings (§39), immutable values: `length`, `charAt`, `+` and `+=`, `toCharArray`, `==`, `<`, `compare`, `startsWith`, `endsWith`, `indexOf`, `lastIndexOf`, `contains`, `split`, `lines`, `trim`, `substring`, `copy`, `toUpper`, `toLower`, `replace`, `repeat`, `toInt`, `hash`; `new string(chars)`; `string.format` (§42.6) |
 | `array` | built in | arrays sized at run time, `array<T>` (§21.3) |
-| `StringChars` | built in | on the VM, the buffer behind bare strings' characters; programs don't use it |
 | `System` | `seal.lang` | `stdin`, `stdout`, `stderr` (§42.2), `exit(code)`, `rawAssembly(code)` (§42.3), `fail(message)`: print a message and stop with a trap; `nanoTime()` |
 | `Object` | `seal.lang` | the root of every class (§31) |
 | `Iterable` | `seal.lang` | what for-each goes over (§41.3) |
@@ -2390,7 +2389,7 @@ The standard library reads and writes files and works with folders, in the style
 
 **`File`**: a path, with Java's methods: `getName`, `getExtension`, `getParent`, `getParentFile`, `getPath`, `getAbsolutePath`, `exists`, `isFile`, `isDirectory`, `length`, `lastModified`, `list` (names), `listFiles`, `walk`, and `delete`, `mkdir`, `mkdirs`, `renameTo`, which return whether they worked. `new File(folder, name)` joins paths, and two Files with the same path are `==`.
 
-**`FileReader`** reads a text file a line at a time (`hasNextLine`, `readLine`, `close`), and can be the subject of a for-each: `for (string line : new FileReader(path))`; it closes itself once it has read the last line. **`FileWriter`** writes one (`write`, `writeLine`, `flush`, `close`; `new FileWriter(path, true)` appends). Both are `AutoCloseable`: close them with `close()`, or with try-with-resources (§41.4). The VM writes out any file still open when the program ends.
+**`FileReader`** reads a text file a line at a time (`hasNextLine`, `readLine`, `close`), and can be the subject of a for-each: `for (string line : new FileReader(path))`; it closes itself once it has read the last line. **`FileWriter`** writes one (`write`, `writeLine`, `flush`, `close`; `new FileWriter(path, true)` appends). Both are `AutoCloseable`: close them with `close()`, or with try-with-resources (§41.4). Any file still open when the program ends is written out then.
 
 ```text
 string dir = Files.createTempDirectory("demo");

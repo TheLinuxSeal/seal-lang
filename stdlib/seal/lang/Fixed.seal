@@ -3,26 +3,8 @@ package seal.lang;
 // Utilities for fixed-point numbers (§37.1).
 struct Fixed {
     /** The exact value as decimal text, the same as print shows: 2.75, -0.125. */
-    @jvm("FixedPoint.text")
-    public static string toString(fixed<<size N, size M>> x) {
-        addr<char> buf = new<char>(96);
-        int n = text(x, buf);
-        string s = string.fromChars(buf, n);
-        delete buf;
-        return s;
-    }
-
-    @jvm("FixedPoint.textUnsigned")
-    public static string toString(ufixed<<size N, size M>> x) {
-        addr<char> buf = new<char>(96);
-        int n = text(x, buf);
-        string s = string.fromChars(buf, n);
-        delete buf;
-        return s;
-    }
-
-    @native("text_fixed") static int text(fixed<<size N, size M>> x, addr<char> buf) { }
-    @native("text_ufixed") static int text(ufixed<<size N, size M>> x, addr<char> buf) { }
+    @jvm("FixedPoint.text") public static string toString(fixed<<size N, size M>> x);
+    @jvm("FixedPoint.textUnsigned") public static string toString(ufixed<<size N, size M>> x);
 
     /**
      * The exact product of two signed fixed-point values. The result has

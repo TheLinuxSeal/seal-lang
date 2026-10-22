@@ -22,14 +22,12 @@ import seal.util.List;
 //
 // array<T> is the language's own type, which classes may hold although it is
 // a unique: it has no destructor of its own, as its memory goes with it. On
-// the JVM it is a Java array, whose length len reads, and the methods marked
-// @jvm are what the JVM backend generates for them; the rest compile as they
-// are. This is its implementation on the VM, and the one place in the library
-// that still uses pointers. The collections (List, Queue, IntMap, HashMap,
+// the JVM it is a Java array (of structs, a block of them in a row), and the
+// methods marked @jvm are what the JVM backend generates for them; the rest
+// compile as they are. The collections (List, Queue, IntMap, HashMap,
 // StringBuilder) are built on it.
 unique array<T> {
-    addr<T> items;   // len elements on the heap
-    int len;
+    int len;   // the Java array's length
 
     public new() { }
 
@@ -40,34 +38,18 @@ unique array<T> {
     }
 
     /** Room for n elements, each a default T. */
-    @jvm("array.allocate")
-    void allocate(int n) {
-        items = new<T>(n > 0 ? n : 1);
-        len = n;
-        T blank; // a default T for each element
-        for (int i = 0; i < n; i++) { &(items + (int<<64>>)i * sizeof(T)) = blank; }
-    }
+    @jvm("array.allocate") void allocate(int n);
 
     public int length() { return len; }
 
-    /** Where the elements are, for the buffer behind bare strings on the VM (StringChars). */
-    private<string> addr<T> start() { return items; }
-
     public bit isEmpty() { return length() == 0; }
 
+    // get and set run check(i), then read or write the Java array.
     @overload(Operator.INDEX)
-    @jvm("array.get")
-    public T get(int i) {
-        check(i);
-        return &(items + (int<<64>>)i * sizeof(T));
-    }
+    @jvm("array.get") public T get(int i);
 
     @overload(Operator.INDEX_SET)
-    @jvm("array.set")
-    public void set(int i, T value) {
-        check(i);
-        &(items + (int<<64>>)i * sizeof(T)) = value;
-    }
+    @jvm("array.set") public void set(int i, T value);
 
     void check(int i) {
         if (i < 0 || i >= length()) {
@@ -170,12 +152,5 @@ unique array<T> {
         List<T> sorted = toList();
         sorted.sort(cmp);
         for (int i = 0; i < length(); i++) { set(i, sorted.get(i)); }
-    }
-
-    // Frees the elements' memory on the VM; the JVM's garbage collector does this itself.
-    delete() {
-        T blank;
-        for (int i = 0; i < len; i++) { &(items + (int<<64>>)i * sizeof(T)) = blank; } // lets go of what they refer to
-        delete items;
     }
 }

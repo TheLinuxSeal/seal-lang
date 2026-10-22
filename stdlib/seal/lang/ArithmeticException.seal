@@ -1,7 +1,7 @@
 package seal.lang;
 
 // An arithmetic operation with no result, such as BigUInt division by zero.
-// (Division by zero on plain integers stops the program instead: it is a VM fault.)
+// (Division by zero on plain integers stops the program instead: it is a fault, which nothing catches.)
 class ArithmeticException extends(RuntimeException) {
     public new() { }
     public new(string m) { super(m); }

@@ -12,7 +12,7 @@ import seal.util.NoSuchElementException;
 // It closes itself once it has read the last line; close(), or
 // try-with-resources, closes it before that.
 class Reader implements(Iterable<string>, AutoCloseable) {
-    int<<64>> file;        // the VM's stream, 0 once closed
+    int<<64>> file;        // the runtime's stream, 0 once closed
     string pending;        // a line hasNextLine read ahead
     bit hasPending;
 

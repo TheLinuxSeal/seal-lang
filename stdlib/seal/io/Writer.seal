@@ -11,7 +11,7 @@ package seal.io;
 // with try-with-resources; anything still open when the program ends is
 // written out then.
 class Writer implements(AutoCloseable) {
-    int<<64>> file;   // the VM's stream, 0 once closed
+    int<<64>> file;   // the runtime's stream, 0 once closed
 
     private<FileWriter, System> new(int<<64>> file) { this.file = file; }
 

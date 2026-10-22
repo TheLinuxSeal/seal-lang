@@ -97,14 +97,7 @@ struct Format {
     }
 
     /** x rounded to that many places, exactly, ties up ("2.50"). */
-    @jvm("FixedPoint.places")
-    static string placesText(fixed<<size N, size M>> x, int n) {
-        addr<char> buf = new<char>(n + 100);
-        int length = places(x, buf, n);
-        string s = string.fromChars(buf, length);
-        delete buf;
-        return s;
-    }
+    @jvm("FixedPoint.places") static string placesText(fixed<<size N, size M>> x, int n);
 
     public void arg(ufixed<<size N, size M>> x) {
         if (next()) {
@@ -119,14 +112,7 @@ struct Format {
     }
 
     /** x rounded to that many places, exactly, ties up ("2.50"). */
-    @jvm("FixedPoint.placesUnsigned")
-    static string placesText(ufixed<<size N, size M>> x, int n) {
-        addr<char> buf = new<char>(n + 100);
-        int length = places(x, buf, n);
-        string s = string.fromChars(buf, length);
-        delete buf;
-        return s;
-    }
+    @jvm("FixedPoint.placesUnsigned") static string placesText(ufixed<<size N, size M>> x, int n);
 
     public void arg(bit b) {
         if (next()) {
@@ -204,14 +190,7 @@ struct Format {
     }
 
     /** x rounded to that many places, as %f or %e shows it ("1234.50", "1.234500e+03"). */
-    @jvm("Strings.places")
-    static string placesText(double x, char conv, int n) {
-        addr<char> buf = new<char>(n + 340);
-        int length = places(x, conv, n, buf);
-        string s = string.fromChars(buf, length);
-        delete buf;
-        return s;
-    }
+    @jvm("Strings.places") static string placesText(double x, char conv, int n);
 
     /** The places %f and %e show: the precision, or 6. */
     int places() {
@@ -369,8 +348,4 @@ struct Format {
     IllegalArgumentException mismatch(string what) {
         return bad(spec + " can't show " + what);
     }
-
-    @native("text_places") static int places(double x, char conv, int places, addr<char> buf) { }
-    @native("text_fixed_places") static int places(fixed<<size N, size M>> x, addr<char> buf, int places) { }
-    @native("text_ufixed_places") static int places(ufixed<<size N, size M>> x, addr<char> buf, int places) { }
 }

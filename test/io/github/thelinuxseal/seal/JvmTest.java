@@ -972,8 +972,8 @@ public final class JvmTest {
                 pr("made");
                 delete t;
                 addr<string> sp = new<string>(2);
-                &(sp + 64) = "hi";
-                pr(&sp); pr(&(sp + 64));
+                &(sp + sizeof(string)) = "hi";
+                pr(&sp); pr(&(sp + sizeof(string)));
                 delete sp;
                 Vec w;
                 addr<uint<<64>>> raw = (addr<uint<<64>>>)(addr<void>)*w;

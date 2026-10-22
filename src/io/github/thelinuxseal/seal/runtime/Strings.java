@@ -2,10 +2,10 @@ package io.github.thelinuxseal.seal.runtime;
 
 /**
  * Strings on the JVM (docs/JVM.md §8.2): a Seal string is a java.lang.String, and these are the
- * library methods marked {@code @jvm("Strings.name")} in stdlib/string.seal, Double.seal and
- * Float.seal, whose Seal bodies use the VM's memory. Each does what its Seal body does; checks
- * that throw Seal exceptions stay in the Seal code around them. A method that changes the string
- * being made in Seal (put, room) returns the new String here.
+ * library methods marked {@code @jvm("Strings.name")} in stdlib/string.seal, Double.seal,
+ * Float.seal and Format.seal, which have no Seal bodies. Checks that throw Seal exceptions stay
+ * in the Seal code around them. A method that changes the string being made in Seal (put, room)
+ * returns the new String here.
  */
 public final class Strings {
 
@@ -68,7 +68,7 @@ public final class Strings {
         return a.equals(b);
     }
 
-    /** Negative, zero or positive, from the first differing character or else the lengths, as the VM's. */
+    /** Negative, zero or positive, from the first differing character or else the lengths: string.compare. */
     public static int compare(String a, String b) {
         return a.compareTo(b);
     }

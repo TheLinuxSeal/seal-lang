@@ -149,7 +149,7 @@ struct Files {
     /** Moves or renames a file or folder, replacing the target if it exists. */
     public static void move(string from, string to) { check(nMove(from, to)); }
 
-    // ------------------------------------------------------------ the VM's side
+    // ------------------------------------------------------------ the runtime's side
 
     /** A status from a native: the result, or an exception with the message it left. */
     private<File, Reader, Writer, FileReader, FileWriter> static int<<64>> check(int<<64>> status) {

@@ -11,23 +11,14 @@ import seal.util.List;
 // substring, trim and toUpper return a new string, `s += x` stores a new
 // string in s, and StringBuilder builds text a piece at a time.
 //
-// On the VM, copies of a bare string share its buffer (a StringChars), and a
-// string literal's characters stay in static data. `s += x` adds to the
-// buffer in place when s ends where the buffer's used part ends, which no
-// other string can see; otherwise it copies into a new buffer.
-//
 // On the JVM a string is a java.lang.String (docs/JVM.md §8.2): reading size
-// is its length(), and the methods marked @jvm are the runtime's Strings
-// methods named, as their bodies here use the VM's memory. A method here that
-// changes a string being made (put, room) returns the new String there.
+// is its length(), and the methods marked @jvm are the runtime methods named,
+// mostly its Strings'. A method here that changes a string being made (put,
+// room) returns the new String there.
 struct string<<>>
 struct string<<int N>> {
     int size;
     array<char><<N>> chars<<int N>>;
-    // The characters: a literal's in static data, or the start of owner's.
-    addr<char> chars<<>>;
-    // The buffer holding them; null for a literal's.
-    StringChars owner<<>>;
 
     // ------------------------------------------------------------ construction
 
@@ -59,17 +50,7 @@ struct string<<int N>> {
     }
 
     /** The n characters the last file operation produced, as a new bare string (§42.1). */
-    @jvm("Natives.takeText")
-    private<Files, Reader> static string takeText(int n) {
-        string s;
-        s.room(n);
-        takeInto(s.chars);
-        s.size = n;
-        s.owner.used = n;
-        return s;
-    }
-
-    @native("io_text_take") static int<<64>> takeInto(addr<char> buf) { }
+    @jvm("Natives.takeText") private<Files, Reader> static string takeText(int n);
 
     // ------------------------------------------------------------ formatting (§42.6)
 
@@ -112,8 +93,7 @@ struct string<<int N>> {
     }
 
     /** The character at i, which is in range. */
-    @jvm("Strings.at") char at<<int N>>(int i) { return chars[i]; }
-    @jvm("Strings.at") char at<<>>(int i) { return &(chars + (int<<64>>)i * 16); }
+    @jvm("Strings.at") char at(int i);
 
     /** The characters as an array of exactly length() chars. */
     public array<char> toCharArray<<>>() {
@@ -136,64 +116,15 @@ struct string<<int N>> {
     // ------------------------------------------------------------ making strings
     //
     // put and room add to a string being made, before anything else sees it:
-    // a local of a method here that makes and returns a new string. A bare
-    // string adds to its buffer in place only past the end of what any other
-    // string uses of it, so none of them changes.
+    // a local of a method here that makes and returns a new string, and that
+    // has room for what it adds.
 
-    @jvm("Strings.put")
-    void put<<int N>>(char c) {
-        if (size >= N) { throw new IllegalStateException("string<<" + N + ">> is full"); }
-        chars[size] = c;
-        size++;
-    }
+    @jvm("Strings.put") void put(char c);
+    @jvm("Strings.put") void put(string other);
+    @jvm("Strings.put") void put(string<<int K>> other);
 
-    @jvm("Strings.put")
-    void put<<>>(char c) {
-        room(size + 1);
-        &(chars + (int<<64>>)size * 16) = c;
-        size++;
-        owner.used = size;
-    }
-
-    @jvm("Strings.put")
-    void put<<int N>>(string other) {
-        for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
-    }
-
-    @jvm("Strings.put")
-    void put<<>>(string other) {
-        room(size + other.length());
-        for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
-    }
-
-    @jvm("Strings.put")
-    void put<<int N>>(string<<int K>> other) {
-        for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
-    }
-
-    @jvm("Strings.put")
-    void put<<>>(string<<int K>> other) {
-        room(size + other.length());
-        for (int i = 0; i < other.length(); i++) { put(other.charAt(i)); }
-    }
-
-    /**
-     * Makes room for n characters in a buffer this string may add to: its own,
-     * if nothing uses that buffer past this string's end and it is big enough;
-     * otherwise a new one, with the characters copied, at least twice as big.
-     */
-    @jvm("Strings.room")
-    void room<<>>(int n) {
-        if (owner != null && owner.used == size && n <= owner.data.length()) { return; }
-        int c = owner == null ? 0 : owner.data.length() * 2;
-        if (c < 8) { c = 8; }
-        if (c < n) { c = n; }
-        StringChars fresh = new StringChars(c);
-        for (int i = 0; i < size; i++) { fresh.data[i] = &(chars + (int<<64>>)i * 16); }
-        fresh.used = size;
-        chars = fresh.data.start();
-        owner = fresh;     // the old buffer is freed once no string uses it
-    }
+    /** Makes room for n characters, for a string about to add them. */
+    @jvm("Strings.room") void room<<>>(int n);
 
     /** Joins two fixed strings into one whose capacity is the sum of theirs. */
     @overload(Operator.ADD)
@@ -257,48 +188,16 @@ struct string<<int N>> {
 
     @overload(Operator.EQUALS)
     @jvm("Strings.equals")
-    public bit equals(string other) {
-        if (size != other.length()) { return false; }
-        for (int i = 0; i < size; i++) {
-            if (charAt(i) != other.charAt(i)) { return false; }
-        }
-        return true;
-    }
+    public bit equals(string other);
 
     @overload(Operator.EQUALS)
     @jvm("Strings.equals")
-    public bit equals(string<<int K>> other) {
-        if (size != other.length()) { return false; }
-        for (int i = 0; i < size; i++) {
-            if (charAt(i) != other.charAt(i)) { return false; }
-        }
-        return true;
-    }
+    public bit equals(string<<int K>> other);
 
     /** Negative, zero or positive as this string sorts before, equal to, or after the other. */
-    @jvm("Strings.compare")
-    public int compare(string other) {
-        int n = size;
-        if (other.length() < n) { n = other.length(); }
-        for (int i = 0; i < n; i++) {
-            char a = charAt(i);
-            char b = other.charAt(i);
-            if (a != b) { return a - b; }
-        }
-        return size - other.length();
-    }
+    @jvm("Strings.compare") public int compare(string other);
 
-    @jvm("Strings.compare")
-    public int compare(string<<int K>> other) {
-        int n = size;
-        if (other.length() < n) { n = other.length(); }
-        for (int i = 0; i < n; i++) {
-            char a = charAt(i);
-            char b = other.charAt(i);
-            if (a != b) { return a - b; }
-        }
-        return size - other.length();
-    }
+    @jvm("Strings.compare") public int compare(string<<int K>> other);
 
     @overload(Operator.LESS)
     public bit less(string other) { return compare(other) < 0; }
@@ -410,60 +309,21 @@ struct string<<int N>> {
     }
 
     /** substring's characters, which are in range. */
-    @jvm("Strings.substring")
-    string slice(int from, int to) {
-        string result;
-        result.room(to - from);
-        for (int i = from; i < to; i++) { result.put(at(i)); }
-        return result;
-    }
+    @jvm("Strings.substring") string slice(int from, int to);
 
     /** The same text as a bare string: for a fixed string, (string)s. */
     public string copy() { return substring(0, size); }
 
     /** The string with every letter in upper case: s = s.toUpper(); as Java's toUpperCase. */
-    @jvm("Strings.toUpper")
-    public string<<N>> toUpper<<int N>>() {
-        string<<N>> r;
-        for (int i = 0; i < size; i++) { r.put(Char.toUpper(chars[i])); }
-        return r;
-    }
-
-    @jvm("Strings.toUpper")
-    public string toUpper<<>>() {
-        string r;
-        r.room(size);
-        for (int i = 0; i < size; i++) { r.put(Char.toUpper(charAt(i))); }
-        return r;
-    }
+    @jvm("Strings.toUpper") public string<<N>> toUpper<<int N>>();
+    @jvm("Strings.toUpper") public string toUpper<<>>();
 
     /** The string with every letter in lower case, as Java's toLowerCase. */
-    @jvm("Strings.toLower")
-    public string<<N>> toLower<<int N>>() {
-        string<<N>> r;
-        for (int i = 0; i < size; i++) { r.put(Char.toLower(chars[i])); }
-        return r;
-    }
-
-    @jvm("Strings.toLower")
-    public string toLower<<>>() {
-        string r;
-        r.room(size);
-        for (int i = 0; i < size; i++) { r.put(Char.toLower(charAt(i))); }
-        return r;
-    }
+    @jvm("Strings.toLower") public string<<N>> toLower<<int N>>();
+    @jvm("Strings.toLower") public string toLower<<>>();
 
     /** The string with every old character replaced by new, as Java's replace(char, char). */
-    @jvm("Strings.replace")
-    public string replace(char old, char replacement) {
-        string r;
-        r.room(size);
-        for (int i = 0; i < size; i++) {
-            char c = charAt(i);
-            r.put(c == old ? replacement : c);
-        }
-        return r;
-    }
+    @jvm("Strings.replace") public string replace(char old, char replacement);
 
     /** The string n times over, as Java's repeat. */
     public string repeat(int n) {
@@ -471,15 +331,7 @@ struct string<<int N>> {
         return times(n);
     }
 
-    @jvm("Strings.repeat")
-    string times(int n) {
-        string r;
-        r.room(size * n);
-        for (int k = 0; k < n; k++) {
-            for (int i = 0; i < size; i++) { r.put(charAt(i)); }
-        }
-        return r;
-    }
+    @jvm("Strings.repeat") string times(int n);
 
     /** Parses an optionally negative decimal integer; fails on anything else. */
     public int<<64>> toInt() {

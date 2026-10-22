@@ -2298,13 +2298,13 @@ public final class Checker {
 
     /**
      * Whether a value of this type runs a destructor when it goes: a unique's own, or one of a unique inside it
-     * (§16). array<T> has none: it is the language's own type, and its memory is freed with it.
+     * (§16). array<T> has none.
      */
     private boolean hasDestructor(Type t) {
         if (t instanceof ArrayT a) {
             return hasDestructor(a.element());
         }
-        if (!(t instanceof ClassT ct) || ct.cls().dynamic || isArrayObject(ct)) {
+        if (!(t instanceof ClassT ct) || ct.cls().dynamic) {
             return false;
         }
         Boolean known = destructorCache.get(ct);
