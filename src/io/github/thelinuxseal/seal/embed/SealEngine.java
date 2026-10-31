@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,6 +46,7 @@ public final class SealEngine {
     private final ClassLoader parent;
     private final ClassLoader loader;
     private final Set<Warning> warn;
+    private final Set<Class<?>> entries;
     final InputStream in;
     final PrintStream out;
     final PrintStream err;
@@ -57,6 +59,7 @@ public final class SealEngine {
         this.parent = b.parent;
         this.loader = classPath.isEmpty() ? b.parent : new URLClassLoader(urls(classPath), b.parent);
         this.warn = EnumSet.copyOf(b.warn);
+        this.entries = Set.copyOf(b.entries);
         this.in = b.in;
         this.out = b.out;
         this.err = b.err;
@@ -114,7 +117,18 @@ public final class SealEngine {
         if (!result.errors().isEmpty()) {
             return new SealScript(this, result.errors(), warnings, null);
         }
-        return new SealScript(this, List.of(), warnings, result.classes());
+        SealScript script = new SealScript(this, List.of(), warnings, result.classes());
+        List<Diagnostic> entryErrors = script.findEntries(checker, sources.keySet(), entries);
+        return entryErrors.isEmpty() ? script : new SealScript(this, entryErrors, warnings, null);
+    }
+
+    /**
+     * A snippet (docs/EMBED.md §4): statements, compiled as the body of a method that takes the
+     * Java values the host binds by name, with the engine's library; a chat command's code, a
+     * setting's formula. {@link SealSnippet.Builder#compile} compiles it.
+     */
+    public SealSnippet.Builder snippet(String code) {
+        return new SealSnippet.Builder(this, code);
     }
 
     /** The class loader a script's classes are loaded under. */
@@ -141,6 +155,7 @@ public final class SealEngine {
         private final List<Path> classPath = new ArrayList<>();
         private ClassLoader parent = SealEngine.class.getClassLoader();
         private final Set<Warning> warn = EnumSet.noneOf(Warning.class);
+        private final Set<Class<?>> entries = new LinkedHashSet<>();
         private InputStream in = InputStream.nullInputStream();
         private PrintStream out = System.out;
         private PrintStream err = System.err;
@@ -210,6 +225,17 @@ public final class SealEngine {
             return this;
         }
 
+        /**
+         * Java interfaces (or classes) that scripts' classes implement for the host to make, with
+         * {@link SealScript#create}: each class of a script that is one, and isn't abstract, must
+         * have a constructor without parameters, or the script doesn't compile. The parent loader
+         * must have them, as the host's code does.
+         */
+        public Builder entry(Class<?>... types) {
+            entries.addAll(List.of(types));
+            return this;
+        }
+
         /** Warnings to report, as `seal`'s -W flags do (§56.1): they are the script's {@link SealScript#warnings}. */
         public Builder warn(Warning... flags) {
             warn.addAll(List.of(flags));
@@ -246,6 +272,20 @@ public final class SealEngine {
          * gives its errors.
          */
         public SealEngine build() throws IOException {
+            for (Class<?> type : entries) {
+                // Scripts implement the parent's class of the name: it must be this one, or the host could make none.
+                Class<?> seen;
+                try {
+                    seen = Class.forName(type.getName(), false, parent);
+                } catch (ClassNotFoundException e) {
+                    throw new IllegalArgumentException("the parent class loader hasn't got the entry type " + type.getName()
+                            + ", so scripts can't implement it");
+                }
+                if (seen != type) {
+                    throw new IllegalArgumentException("the parent class loader's " + type.getName()
+                            + " isn't the entry type given, which another loader loaded: scripts would implement the parent's");
+                }
+            }
             Map<String, String> std = new LinkedHashMap<>();
             if (stdlib == null) {
                 std.putAll(Sources.stdlib());

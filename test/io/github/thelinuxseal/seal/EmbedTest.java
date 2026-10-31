@@ -14,6 +14,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntSupplier;
 import java.util.function.IntUnaryOperator;
 import java.util.stream.Stream;
 
@@ -25,6 +26,7 @@ import io.github.thelinuxseal.seal.check.Warning;
 import io.github.thelinuxseal.seal.embed.SealEngine;
 import io.github.thelinuxseal.seal.embed.SealException;
 import io.github.thelinuxseal.seal.embed.SealScript;
+import io.github.thelinuxseal.seal.embed.SealSnippet;
 import io.github.thelinuxseal.seal.runtime.Natives;
 
 /**
@@ -461,7 +463,159 @@ public final class EmbedTest {
             SealScript clash = warns.compile("api/Game.seal", "struct Game { }\n");
             check(!clash.ok() && clash.errors().get(0).message().startsWith("the engine's library has a file named api/Game.seal"),
                     "a script's file can't have a library file's name " + clash.errors());
+
+            entries(host, api);
+            snippets(host, api);
         }
+    }
+
+    private static String macro(String name, String title, String extra) {
+        return """
+                import api.*;
+
+                class %s extends(Macro) {%s
+                    public string title() { return "%s"; }
+                    public int act(Game game) { game.say("%s"); return 1; }
+                }
+                """.formatted(name, extra, title, title);
+    }
+
+    /** E3: the host's entry types, checked while compiling, and the script's classes of them, made by create. */
+    private static void entries(URLClassLoader host, Path api) throws Exception {
+        Class<?> hook = host.loadClass("demo.Hook");
+        Class<?> context = host.loadClass("demo.Context");
+        SealEngine seal = SealEngine.builder().parent(host).library(api).entry(hook).build();
+
+        // Each of the script's classes that is a Hook, in the files' order; not an abstract one, nor the library's.
+        Map<String, String> files = new LinkedHashMap<>();
+        files.put("Hello.seal", macro("Hello", "hello", ""));
+        files.put("Base.seal", "import api.*;\n\nabstract class Base extends(Macro) {\n    public string title() { return \"base\"; }\n}\n");
+        files.put("Bye.seal", macro("Bye", "bye", "\n    public new() { }"));
+        files.put("Helper.seal", "class Helper {\n    public new(int x) { }\n}\n");
+        SealScript two = seal.compile(files);
+        check(two.ok(), "entries: a script with two macros compiles " + two.errors());
+        if (two.ok()) {
+            List<?> made = two.create(hook);
+            List<Object> names = new ArrayList<>();
+            for (Object m : made) {
+                names.add(hook.getMethod("name").invoke(m));
+            }
+            check(names.equals(List.of("hello", "bye")), "create: each of the script's Hooks, in order " + names);
+            check(two.create(hook).get(0) != made.get(0), "create: new objects each time");
+            Object ctx = context.getConstructor(int.class).newInstance(1);
+            hook.getMethod("run", context).invoke(made.get(1), ctx);
+            check(List.of("bye").equals(context.getField("said").get(ctx)), "create: the host calls what it made");
+        }
+
+        // A Hook the host can't make with new() is an error where the class is.
+        SealScript noNew = seal.compile("Bye.seal", macro("Bye", "bye", "\n    public new(int x) { }"));
+        check(!noNew.ok() && noNew.errors().size() == 1 && noNew.errors().get(0).toString().equals(
+                        "Bye.seal:3:1: Bye is a Hook, which the host makes with new(), but Bye has no constructor without parameters"),
+                "entries: one without new() " + noNew.errors());
+        SealScript privateNew = seal.compile("Bye.seal", macro("Bye", "bye", "\n    private new() { }"));
+        check(!privateNew.ok() && privateNew.errors().get(0).message().endsWith("but Bye's new() is private"),
+                "entries: one whose new() is private " + privateNew.errors());
+
+        // The library's own Hooks aren't the script's.
+        Map<String, String> withDefault = new LinkedHashMap<>(API);
+        withDefault.put("api/Default.seal", "package api;\n\nclass Default extends(Macro) {\n"
+                + "    public string title() { return \"default\"; }\n    public int act(Game game) { return 0; }\n}\n");
+        SealEngine defaults = SealEngine.builder().parent(host).library(withDefault).entry(hook).build();
+        check(defaults.compile("Hello.seal", macro("Hello", "hello", "")).create(hook).size() == 1,
+                "create: the library's Hooks aren't the script's");
+
+        // A fault while one is made.
+        SealScript throwing = seal.compile("Bad.seal", macro("Bad", "bad", "\n    public new() { throw new IllegalStateException(\"no\"); }"));
+        check(throwsWith(SealException.class, "uncaught IllegalStateException: no", () -> throwing.create(hook)),
+                "create: a fault in a constructor is a SealException");
+
+        // The engine's entry types: create needs one; build checks the parent has it.
+        check(throwsWith(IllegalArgumentException.class,
+                "java.util.function.IntSupplier isn't one of the engine's entry types; name it with SealEngine.Builder.entry",
+                () -> two.create(IntSupplier.class)), "create: a type that isn't an entry type");
+        check(throwsWith(IllegalArgumentException.class,
+                "the parent class loader hasn't got the entry type demo.Hook, so scripts can't implement it",
+                () -> SealEngine.builder().entry(hook).build()), "build: an entry type the parent hasn't got");
+        SealEngine jdk = SealEngine.builder().entry(IntSupplier.class).build();
+        SealScript seven = jdk.compile("Seven.seal", """
+                import java.util.function.IntSupplier;
+                import seal.java.*;
+
+                class Seven implements(IntSupplier) {
+                    public JavaInt getAsInt() { return JavaInt.of(7); }
+                }
+                """);
+        check(seven.ok() && seven.create(IntSupplier.class).get(0).getAsInt() == 7, "entries: a JDK interface " + seven.errors());
+        check(seven.ok() && SealEngine.builder().build().compile("Seven.seal", """
+                import java.util.function.IntSupplier;
+                import seal.java.*;
+
+                class Seven implements(IntSupplier) {
+                    public new(int x) { }
+                    public JavaInt getAsInt() { return JavaInt.of(7); }
+                }
+                """).ok(), "entries: without entry types, a class needn't have new()");
+    }
+
+    /** E3: snippets, statements compiled with Java values bound by name, and a prelude of the host's. */
+    private static void snippets(URLClassLoader host, Path api) throws Exception {
+        Class<?> context = host.loadClass("demo.Context");
+        SealEngine seal = SealEngine.builder().parent(host).library(api).build();
+        Object ctx = context.getConstructor(int.class).newInstance(41);
+        SealSnippet hi = seal.snippet("game.say(\"hi at tick \" + (game.ticks() + 1));\nint n = 3;\ngame.say(\"n \" + n);")
+                .imports("api.*")
+                .bind("ctx", context, ctx)
+                .prelude("Game game = new Game(ctx);")
+                .compile();
+        check(hi.ok() && hi.errors().isEmpty(), "snippet: compiles with the library " + hi.errors());
+        if (hi.ok()) {
+            hi.run();
+            check(List.of("hi at tick 42", "n 3").equals(context.getField("said").get(ctx)),
+                    "snippet: runs with the value bound " + context.getField("said").get(ctx));
+            Object other = context.getConstructor(int.class).newInstance(7);
+            hi.run(other);
+            check(List.of("hi at tick 8", "n 3").equals(context.getField("said").get(other)), "snippet: run(values), with others");
+            check(throwsWith(IllegalArgumentException.class, "the snippet takes 1 values, one for each binding, not 0",
+                    () -> hi.run(new Object[0])), "snippet: run with too few values");
+        }
+
+        // Errors at their places in the code; the host's own at line 0.
+        SealSnippet typo = seal.snippet("game.sya(\"x\");\n  int y = \"s\";").imports("api.*")
+                .bind("ctx", context, ctx).prelude("Game game = new Game(ctx);").compile();
+        check(typo.errors().stream().map(Diagnostic::toString).toList().equals(List.of(
+                        "Snippet.seal:1:1: Game has no method sya",
+                        "Snippet.seal:2:11: initializer of y: expected int, found string literal")),
+                "snippet: errors at the code's lines and columns " + typo.errors());
+        SealSnippet noImport = seal.snippet("int z = 1;").bind("ctx", context, ctx).prelude("Game game = new Game(ctx);").compile();
+        check(noImport.errors().size() == 1 && noImport.errors().get(0).line() == 0
+                        && noImport.errors().get(0).message().startsWith("unknown type Game"),
+                "snippet: an error in the prelude is at line 0, once " + noImport.errors());
+        SealEngine warns = SealEngine.builder().warn(Warning.AUTO_CAST).build();
+        SealSnippet widen = warns.snippet("double d = 1.5; int i = 2; d += i;").compile();
+        check(widen.ok() && widen.warnings().size() == 1 && widen.warnings().get(0).line() == 1
+                        && widen.warnings().get(0).column() == 33,
+                "snippet: warnings placed as errors are " + widen.warnings());
+
+        // Faults, at the code's lines; System.exit ends the snippet.
+        SealSnippet divide = seal.snippet("int zero = 0;\nint w = 1 / zero;").compile();
+        check(throwsWith(SealException.class, "trap: division by zero\n    at Snippet.run (Snippet.seal:2)", divide::run),
+                "snippet: a fault, at the code's line");
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        SealEngine printing = SealEngine.builder().out(new PrintStream(out, true, StandardCharsets.UTF_8)).build();
+        SealSnippet exits = printing.snippet("System.stdout.println(\"before\");\nSystem.exit(2);\nSystem.stdout.println(\"after\");")
+                .compile();
+        exits.run();
+        check(text(out).equals("before\n"), "snippet: System.exit ends it " + text(out));
+
+        // Java's types as Seal names them: an int is a JavaInt, a String a JavaString.
+        out.reset();
+        printing.snippet("System.stdout.println((string) who + \" \" + ((int) n + 1));")
+                .bind("who", String.class, "Ada").bind("n", int.class, 41).compile().run();
+        check(text(out).equals("Ada 42\n"), "snippet: an int and a String bound " + text(out));
+        check(throwsWith(IllegalArgumentException.class, "a snippet can't bind an array (xs): bind a List",
+                () -> seal.snippet("").bind("xs", int[].class, new int[0])), "snippet: no arrays");
+        check(throwsWith(IllegalArgumentException.class, "n is bound as a int, but its value is a java.lang.String",
+                () -> seal.snippet("").bind("n", int.class, "4")), "snippet: a value of the wrong type");
     }
 
     private static boolean throwsWith(Class<? extends Throwable> type, String message, ThrowingRunnable r) {

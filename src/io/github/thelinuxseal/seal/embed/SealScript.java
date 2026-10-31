@@ -5,10 +5,18 @@ import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
+import io.github.thelinuxseal.seal.ast.Ast;
+import io.github.thelinuxseal.seal.check.Checker;
+import io.github.thelinuxseal.seal.check.ClassInfo;
 import io.github.thelinuxseal.seal.check.Diagnostic;
+import io.github.thelinuxseal.seal.jvm.JvmGen;
 import io.github.thelinuxseal.seal.runtime.Exit;
 
 /**
@@ -27,6 +35,8 @@ public final class SealScript implements AutoCloseable {
     private final List<Diagnostic> warnings;
     private final Loader loader;
     private final Class<?> natives;
+    /** For each of the engine's entry types, the binary names of the script's classes that are one, in order. */
+    private final Map<Class<?>, List<String>> entries = new LinkedHashMap<>();
 
     SealScript(SealEngine engine, List<Diagnostic> errors, List<Diagnostic> warnings, Map<String, byte[]> classes) {
         this.errors = List.copyOf(errors);
@@ -75,6 +85,95 @@ public final class SealScript implements AutoCloseable {
         } catch (ClassNotFoundException e) {
             throw new IllegalArgumentException("the script has no class " + name);
         }
+    }
+
+    /**
+     * Makes each class of the script's own files (not the library's) that is the entry type given,
+     * and isn't abstract, with its constructor without parameters, in the order the files and
+     * their classes are in: a macro mod's macros, a program's plugins. The type must be one the
+     * engine was built with ({@link SealEngine.Builder#entry}), which compiling checked the
+     * classes against. A fault while one is made, in its constructor or the script's static
+     * fields, is thrown as a {@link SealException}.
+     */
+    public <T> List<T> create(Class<T> type) {
+        requireOk();
+        List<String> names = entries.get(type);
+        if (names == null) {
+            throw new IllegalArgumentException(type.getName() + " isn't one of the engine's entry types; name it with "
+                    + "SealEngine.Builder.entry");
+        }
+        List<T> made = new ArrayList<>();
+        for (String name : names) {
+            try {
+                made.add(type.cast(Class.forName(name, true, loader).getConstructor().newInstance()));
+            } catch (InvocationTargetException e) {
+                throw new SealException(e.getCause());
+            } catch (ExceptionInInitializerError e) {
+                throw new SealException(e.getCause());
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException("the script's " + name + " can't be made", e);
+            }
+        }
+        return made;
+    }
+
+    /**
+     * Finds the classes of the script's files that are each entry type, which the host makes:
+     * those that aren't abstract need a constructor without parameters that isn't private; an
+     * error for each that hasn't one. A class with type parameters or shapes isn't one class on
+     * the JVM, and isn't one the host makes.
+     */
+    List<Diagnostic> findEntries(Checker checker, Set<String> files, Collection<Class<?>> types) {
+        List<Diagnostic> errors = new ArrayList<>();
+        for (Class<?> type : types) {
+            entries.put(type, new ArrayList<>());
+        }
+        if (types.isEmpty()) {
+            return errors;
+        }
+        for (ClassInfo c : checker.allClasses()) {
+            if (!files.contains(c.file) || c.builtin || c.java != null || !c.dynamic || !c.typeParams.isEmpty()
+                    || c.shapes.size() != 1 || !c.shapes.get(0).binders.isEmpty()) {
+                continue;
+            }
+            Class<?> k;
+            try {
+                k = Class.forName(JvmGen.binaryName(c), false, loader);
+            } catch (ClassNotFoundException | LinkageError e) {
+                continue;
+            }
+            if (k.isInterface() || Modifier.isAbstract(k.getModifiers())) {
+                continue;
+            }
+            for (Class<?> type : types) {
+                if (!type.isAssignableFrom(k)) {
+                    continue;
+                }
+                String cannot = cannotMake(c);
+                if (cannot == null) {
+                    entries.get(type).add(k.getName());
+                } else {
+                    Ast.Pos at = c.decl.pos();
+                    errors.add(new Diagnostic(c.file, at.line(), at.column(), c.name + " is a " + type.getSimpleName()
+                            + ", which the host makes with new(), but " + cannot));
+                }
+            }
+        }
+        return errors;
+    }
+
+    /** Why the host can't make a class with new(), or null if it can. */
+    private static String cannotMake(ClassInfo c) {
+        if (c.constructors.isEmpty()) {
+            return null;
+        }
+        for (var m : c.constructors) {
+            Ast.Constructor k = (Ast.Constructor) m.member;
+            if (k.params().isEmpty()) {
+                return k.modifiers().access() == Ast.Access.PRIVATE ? c.name + "'s new() is private" : null;
+            }
+        }
+        return c.name + " has no constructor without parameters";
     }
 
     /** Runs Main's main(), as `seal run` does; gives its exit code. */
@@ -126,7 +225,7 @@ public final class SealScript implements AutoCloseable {
         }
     }
 
-    private void finish() {
+    void finish() {
         try {
             natives.getMethod("finish").invoke(null);
         } catch (ReflectiveOperationException e) {

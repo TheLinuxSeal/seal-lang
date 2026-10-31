@@ -1163,7 +1163,7 @@ public final class JvmGen {
     // ================================================================ classes
 
     /** A class's JVM binary name: as in Seal, with nested types after a $; the library's in its own packages. */
-    static String binaryName(ClassInfo c) {
+    public static String binaryName(ClassInfo c) {
         if (c.java != null) {
             return c.java.name(); // one of Java's classes, which the program uses and doesn't define
         }
