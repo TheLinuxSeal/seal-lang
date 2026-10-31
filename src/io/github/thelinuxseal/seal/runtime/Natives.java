@@ -62,30 +62,60 @@ public final class Natives {
     private static BufferedReader stdinLines;
 
     /**
-     * For the tests: how many rounds of loops a program generated to count them may run
-     * (JvmGen.generateCountingSteps), as one whose loop never ends stops then.
+     * How many steps a program generated to count them may take: rounds of loops, for the tests
+     * (JvmGen.generateCountingSteps), whose programs may never end; rounds of loops and calls, for a
+     * host's scripts (docs/EMBED.md §6). Past it, the program stops at its next step.
      */
     public static long stepLimit = Long.MAX_VALUE;
     /**
-     * And the {@link System#nanoTime} past which such a program stops at its next round: a loop
+     * And the {@link System#nanoTime} past which such a program stops at its next step: a loop
      * whose rounds grow (a string joined to itself) may run long before the limit.
      */
     public static long stepDeadline = Long.MAX_VALUE;
+    /** Set by a host's other thread, to stop its script; it stays set. */
+    public static volatile boolean stopRequested;
     private static long steps;
+    /**
+     * The step at which {@link #step} next looks at the limits: the step limit's, or sooner, to see
+     * a stop or the deadline. A step is then one count and one comparison.
+     */
+    private static long nextCheck;
+    /** How many steps may pass before a stop or the deadline is seen. */
+    private static final long CHECK_EVERY = 1024;
 
-    /** A round of a loop, in a program generated to count them: past the limit or the deadline, the program stops. */
+    /** A step: a round of a loop, or a call, in a program generated to count them. Past a limit, it stops. */
     public static void step() {
-        if (++steps > stepLimit) {
-            throw new Trap("step limit: more than " + stepLimit + " rounds of loops");
+        if (++steps >= nextCheck) {
+            checkLimits();
+        }
+    }
+
+    private static void checkLimits() {
+        if (stopRequested) {
+            throw new Stopped("its host stopped it");
+        }
+        if (steps > stepLimit) {
+            throw new Stopped("it took more than " + stepLimit + " steps");
         }
         if (stepDeadline != Long.MAX_VALUE && System.nanoTime() > stepDeadline) {
-            throw new Trap("step limit: loops past the time allowed");
+            throw new Stopped("it ran past the time it was given");
         }
+        // The step past the limit exactly; a stop or the time within CHECK_EVERY steps.
+        long soon = steps + CHECK_EVERY;
+        nextCheck = stepLimit < soon ? stepLimit + 1 : soon;
+    }
+
+    /** For a host: the program may take {@code n} more steps, counted from now. */
+    public static void limitSteps(long n) {
+        steps = 0;
+        stepLimit = n;
+        nextCheck = 0;
     }
 
     /** Forgets what an earlier run left: open files, kept text, buffered input, the rounds counted. */
     public static void reset() {
         steps = 0;
+        nextCheck = 0;
         ioText = "";
         ioBytes = new byte[0];
         openFiles.clear();

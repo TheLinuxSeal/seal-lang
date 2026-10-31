@@ -16,6 +16,7 @@ import java.util.Map;
 
 import io.github.thelinuxseal.seal.runtime.Exit;
 import io.github.thelinuxseal.seal.runtime.Natives;
+import io.github.thelinuxseal.seal.runtime.Stopped;
 import io.github.thelinuxseal.seal.runtime.Trap;
 
 /**
@@ -100,6 +101,10 @@ public final class JvmRunner {
             // A Seal exception nothing caught (§41.4): its class and message.
             String message = t.getMessage();
             return frames(t, new StringBuilder("uncaught " + seal + (message == null || message.isEmpty() ? "" : ": " + message)));
+        }
+        if (t instanceof Stopped s) {
+            // A host's script past its limits (docs/EMBED.md §6), or stopped by its host.
+            return frames(t, new StringBuilder("stopped: " + s.getMessage()));
         }
         if (thrownByJava(t)) {
             // What Java code threw and nothing caught (docs/JAVA.md §4), reported as a Seal exception is.

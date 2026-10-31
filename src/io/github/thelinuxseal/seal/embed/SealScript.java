@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -35,12 +36,14 @@ public final class SealScript implements AutoCloseable {
     private final List<Diagnostic> warnings;
     private final Loader loader;
     private final Class<?> natives;
+    private final boolean countsSteps;
     /** For each of the engine's entry types, the binary names of the script's classes that are one, in order. */
     private final Map<Class<?>, List<String>> entries = new LinkedHashMap<>();
 
     SealScript(SealEngine engine, List<Diagnostic> errors, List<Diagnostic> warnings, Map<String, byte[]> classes) {
         this.errors = List.copyOf(errors);
         this.warnings = List.copyOf(warnings);
+        this.countsSteps = engine.countSteps;
         if (classes == null) {
             this.loader = null;
             this.natives = null;
@@ -214,6 +217,59 @@ public final class SealScript implements AutoCloseable {
             throw new IllegalStateException(e);
         } finally {
             finish();
+        }
+    }
+
+    /**
+     * Lets the script take {@code steps} more steps, counted from now (docs/EMBED.md §6): rounds of
+     * loops, and calls. At the next one after, wherever it is, it stops: the call the host made
+     * into it throws a {@code Stopped}, which a {@link SealException} of it says
+     * ({@link SealException#stopped}), and so does every step after, until the host sets the limit
+     * again. Without a limit, a script takes as many as it does.
+     */
+    public void limitSteps(long steps) {
+        requireCounting();
+        try {
+            natives.getMethod("limitSteps", long.class).invoke(null, steps);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("the runtime's Natives.limitSteps failed", e);
+        }
+    }
+
+    /** As above, a time: the script stops at its first step past {@code time} from now. */
+    public void limitTime(Duration time) {
+        requireCounting();
+        long deadline;
+        try {
+            deadline = Math.addExact(System.nanoTime(), time.toNanos());
+        } catch (ArithmeticException e) {
+            deadline = Long.MAX_VALUE; // longer than a JVM runs
+        }
+        setNatives("stepDeadline", deadline);
+    }
+
+    /**
+     * Stops the script at its next step, wherever it is running: from another thread, a watchdog,
+     * a player's command. It stays stopped; to run it again, compile it again.
+     */
+    public void stop() {
+        requireCounting();
+        setNatives("stopRequested", true);
+    }
+
+    private void requireCounting() {
+        requireOk();
+        if (!countsSteps) {
+            throw new IllegalStateException("the script doesn't count its steps, so it can't be limited or stopped:"
+                    + " its engine was built with countSteps(false)");
+        }
+    }
+
+    private void setNatives(String field, Object value) {
+        try {
+            natives.getField(field).set(null, value);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("the runtime's Natives." + field + " can't be set", e);
         }
     }
 

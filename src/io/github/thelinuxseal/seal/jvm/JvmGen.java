@@ -95,6 +95,7 @@ public final class JvmGen {
             "io.github.thelinuxseal.seal.runtime.Ptr",
             "io.github.thelinuxseal.seal.runtime.Exit",
             "io.github.thelinuxseal.seal.runtime.Trap",
+            "io.github.thelinuxseal.seal.runtime.Stopped",
             "io.github.thelinuxseal.seal.runtime.JavaValues");
 
     /** The method every main class gets that runs the program and returns its exit code. */
@@ -138,6 +139,18 @@ public final class JvmGen {
      */
     public static Result generateLibrary(Checker checker) {
         return new JvmGen(checker).runLibrary();
+    }
+
+    /**
+     * As above, counting steps, rounds of loops and calls, for a host to limit (docs/EMBED.md §6):
+     * past {@link io.github.thelinuxseal.seal.runtime.Natives#stepLimit} steps, or its deadline, or
+     * when the host asks, the program stops.
+     */
+    public static Result generateLibraryCountingSteps(Checker checker) {
+        JvmGen gen = new JvmGen(checker);
+        gen.countSteps = true;
+        gen.countCalls = true;
+        return gen.runLibrary();
     }
 
     /** The simple name of the class a library's static fields are set up from. */
@@ -261,6 +274,8 @@ public final class JvmGen {
     boolean writing;
     /** Whether each round of a loop calls the runtime's Natives.step (generateCountingSteps). */
     boolean countSteps;
+    /** Whether each call does too, as each method starts (generateLibraryCountingSteps). */
+    boolean countCalls;
     JClass mainClass;
 
     private JvmGen(Checker ck) {

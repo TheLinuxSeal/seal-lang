@@ -48,6 +48,7 @@ public final class SealEngine {
     private final Set<Warning> warn;
     private final Set<Class<?>> entries;
     private final JavaAllowlist javaAllowed;
+    final boolean countSteps;
     final InputStream in;
     final PrintStream out;
     final PrintStream err;
@@ -65,6 +66,7 @@ public final class SealEngine {
         // The entry types are the host's for its scripts to implement: they may name them.
         b.entries.forEach(t -> allowed.add(t.getName()));
         this.javaAllowed = JavaAllowlist.of(allowed);
+        this.countSteps = b.countSteps;
         this.in = b.in;
         this.out = b.out;
         this.err = b.err;
@@ -128,8 +130,9 @@ public final class SealEngine {
         if (!checker.diagnostics().isEmpty()) {
             return new SealScript(this, checker.diagnostics(), warnings, null);
         }
-        // Every class, as a library's (docs/JAVA.md §5): the program's Java code uses them, not only main.
-        JvmGen.Result result = JvmGen.generateLibrary(checker);
+        // Every class, as a library's (docs/JAVA.md §5): the program's Java code uses them, not only main;
+        // counting steps, which the host may limit (§6).
+        JvmGen.Result result = countSteps ? JvmGen.generateLibraryCountingSteps(checker) : JvmGen.generateLibrary(checker);
         if (!result.errors().isEmpty()) {
             return new SealScript(this, result.errors(), warnings, null);
         }
@@ -173,6 +176,7 @@ public final class SealEngine {
         private final Set<Warning> warn = EnumSet.noneOf(Warning.class);
         private final Set<Class<?>> entries = new LinkedHashSet<>();
         private final List<String> allowJava = new ArrayList<>();
+        private boolean countSteps = true;
         private InputStream in = InputStream.nullInputStream();
         private PrintStream out = System.out;
         private PrintStream err = System.err;
@@ -243,6 +247,17 @@ public final class SealEngine {
             for (Class<?> c : classes) {
                 allowJava.add(c.getName());
             }
+            return this;
+        }
+
+        /**
+         * Whether scripts count their steps, rounds of loops and calls, so that the host may limit
+         * them and stop them (docs/EMBED.md §6): by default, they do. A host that trusts its
+         * scripts may save the time it takes, a little in code that calls, more in a loop that
+         * does little else; without it, {@link SealScript#limitSteps} and the others throw.
+         */
+        public Builder countSteps(boolean count) {
+            this.countSteps = count;
             return this;
         }
 

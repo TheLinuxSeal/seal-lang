@@ -190,6 +190,10 @@ final class JvmCode {
 
     void generate() {
         try {
+            if (g.countCalls) {
+                // A call is a step, as a round of a loop is: recursion runs on without a loop.
+                c.invokestatic(JvmGen.NATIVES, "step", MethodTypeDesc.of(CD_void));
+            }
             openFrame();
             switch (k.kind()) {
                 case "init" -> allStatics();

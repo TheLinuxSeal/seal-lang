@@ -468,7 +468,9 @@ A small Java package, `io.github.thelinuxseal.seal.runtime`, shipped with every 
 - `FixedPoint`: fixed-point multiplication, division, rescaling and text (done in M4, §3.2);
 - `Strings`: what the library's `@jvm("Strings...")` methods stand for (§8.2);
 - `Natives`: the natives (§8.3), and the entry point (§10);
-- `Exit` (`System.exit`) and `Trap` (what stops a program, as a VM trap does).
+- `Exit` (`System.exit`) and `Trap` (what stops a program, as a VM trap does);
+- `Stopped`: what stops a program that counts its steps past its limits, a host's script
+  (EMBED.md §6) or a test's program that may never end.
 
 Seal's `Object` is not in the runtime: it is generated from the library like any class (§5).
 

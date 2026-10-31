@@ -106,6 +106,21 @@ public final class SealSnippet implements AutoCloseable {
         }
     }
 
+    /** Lets it take this many more steps, counted from now, as {@link SealScript#limitSteps} does a script. */
+    public void limitSteps(long steps) {
+        script.limitSteps(steps);
+    }
+
+    /** Lets it run for this long from now, as {@link SealScript#limitTime} does a script. */
+    public void limitTime(java.time.Duration time) {
+        script.limitTime(time);
+    }
+
+    /** Stops it at its next step, from any thread, as {@link SealScript#stop} does a script. */
+    public void stop() {
+        script.stop();
+    }
+
     /** Closes what it left open, and flushes its output. */
     @Override
     public void close() {

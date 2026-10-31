@@ -169,9 +169,10 @@ the host's class loader (`.parent(...)`), a game's. The host makes the scripts' 
 implement its interfaces (`.entry(Hook.class)`, then `script.create(Hook.class)`), which compiling
 checks it can, and runs snippets of code with its values bound by name (`seal.snippet(code)`).
 Scripts use no Java class the host doesn't allow (`.allowJava("java.util.*")`), by its name or
-through an object the API gives them, while the API uses any; and they can't use files unless the
-engine allows them. [`docs/EMBED.md`](docs/EMBED.md) is the design, and what comes next: a budget
-for loops.
+through an object the API gives them, while the API uses any; they can't use files unless the
+engine allows them; and the host limits how long they run (`script.limitSteps(1_000_000)`,
+`limitTime`), and stops one from any thread (`script.stop()`). [`docs/EMBED.md`](docs/EMBED.md) is
+the design.
 
 ## Examples
 

@@ -4,11 +4,13 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -28,6 +30,7 @@ import io.github.thelinuxseal.seal.embed.SealException;
 import io.github.thelinuxseal.seal.embed.SealScript;
 import io.github.thelinuxseal.seal.embed.SealSnippet;
 import io.github.thelinuxseal.seal.runtime.Natives;
+import io.github.thelinuxseal.seal.runtime.Stopped;
 
 /**
  * Seal inside a Java program (docs/EMBED.md, E1): scripts compiled by an engine, their errors as
@@ -283,6 +286,141 @@ public final class EmbedTest {
         }
 
         library(dir);
+        limits();
+    }
+
+    /** E5: steps counted, rounds of loops and calls, which the host limits; a time; a stop from another thread. */
+    private static void limits() throws Exception {
+        SealEngine seal = SealEngine.builder().build();
+        SealScript spin = seal.compile("Main.seal", """
+                struct Main {
+                    static void main() {
+                        int n = 0;
+                        while (true) { n++; }
+                    }
+
+                    static int fib(int n) {
+                        if (n < 2) { return n; }
+                        return fib(n - 1) + fib(n - 2);
+                    }
+
+                    static int sum(int n) {
+                        int s = 0;
+                        for (int i = 0; i < n; i++) { s += i; }
+                        return s;
+                    }
+                }
+                """);
+        check(spin.ok(), "limits: compiles " + spin.errors());
+        Method fib = spin.load("Main").getMethod("fib", int.class);
+        Method sum = spin.load("Main").getMethod("sum", int.class);
+
+        // Without a limit, a script takes the steps it takes.
+        check(Integer.valueOf(49995000).equals(sum.invoke(null, 10000)), "limits: none, unless the host sets one");
+
+        // A while (true), past its steps: stopped, and the host goes on.
+        spin.limitSteps(1_000_000);
+        try {
+            spin.run();
+            check(false, "limitSteps: a loop that never ends is stopped");
+        } catch (SealException e) {
+            check(e.stopped() && e.getMessage().equals("stopped: it took more than 1000000 steps\n    at Main.main (Main.seal:4)"),
+                    "limitSteps: a loop that never ends is stopped, where it is: " + e.getMessage());
+        }
+        // Stopped it stays, at every step, until the host sets the limit again.
+        Throwable again = thrown(() -> sum.invoke(null, 3));
+        check(again instanceof Stopped, "limitSteps: past the limit, every step stops it " + again);
+        spin.limitSteps(1_000_000);
+        check(Integer.valueOf(3).equals(sum.invoke(null, 3)), "limitSteps: set again, the script runs again");
+
+        // Calls are steps: recursion without a loop is stopped too.
+        spin.limitSteps(100_000);
+        Throwable deep = thrown(() -> fib.invoke(null, 40));
+        check(deep instanceof Stopped && new SealException(deep).stopped(), "limitSteps: calls count, as fib's " + deep);
+        spin.limitSteps(100_000);
+        check(Integer.valueOf(55).equals(fib.invoke(null, 10)), "limitSteps: within the limit, it runs");
+
+        // A time.
+        SealScript timed = seal.compile("Main.seal", "struct Main {\n    static void main() { while (true) { } }\n}\n");
+        timed.limitTime(Duration.ofMillis(50));
+        long t0 = System.nanoTime();
+        Throwable late = thrown(timed::run);
+        long ms = (System.nanoTime() - t0) / 1_000_000;
+        check(late instanceof SealException s && s.stopped() && s.getMessage().startsWith("stopped: it ran past the time it was given")
+                && ms < 5000, "limitTime: stopped past its time, after " + ms + " ms: " + late);
+
+        // A stop, from another thread, of a script running on its own.
+        SealScript stoppable = seal.compile("Main.seal", "struct Main {\n    static void main() { while (true) { } }\n}\n");
+        Throwable[] ended = new Throwable[1];
+        Thread runner = new Thread(() -> ended[0] = thrown(stoppable::run));
+        runner.start();
+        Thread.sleep(100);
+        stoppable.stop();
+        runner.join(5000);
+        check(!runner.isAlive() && ended[0] instanceof SealException s && s.stopped()
+                        && s.getMessage().startsWith("stopped: its host stopped it\n    at Main.main"),
+                "stop: from another thread " + ended[0]);
+        stoppable.limitSteps(Long.MAX_VALUE);
+        check(thrown(stoppable::run) instanceof SealException s && s.stopped(), "stop: it stays stopped");
+
+        // A script that catches what stops it can't go on: the next step stops it again.
+        SealEngine catching = SealEngine.builder().allowJava("java.lang.RuntimeException").build();
+        SealScript stubborn = catching.compile("Main.seal", """
+                struct Main {
+                    static void spin() { while (true) { } }
+
+                    static void main() {
+                        while (true) {
+                            try { spin(); } catch (java.lang.RuntimeException e) { }
+                        }
+                    }
+                }
+                """);
+        check(stubborn.ok(), "limits: a script catching RuntimeException compiles " + stubborn.errors());
+        if (stubborn.ok()) {
+            stubborn.limitSteps(100_000);
+            check(thrown(stubborn::run) instanceof SealException s && s.stopped(), "limitSteps: catching it doesn't help");
+        }
+
+        // A snippet, and a class the host made and calls itself.
+        SealSnippet loops = seal.snippet("while (true) { }").compile();
+        loops.limitSteps(10_000);
+        check(thrown(loops::run) instanceof SealException s && s.stopped(), "snippet: limitSteps");
+        SealEngine entries = SealEngine.builder().entry(IntSupplier.class).build();
+        SealScript forever = entries.compile("Forever.seal", """
+                import java.util.function.IntSupplier;
+                import seal.java.*;
+
+                class Forever implements(IntSupplier) {
+                    public JavaInt getAsInt() { while (true) { } return JavaInt.of(0); }
+                }
+                """);
+        check(forever.ok(), "limits: an entry class compiles " + forever.errors());
+        if (forever.ok()) {
+            IntSupplier f = forever.create(IntSupplier.class).get(0);
+            forever.limitSteps(10_000);
+            Throwable direct = thrown(f::getAsInt);
+            check(direct instanceof Stopped && new SealException(direct).stopped(),
+                    "limitSteps: the host's own call into the script " + direct);
+        }
+
+        // Without counting, there are no limits.
+        SealScript uncounted = SealEngine.builder().countSteps(false).build().compile("Main.seal", "struct Main { }\n");
+        check(throwsWith(IllegalStateException.class, "the script doesn't count its steps, so it can't be limited or stopped:"
+                        + " its engine was built with countSteps(false)", () -> uncounted.limitSteps(5)),
+                "countSteps(false): no limits");
+    }
+
+    /** What running it threw, unwrapped from reflection's InvocationTargetException; null if nothing. */
+    private static Throwable thrown(ThrowingRunnable r) {
+        try {
+            r.run();
+            return null;
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            return e.getCause();
+        } catch (Throwable t) {
+            return t;
+        }
     }
 
     /** The host's own Java classes, which its loader has: what it calls scripts through, and what it gives them. */
