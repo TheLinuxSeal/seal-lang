@@ -74,7 +74,8 @@ public final class EmbedTest {
 
     private static void tests(Path dir) throws Exception {
         ByteArrayOutputStream outA = new ByteArrayOutputStream();
-        SealEngine a = SealEngine.builder().out(new PrintStream(outA, true, StandardCharsets.UTF_8)).build();
+        SealEngine a = SealEngine.builder().out(new PrintStream(outA, true, StandardCharsets.UTF_8))
+                .allowJava(IntUnaryOperator.class).build();
 
         // run(): main's result is the exit code; run again, the static fields keep their values.
         SealScript counter = a.compile("Main.seal", COUNTER);
@@ -241,7 +242,7 @@ public final class EmbedTest {
         check(javac.run(null, null, null, "-d", lib.toString(), lib.resolve("demo/Greeter.java").toString()) == 0,
                 "javac compiles the class path's class");
         outA.reset();
-        SealEngine withLib = SealEngine.builder().classPath(lib)
+        SealEngine withLib = SealEngine.builder().classPath(lib).allowJava("demo.Greeter")
                 .out(new PrintStream(outA, true, StandardCharsets.UTF_8)).build();
         SealScript greets = withLib.compile("Main.seal", """
                 import demo.Greeter;
@@ -385,7 +386,7 @@ public final class EmbedTest {
         try (URLClassLoader host = new URLClassLoader(new URL[] {hostClasses.toUri().toURL()}, EmbedTest.class.getClassLoader())) {
             Class<?> hook = host.loadClass("demo.Hook");
             Class<?> context = host.loadClass("demo.Context");
-            SealEngine seal = SealEngine.builder().parent(host).library(api).build();
+            SealEngine seal = SealEngine.builder().parent(host).library(api).allowJava("demo.*").build();
             SealScript hello = seal.compile("Hello.seal", HELLO);
             check(hello.ok(), "a script extends the library's class, which implements the host's interface " + hello.errors());
             if (hello.ok()) {
@@ -420,7 +421,7 @@ public final class EmbedTest {
                 }
             }
             try (URLClassLoader game = new URLClassLoader(new URL[] {flat.toUri().toURL()}, EmbedTest.class.getClassLoader())) {
-                SealEngine inGame = SealEngine.builder().parent(game).build();
+                SealEngine inGame = SealEngine.builder().parent(game).allowJava("demo.*").build();
                 String wildcard = "import demo.*;\nstruct Main { static int f(Context c) { return (int) c.ticks(); } }\n";
                 check(!inGame.compile("Main.seal", wildcard).ok() && inGame.compile("Main.seal", "import demo.Context;\nstruct Main { }\n").ok(),
                         "parent: a jar without folders has its classes, but no package to import with * before one is loaded");
@@ -466,7 +467,89 @@ public final class EmbedTest {
 
             entries(host, api);
             snippets(host, api);
+            allowlist(host, api);
         }
+    }
+
+    /** E4: scripts use no Java class the host doesn't allow, by its name or through an object; the library uses any. */
+    private static void allowlist(URLClassLoader host, Path api) throws Exception {
+        Class<?> context = host.loadClass("demo.Context");
+        // A library that hands out the host's Java object, and one with a Java parent.
+        Map<String, String> leaky = new LinkedHashMap<>(API);
+        leaky.put("api/Raw.seal", "package api;\n\nimport demo.Context;\nimport seal.java.*;\n\n"
+                + "class Raw {\n    public static Context make(int ticks) { return new Context(JavaInt.of(ticks)); }\n}\n");
+        leaky.put("api/Dice.seal", "package api;\n\nimport java.util.Random;\n\nclass Dice extends(Random) {\n}\n");
+        SealEngine seal = SealEngine.builder().parent(host).library(leaky).build();
+        check(seal.compile("Hello.seal", HELLO).ok(), "allowlist: the library uses any Java class; a script, its Seal types");
+
+        // Named: imported, written in full, statically imported.
+        expectDenied(seal, "import java.io.File;\nstruct Main { }\n", "Main.seal:1:1: Java's java.io.File isn't one the host lets scripts use");
+        expectDenied(seal, "struct Main {\n    static void f() { java.lang.System.exit(0); }\n}\n",
+                "Main.seal:2:23: Java's java.lang.System isn't one the host lets scripts use");
+        expectDenied(seal, "import static java.lang.Math.max;\nstruct Main { }\n",
+                "Main.seal:1:1: Java's java.lang.Math isn't one the host lets scripts use");
+        // Unnamed: a Java object the library gives, a Java parent's method, Object's getClass().
+        String raw = "import api.*;\nimport seal.java.*;\n\nstruct Main {\n    static void f() { Raw.make(1).say(JavaString.of(\"x\")); }\n}\n";
+        expectDenied(seal, raw, "Main.seal:5:23: Java's demo.Context isn't one the host lets scripts use");
+        expectDenied(seal, "import api.*;\nimport seal.java.*;\n\nstruct Main {\n"
+                        + "    static int f() { Dice d = new Dice(); return (int) d.nextInt(JavaInt.of(6)); }\n}\n",
+                "Main.seal:5:56: Java's java.util.Random isn't one the host lets scripts use");
+        expectDenied(seal, "import seal.java.*;\n\nstruct Main {\n"
+                        + "    static string f(JavaObject o) { return (string) o.getClass().getName(); }\n}\n",
+                "Main.seal:4:53: Java's java.lang.Class isn't one the host lets scripts use");
+        // seal.java's types, and a for-each over a Java collection, need no leave.
+        check(seal.compile("Main.seal", "import seal.java.*;\n\nstruct Main {\n"
+                + "    static int f() { return (int) JavaString.of(\"abc\").length(); }\n}\n").ok(), "allowlist: seal.java's types");
+
+        // Allowed: a class, a package's classes (not its subpackages'), a class's nested ones, every class.
+        check(SealEngine.builder().parent(host).library(leaky).allowJava(context).build().compile("Main.seal", raw).ok(),
+                "allowJava(class): a Java object the library gives");
+        SealEngine util = SealEngine.builder().allowJava("java.util.*").build();
+        SealScript list = util.compile("Main.seal", """
+                import java.util.ArrayList;
+                import seal.java.*;
+
+                struct Main {
+                    static int main() {
+                        ArrayList<JavaString> xs = new ArrayList();
+                        xs.add(JavaString.of("ab"));
+                        xs.add(JavaString.of("c"));
+                        int n = 0;
+                        for (JavaString s : xs) { n += (int) s.length(); }
+                        return n;
+                    }
+                }
+                """);
+        check(list.ok() && list.run() == 3, "allowJava(\"java.util.*\"): a package's classes, and a for-each " + list.errors());
+        expectDenied(util, "import java.util.concurrent.ConcurrentHashMap;\nstruct Main { }\n",
+                "Main.seal:1:1: Java's java.util.concurrent.ConcurrentHashMap isn't one the host lets scripts use");
+        String entry = "import java.util.Map;\nimport seal.java.*;\n\nstruct Main {\n"
+                + "    static JavaObject key(Map.Entry<JavaString, JavaString> e) { return e.getKey(); }\n}\n";
+        check(SealEngine.builder().allowJava("java.util.Map").build().compile("Main.seal", entry).ok(),
+                "allowJava(\"java.util.Map\"): the classes nested in it");
+        expectDenied(SealEngine.builder().allowJava("java.util.HashMap").build(), entry,
+                "Main.seal:1:1: Java's java.util.Map isn't one the host lets scripts use",
+                "Main.seal:5:27: Java's java.util.Map$Entry isn't one the host lets scripts use");
+        check(SealEngine.builder().allowJava("*").build().compile("Main.seal", "import java.io.File;\nstruct Main { }\n").ok(),
+                "allowJava(\"*\"): every class");
+        check(throwsWith(IllegalArgumentException.class, "can't allow Java's \"java.**\": allow a class (java.util.ArrayList),"
+                        + " a package's classes (java.util.*), or every class (*)",
+                () -> SealEngine.builder().allowJava("java.**").build()), "allowJava: a pattern it doesn't take");
+
+        // A snippet may use what the host binds, and no other.
+        Object ctx = context.getConstructor(int.class).newInstance(1);
+        SealSnippet says = seal.snippet("ctx.say(JavaString.of(\"x\"));").bind("ctx", context, ctx).compile();
+        check(says.ok(), "snippet: the bound values' types are allowed " + says.errors());
+        SealSnippet files = seal.snippet("java.io.File f = null;").compile();
+        check(!files.ok() && files.errors().get(0).message().equals("Java's java.io.File isn't one the host lets scripts use"),
+                "snippet: no other Java class " + files.errors());
+    }
+
+    /** That a script doesn't compile, with these errors alone. */
+    private static void expectDenied(SealEngine seal, String code, String... errors) {
+        SealScript s = seal.compile("Main.seal", code);
+        check(s.errors().stream().map(Diagnostic::toString).toList().equals(List.of(errors)),
+                "allowlist: " + List.of(errors) + "; got " + s.errors());
     }
 
     private static String macro(String name, String title, String extra) {
@@ -546,7 +629,7 @@ public final class EmbedTest {
                 }
                 """);
         check(seven.ok() && seven.create(IntSupplier.class).get(0).getAsInt() == 7, "entries: a JDK interface " + seven.errors());
-        check(seven.ok() && SealEngine.builder().build().compile("Seven.seal", """
+        check(seven.ok() && SealEngine.builder().allowJava(IntSupplier.class).build().compile("Seven.seal", """
                 import java.util.function.IntSupplier;
                 import seal.java.*;
 

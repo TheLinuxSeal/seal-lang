@@ -199,7 +199,9 @@ public final class SealSnippet implements AutoCloseable {
             header.append("struct ").append(CLASS).append(" { public static void run(").append(String.join(", ", params))
                     .append(") { ").append(prelude);
             String file = header + code + "\n}\n}\n";
-            SealScript script = engine.compile(Map.of(FILE, file));
+            // The types of what the host binds are its to give: the snippet may use them.
+            List<String> bound = types.stream().filter(t -> !t.isPrimitive()).map(Class::getName).toList();
+            SealScript script = engine.compile(Map.of(FILE, file), engine.javaAllowed().with(bound));
             return new SealSnippet(script, header.length(), types, values);
         }
 

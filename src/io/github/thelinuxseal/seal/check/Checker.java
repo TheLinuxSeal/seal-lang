@@ -149,9 +149,21 @@ public final class Checker {
     /** As above, with the Java classes the program may import: the JDK's and the class path's (docs/JAVA.md §6). */
     public static Checker analyze(Map<String, String> sources, Map<String, String> library, Set<Warning> warn,
                                   JavaClasses java) {
+        return analyze(sources, library, warn, java, Set.of(), null);
+    }
+
+    /**
+     * As above, for a host's scripts (docs/EMBED.md §5): the code of the files {@code restricted}
+     * may use only the Java classes {@code allowed} takes, by binary name (java.util.Map$Entry),
+     * wherever it uses one: naming it, or using a member of it, of an object an API gave.
+     */
+    public static Checker analyze(Map<String, String> sources, Map<String, String> library, Set<Warning> warn,
+                                  JavaClasses java, Set<String> restricted, java.util.function.Predicate<String> allowed) {
         Checker c = new Checker();
         c.warn.addAll(warn);
         c.javaClasses = java;
+        c.javaRestricted = Set.copyOf(restricted);
+        c.javaAllowed = allowed;
         c.run(sources, library);
         return c;
     }
@@ -679,6 +691,10 @@ public final class Checker {
     private final Set<Field> constInProgress = new HashSet<>();
     /** Set when evaluating a const field reaches itself again; reported by the outermost evaluation. */
     private Field constCycle;
+
+    /** A host's scripts' files (docs/EMBED.md §5), whose code may use only the Java classes {@link #javaAllowed} takes. */
+    private Set<String> javaRestricted = Set.of();
+    private java.util.function.Predicate<String> javaAllowed;
 
     private Checker() {
     }
@@ -1578,6 +1594,10 @@ public final class Checker {
             report(i.pos(), "Java's " + t.java.name() + " isn't public, so a program can't use it");
             return;
         }
+        if (javaDenied(t, c)) {
+            report(i.pos(), javaDeniedMessage(t));
+            return;
+        }
         if (i.all()) {
             return;
         }
@@ -1626,6 +1646,8 @@ public final class Checker {
                 report(i.pos(), t.name + " is private to " + t.outer.name);
             } else if (t.java != null && !t.java.visible()) {
                 report(i.pos(), "Java's " + t.java.name() + " isn't public, so a program can't use it");
+            } else if (javaDenied(t, c)) {
+                report(i.pos(), javaDeniedMessage(t));
             } else if (t.java != null && t.pkg.equals("seal.java") && !i.name().startsWith("seal.")) {
                 report(i.pos(), "Java's " + t.java.name() + " is " + t.name + " in Seal (docs/JAVA.md §3.1): import seal.java."
                         + t.name + ";");
@@ -1657,7 +1679,25 @@ public final class Checker {
             report(pos, c.name + " is private to " + c.outer.name + "; make it public to use it outside");
             return null;
         }
+        if (javaDenied(c, from)) {
+            report(pos, javaDeniedMessage(c));
+            return null;
+        }
         return c;
+    }
+
+    /**
+     * Whether code of the class {@code from} may not use the Java class {@code c}: it is a host's
+     * script's (docs/EMBED.md §5), and the host doesn't allow it. Seal's types never are. The class
+     * decides, not the file being checked: a type is resolved again later, when the backend asks.
+     */
+    private boolean javaDenied(ClassInfo c, ClassInfo from) {
+        return javaAllowed != null && c != null && c.java != null && javaRestricted.contains(from != null ? from.file : file)
+                && !javaAllowed.test(c.java.name());
+    }
+
+    private static String javaDeniedMessage(ClassInfo c) {
+        return "Java's " + c.java.name() + " isn't one the host lets scripts use";
     }
 
     private ClassInfo load(String path, String source, boolean builtin) {
@@ -6160,6 +6200,10 @@ public final class Checker {
                 b.rewritten.put(n, get);
                 return checkExpr(b, get, null);
             }
+            if (javaDenied(declaringClass(m), b.cls)) {
+                report(n.pos(), javaDeniedMessage(declaringClass(m)));
+                return Type.ERROR;
+            }
             if (!f.modifiers().isStatic() && !f.modifiers().isConst()) {
                 noteUsesThis(b);
             }
@@ -6443,6 +6487,10 @@ public final class Checker {
                         + (staticAccess && javaField(cls, null, s.name(), false) != null ? "; it is an instance field, of an object" : ""));
                 return Type.ERROR;
             }
+            if (javaDenied(cls, b.cls)) {
+                report(s.pos(), javaDeniedMessage(cls));
+                return Type.ERROR;
+            }
             boolean isStatic = f.m().member.modifiers().isStatic();
             b.selected.put(s, f.m());
             b.owners.put(s, isStatic ? null : f.owner());
@@ -6471,6 +6519,10 @@ public final class Checker {
             Call get = new Call(s.pos(), new Select(s.pos(), s.target(), "get " + s.name()), List.of(), List.of());
             b.rewritten.put(s, get);
             return checkExpr(b, get, null);
+        }
+        if (javaDenied(declaringClass(m), b.cls)) {
+            report(s.pos(), javaDeniedMessage(declaringClass(m)));
+            return Type.ERROR;
         }
         b.selected.put(s, m);
         b.owners.put(s, found.owner);
@@ -7101,11 +7153,17 @@ public final class Checker {
         Fit chosen = best.get(0);
         boolean isStatic = chosen.m().member.modifiers().isStatic();
         CallKind kind = ctor ? CallKind.CONSTRUCTOR : isStatic ? CallKind.STATIC : CallKind.METHOD;
+        ClassInfo declaring = declaringClass(chosen.m());
+        ClassT q = qualifier != null ? qualifier : receiver != null && !isStatic ? receiver
+                : new ClassT(declaring, List.of(), List.of(), 0);
+        // A script may use what an allowed Java class has, its parents' too; through a Seal class, what its Java parent has.
+        ClassInfo used = q.cls().java != null ? q.cls() : declaring;
+        if (javaDenied(used, b.cls)) {
+            report(pos, javaDeniedMessage(used));
+            return Type.ERROR;
+        }
         if (site != null) {
             b.calls.put(site, new CallInfo(kind, chosen.m(), chosen.owner(), Map.copyOf(chosen.bound()), false, false));
-            ClassInfo declaring = declaringClass(chosen.m());
-            ClassT q = qualifier != null ? qualifier : receiver != null && !isStatic ? receiver
-                    : new ClassT(declaring, List.of(), List.of(), 0);
             int fixed = paramTypes(chosen.owner(), chosen.m(), chosen.bound()).size() - 1;
             b.javaCalls.put(site, new JavaCall(q, chosen.varargs() ? fixed : -1));
         }

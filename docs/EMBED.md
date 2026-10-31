@@ -1,11 +1,12 @@
 # Seal inside Java programs: design
 
-**Status:** E1 to E3 are built (2026-10-30): a Java program compiles Seal's code while it runs,
+**Status:** E1 to E4 are built (2026-10-30): a Java program compiles Seal's code while it runs,
 gets the errors as data, and uses the classes in its own JVM; it gives its scripts an API of its
 own, written in Seal, and calls them through its Java interfaces with its own objects; it makes the
 classes of its scripts that implement them, which compiling checks it can, and runs snippets of
-code with its values bound by name. E4 and E5 are planned (§8), with a Minecraft mod for macros,
-which players write in Seal, as the program they are for.
+code with its values bound by name; and its scripts use no Java class it doesn't allow, while its
+API uses any. E5 is planned (§9), with a Minecraft mod for macros, which players write in Seal, as
+the program they are for.
 
 Seal is a scripting language for programs on the JVM: Minecraft mods, Java games, Java
 applications. It isn't one for C and C++ programs, as Lua is: those would need a JVM, or a runtime
@@ -20,6 +21,7 @@ SealEngine seal = SealEngine.builder()
         .parent(MacroMod.class.getClassLoader())     // the Java classes scripts may use: the game's, the mod's
         .library(MacroMod.class.getClassLoader(), "macros/api")   // the mod's Seal API, every script has (§3)
         .entry(Hook.class)                // what the mod makes of a script's classes (§4)
+        .allowJava("java.util.*")         // the Java classes scripts may use: none, unless allowed (§5)
         .out(log)                         // the scripts' standard output; System.out unset
         .files(false)                     // no files, as unset: every file operation fails
         .build();
@@ -41,7 +43,9 @@ The package is `io.github.thelinuxseal.seal.embed`:
   * the standard library, read once when it is built;
   * the host's own Seal library (`library`, §3), compiled with every script;
   * the class loader scripts' classes are loaded under (`parent`, the engine's by default), whose
-    Java classes they may use: the interfaces the host calls them through, the game's classes;
+    Java classes they are compiled against: the interfaces the host calls them through, the game's;
+  * which Java classes scripts may use (`allowJava`, §5): none but seal.java's and the entry types,
+    unless the host allows them; its library may use any;
   * jars and class folders of more Java classes (`classPath`, as `seal --classpath`);
   * the warnings to report (`warn(Warning.AUTO_CAST)`, as `-WautoCast`);
   * each script's standard input, output and error, and whether it may use files.
@@ -147,7 +151,7 @@ and checking scripts against it, was the first plan, and doesn't work with Seal'
 * Every Seal class implements the library's root `Object` (and every exception extends its
   `Exception`), so a script making its own of the standard library's classes would have objects
   the host's library classes can't use, and sharing the jar's would share its `System.stdout`, and
-  every other static field of the standard library, between scripts (§5).
+  every other static field of the standard library, between scripts (§6).
 
 Compiled with each script, the API's classes are the script's, with its streams and its static
 fields, and only Java's classes cross between the host and the script, as they do between any two
@@ -200,7 +204,41 @@ Java's types are bound as Seal names them (JAVA.md §3): the primitives, `String
 boxes as `seal.java`'s types, `JavaInt`, `JavaString`, `JavaObject`, `JavaIntBoxed`, and other
 classes by their own names, imported. An array can't be bound, and a value must be of its type.
 
-## 5. Each script a program of its own
+## 5. The Java classes scripts may use (E4)
+
+A script uses no Java class the host doesn't allow; the host's library uses any. A mod's players
+share their macros, and a macro from a forum shouldn't read the player's files, or reach into the
+game past what the mod's API offers. `Builder.allowJava` allows them:
+
+* a class, `"java.util.ArrayList"` or `ArrayList.class`, and the classes nested in it;
+* a nested class alone, `"java.util.Map.Entry"`;
+* a package's classes, `"java.util.*"`, not its subpackages' (`java.util.concurrent`'s);
+* every class, `"*"`, for a host that trusts its scripts.
+
+Always allowed: seal.java's classes, `JavaObject`, `JavaString` and the boxes (Java's `Object`,
+`String`, `Integer`...); what a for-each over a Java collection and a `try` closing a Java resource
+call (`Iterable`, `Iterator`, `AutoCloseable`); the engine's entry types, which scripts implement;
+and in a snippet, the types of the values bound.
+
+A script uses a class wherever its code names it: an import (a static one too), a type (a
+field's, a parameter's, a cast's, a type argument, a parent or interface), `new`, a static
+member's class, a method reference. And wherever it uses a member of one without naming it: a
+method of a Java object that the library's API returns (`Raw.make(1).say(...)`, where `make`
+returns the host's `Context`), a Java parent's method or field of a Seal class (the API's `Dice`
+extends `java.util.Random`, so `dice.nextInt(...)` is `Random`'s), and what `getClass()` gives
+(`o.getClass().getName()` is `java.lang.Class`'s). A member is the receiver's: a script allowed
+`ArrayList` calls the methods it has from `AbstractCollection`. Each use is an error where it is:
+
+```text
+Main.seal:5:23: Java's demo.Context isn't one the host lets scripts use
+```
+
+The standard library is Seal, not Java, and scripts use it as any program does: `List`, `Math`,
+`System.stdout`. Its files are the host's to allow (`files(true)`), and `System.exit` ends a
+script, not the JVM (§1). `@jvm` and `@native`, which give a method the runtime's code, are the
+standard library's alone.
+
+## 6. Each script a program of its own
 
 Two scripts never share state: each has its own static fields (the library's too, §3), open files,
 standard streams, and the text the runtime keeps between a file operation and the library's
@@ -217,7 +255,7 @@ A script's static fields keep their values for as long as it is loaded: `run()` 
 called twice, as in Java. To start over, compile again; the script that is dropped is collected
 when nothing uses its classes.
 
-## 6. In the compiler
+## 7. In the compiler
 
 `Sources` reads `.seal` files and folders, and files from a class loader's resources by an index,
 and finds the standard library (§2), for `Main` and the engine. The engine checks a script with the
@@ -236,15 +274,23 @@ without folder entries (as `seal build --jar` writes) has no folders, so before 
 package is loaded, its classes are imported one by one; a game's packages are loaded long before
 its mods compile scripts.
 
+The allowlist (§5) is the checker's: `Checker.analyze` takes the script's files and which Java
+classes they may use, by binary name, and denies a Java class where `visibleClass` already denies
+a private one (every type a program names: types, `new`, a class in an expression), at imports,
+and where a Java method or field is chosen, of the receiver's class or, through a Seal class, of
+the Java class declaring it. The class whose code is checked decides, not the file being checked:
+the backend asks for types again later, of the library's classes too. `JavaAllowlist` matches the
+patterns.
+
 The entry check (§4) loads the script's classes without initializing them, and asks the JVM
 which are each entry type, then the checker's view of each, its constructors, why one can't be
 made; `JvmGen.binaryName` gives a class's JVM name. A snippet is compiled as a file of its own.
 
 Compiling is as fast as the JVM is warm: a small script takes about 640 ms in a JVM that has
 compiled nothing, and about 60 ms once the JVM has compiled the compiler. Every compile checks the
-standard library and the host's library again (§9).
+standard library and the host's library again (§10).
 
-## 7. Testing
+## 8. Testing
 
 `EmbedTest` compiles and runs scripts through the engine: exit codes and static fields across
 runs; two scripts' fields and streams kept apart; classes loaded from Java, static methods and a
@@ -268,18 +314,27 @@ the value bound and with another; errors and warnings at the code's places, the 
 0; a fault's line; `System.exit`; an `int` and a `String` bound; an array, and a value of the
 wrong type.
 
-## 8. Order of work
+For E4, with a library that hands out the host's `Context` and has a class extending
+`java.util.Random`: the library compiles, and a script using its Seal types does; a script can't
+import `java.io.File`, write `java.lang.System.exit(0)`, statically import `Math`'s `max`, call the
+`Context` the library gives, call `Random`'s `nextInt` through the library's class, or call
+`getName()` on `getClass()`'s `Class`, each one error where it is; seal.java's types need no
+leave. Allowed: a class, by its `Class`; `java.util.*`, with a for-each over an `ArrayList`, but
+not `java.util.concurrent`'s; `java.util.Map` with `Map.Entry`, and `java.util.HashMap` without
+them; `*`; a pattern it doesn't take. A snippet uses the types it binds, and no other.
+
+## 9. Order of work
 
 | Step | Contents | Done when |
 | ---- | -------- | --------- |
 | **E1**, **done** | `SealEngine`, `SealScript`, `SealException`; errors as data; every class compiled and loaded in the host's JVM; each script its own `Natives`; `seal.jar` with the standard library (`jar.sh`) | `EmbedTest`; `seal.jar` runs the examples, and a Java program compiles and runs scripts with it alone on its class path |
 | **E2**, **done** | The host's Seal API, compiled with every script (§3), from folders, a jar's resources, or code; checked when the engine is built. Java's classes read from the parent class loader (the game's), not only from jars and folders | a script extends the API's class, which implements the host's Java interface, and the host calls it with its own object (`EmbedTest`) |
 | **E3**, **done** | Entry classes: `Builder.entry(Hook.class)`, checked while compiling (a script's classes implementing `Hook` can be made, with `new()`); `script.create(Hook.class)`, each of them made, as `Hook`s; snippets, statements compiled with Java's values bound by name and a prelude of the host's (`seal.snippet(code).bind("ctx", Context.class, ctx).prelude(...)`), run by `run()` | `EmbedTest` |
-| **E4** | The Java allowlist: scripts name no Java class but those the engine allows, checked wherever a Java type is used, not only in imports; the host's library may name what its scripts can't | a script can't reach `java.io.File` or the game's classes, unless allowed, while the API it uses does |
+| **E4**, **done** | The Java allowlist (§5): scripts use no Java class but those the engine allows, checked wherever a Java type is used, not only in imports; the host's library may use what its scripts can't | a script can't reach `java.io.File` or the game's classes, unless allowed, while the API it uses does (`EmbedTest`) |
 | **E5** | A budget for loops: a check where a loop goes round again, so the host can stop a script that runs on without returning (the tests' `JvmGen.generateCountingSteps` counts rounds already) | a `while (true)` is stopped, and the host goes on |
 | **Macro mod** | `examples/24-macro-mod`: macros in `config/macros/`, compiled in the game; a Seal API, `waitTicks` on virtual threads in step with the game's thread; `/macro reload`; errors in chat | the mod runs a macro in Minecraft 26.3 |
 
-## 9. Questions
+## 10. Questions
 
 1. **The libraries' cost.** Every compile checks the standard library and the host's library
    again. If hosts compile often, the engine could keep them checked.

@@ -168,8 +168,10 @@ Seal's types while the API calls the host's Java objects, and scripts may use th
 the host's class loader (`.parent(...)`), a game's. The host makes the scripts' classes that
 implement its interfaces (`.entry(Hook.class)`, then `script.create(Hook.class)`), which compiling
 checks it can, and runs snippets of code with its values bound by name (`seal.snippet(code)`).
-Scripts can't use files unless the engine allows them. [`docs/EMBED.md`](docs/EMBED.md) is the
-design, and what comes next: an allowlist of Java classes, and a budget for loops.
+Scripts use no Java class the host doesn't allow (`.allowJava("java.util.*")`), by its name or
+through an object the API gives them, while the API uses any; and they can't use files unless the
+engine allows them. [`docs/EMBED.md`](docs/EMBED.md) is the design, and what comes next: a budget
+for loops.
 
 ## Examples
 

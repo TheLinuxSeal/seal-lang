@@ -28,8 +28,8 @@ import io.github.thelinuxseal.seal.jvm.JvmGen;
  * Seal inside a Java program (docs/EMBED.md): compiles Seal's code while the program runs, into
  * classes in the program's own JVM, which its Java code then uses. An engine holds what its
  * compiles share: the standard library, read once; the host's own Seal library, which every script
- * is compiled with; the Java classes scripts may use; the warnings asked for; and the standard
- * streams and file access each script gets.
+ * is compiled with; the Java classes scripts may use, which are none the host doesn't allow; the
+ * warnings asked for; and the standard streams and file access each script gets.
  *
  * <pre>
  *   SealEngine seal = SealEngine.builder().out(log).build();
@@ -47,6 +47,7 @@ public final class SealEngine {
     private final ClassLoader loader;
     private final Set<Warning> warn;
     private final Set<Class<?>> entries;
+    private final JavaAllowlist javaAllowed;
     final InputStream in;
     final PrintStream out;
     final PrintStream err;
@@ -60,6 +61,10 @@ public final class SealEngine {
         this.loader = classPath.isEmpty() ? b.parent : new URLClassLoader(urls(classPath), b.parent);
         this.warn = EnumSet.copyOf(b.warn);
         this.entries = Set.copyOf(b.entries);
+        List<String> allowed = new ArrayList<>(b.allowJava);
+        // The entry types are the host's for its scripts to implement: they may name them.
+        b.entries.forEach(t -> allowed.add(t.getName()));
+        this.javaAllowed = JavaAllowlist.of(allowed);
         this.in = b.in;
         this.out = b.out;
         this.err = b.err;
@@ -98,6 +103,16 @@ public final class SealEngine {
      * {@link Builder#library} files), whose classes the script then has its own of.
      */
     public SealScript compile(Map<String, String> sources) {
+        return compile(sources, javaAllowed);
+    }
+
+    /** The Java classes the engine's scripts may use. */
+    JavaAllowlist javaAllowed() {
+        return javaAllowed;
+    }
+
+    /** As above, the script's own files using only the Java classes {@code allowed} takes; the library's, any. */
+    SealScript compile(Map<String, String> sources, JavaAllowlist allowed) {
         for (String file : sources.keySet()) {
             if (library.containsKey(file)) {
                 return new SealScript(this, List.of(new Diagnostic(file, 1, 1,
@@ -106,7 +121,8 @@ public final class SealEngine {
         }
         Map<String, String> all = new LinkedHashMap<>(library);
         all.putAll(sources);
-        Checker checker = Checker.analyze(all, stdlib, warn, new JavaClasses(parent, classPath, Map.of()));
+        Checker checker = Checker.analyze(all, stdlib, warn, new JavaClasses(parent, classPath, Map.of()), sources.keySet(),
+                allowed);
         // The script's warnings: the library's are the host's to see, when it is built.
         List<Diagnostic> warnings = checker.warnings().stream().filter(w -> !library.containsKey(w.file())).toList();
         if (!checker.diagnostics().isEmpty()) {
@@ -156,6 +172,7 @@ public final class SealEngine {
         private ClassLoader parent = SealEngine.class.getClassLoader();
         private final Set<Warning> warn = EnumSet.noneOf(Warning.class);
         private final Set<Class<?>> entries = new LinkedHashSet<>();
+        private final List<String> allowJava = new ArrayList<>();
         private InputStream in = InputStream.nullInputStream();
         private PrintStream out = System.out;
         private PrintStream err = System.err;
@@ -206,6 +223,26 @@ public final class SealEngine {
         public Builder library(Map<String, String> sources) {
             Map<String, String> copy = new LinkedHashMap<>(sources);
             library.add(into -> into.putAll(copy));
+            return this;
+        }
+
+        /**
+         * Java classes the scripts may use, which are none unless allowed (docs/EMBED.md §5): a class
+         * ("java.util.ArrayList", and the classes nested in it), a package's classes
+         * ("java.util.*", not its subpackages'), or every class ("*"). A script may use no other,
+         * by its name or through an object an API gives it; the library may use any. seal.java's
+         * types (JavaString, JavaObject, the boxes) and the entry types are always allowed.
+         */
+        public Builder allowJava(String... names) {
+            allowJava.addAll(List.of(names));
+            return this;
+        }
+
+        /** As above, these classes, and the classes nested in them. */
+        public Builder allowJava(Class<?>... classes) {
+            for (Class<?> c : classes) {
+                allowJava.add(c.getName());
+            }
             return this;
         }
 
