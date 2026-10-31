@@ -3,6 +3,7 @@ package io.github.thelinuxseal.seal;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -78,6 +79,15 @@ public final class CliTest {
                 throw new IOException(e);
             }
             check(code == 7 && printed.equals("hi\n"), "java runs what build wrote: exit " + code + ", " + printed);
+        }
+        // Every class of the runtime, its nested ones too (Natives$FileOp, which file operations use).
+        Path runtime = Path.of(URI.create(io.github.thelinuxseal.seal.runtime.Natives.class
+                .getProtectionDomain().getCodeSource().getLocation().toString())).resolve("io/github/thelinuxseal/seal/runtime");
+        try (Stream<Path> files = Files.list(runtime)) {
+            List<String> missing = files.map(f -> f.getFileName().toString()).filter(f -> f.endsWith(".class"))
+                    .filter(f -> !Files.isRegularFile(classes.resolve("io/github/thelinuxseal/seal/runtime").resolve(f)))
+                    .sorted().toList();
+            check(missing.isEmpty(), "build: writes every class of the runtime, missing " + missing);
         }
         Path divide = write(dir, "divide/Main.seal", """
                 struct Main {

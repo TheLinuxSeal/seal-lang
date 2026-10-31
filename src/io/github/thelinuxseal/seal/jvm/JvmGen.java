@@ -87,6 +87,7 @@ public final class JvmGen {
     /** The runtime's classes, which compiled programs use and `seal build` copies beside them (§9). */
     public static final List<String> RUNTIME_CLASSES = List.of(
             "io.github.thelinuxseal.seal.runtime.Natives",
+            "io.github.thelinuxseal.seal.runtime.Natives$FileOp",
             "io.github.thelinuxseal.seal.runtime.Ints",
             "io.github.thelinuxseal.seal.runtime.Strings",
             "io.github.thelinuxseal.seal.runtime.FixedPoint",
