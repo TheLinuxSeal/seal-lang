@@ -1,0 +1,183 @@
+package macro;
+
+import com.example.sealmacros.MacroEntry;
+import com.example.sealmacros.MacroRun;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Options;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.network.chat.Component;
+import seal.java.*;
+
+/**
+ * A macro: a file in config/macros has a class that extends Macro, and its run() is what the
+ * macro does. It runs in step with the game: it goes on until it waits for ticks, then the game
+ * goes on, then the macro does. It is stopped by /macro stop, and if it runs for long without
+ * waiting (MacroRun.TICK_BUDGET).
+ *
+ * Macro is Seal over Minecraft's own classes. A macro uses Minecraft through it alone: the mod
+ * lets macros use no Java class themselves.
+ */
+abstract class Macro implements(MacroEntry) {
+    private MacroRun macro;
+
+    /** What the macro does. */
+    public abstract void run();
+
+    /** The mod starts the macro through this, on the macro's own thread. */
+    public void start(MacroRun given) {
+        macro = given;
+        run();
+    }
+
+    // Time
+
+    /** Waits this many ticks, 20 a second, while the game goes on. */
+    public void waitTicks(int ticks) {
+        macro.waitTicks(JavaInt.of(ticks));
+    }
+
+    /** Waits this many seconds, to the nearest tick. */
+    public void waitSeconds(double seconds) {
+        waitTicks((int) Math.round(seconds * 20));
+    }
+
+    /** The ticks since the macro started: 0 as it starts. */
+    public int ticks() {
+        return (int) macro.ticks();
+    }
+
+    // Chat
+
+    /** Says something in the chat, as the player: everyone sees it. */
+    public void say(string text) {
+        player().connection.sendChat(JavaString.of(text));
+    }
+
+    /** Runs a command, as the player: command("home"), or command("/home"). */
+    public void command(string command) {
+        string c = command;
+        if (c.startsWith("/")) {
+            c = c.substring(1, c.length());
+        }
+        player().connection.sendCommand(JavaString.of(c));
+    }
+
+    /** Shows text in the chat, to the player alone. */
+    public void print(string text) {
+        Minecraft.getInstance().gui.hud.getChat().addClientSystemMessage(Component.literal(JavaString.of(text)));
+    }
+
+    // Keys
+
+    /** Holds a key down until it is released, or the macro ends. */
+    public void press(Key key) {
+        macro.press(binding(key));
+    }
+
+    /** Lets go of a key. */
+    public void release(Key key) {
+        macro.release(binding(key));
+    }
+
+    /** Holds a key down for this many ticks. */
+    public void hold(Key key, int ticks) {
+        press(key);
+        waitTicks(ticks);
+        release(key);
+    }
+
+    /** Clicks a key once: attacking what the player looks at, or using what they hold once. */
+    public void click(Key key) {
+        macro.click(binding(key));
+    }
+
+    // Looking
+
+    /**
+     * Looks this way: the yaw in degrees, 0 south, 90 west, 180 north, -90 east; the pitch from
+     * -90, straight up, to 90, straight down.
+     */
+    public void look(double yaw, double pitch) {
+        LocalPlayer p = player();
+        p.setYRot(JavaFloat.of((float) yaw));
+        p.setXRot(JavaFloat.of((float) Math.clamp(pitch, -90.0, 90.0)));
+    }
+
+    /** Turns by this much, in degrees: right, and down; left and up for less than 0. */
+    public void turn(double right, double down) {
+        look(yaw() + right, pitch() + down);
+    }
+
+    /** The way the player looks, left and right, in degrees. */
+    public double yaw() {
+        return (double) player().getYRot();
+    }
+
+    /** The way the player looks, up and down, in degrees. */
+    public double pitch() {
+        return (double) player().getXRot();
+    }
+
+    // Where the player is, and how
+
+    public double x() {
+        return (double) player().getX();
+    }
+
+    public double y() {
+        return (double) player().getY();
+    }
+
+    public double z() {
+        return (double) player().getZ();
+    }
+
+    public bit onGround() {
+        return (bit) player().onGround();
+    }
+
+    /** The player's health: 20 is full, 0 dead. */
+    public double health() {
+        return (double) player().getHealth();
+    }
+
+    /** The player's food: 20 is full. */
+    public int food() {
+        return (int) player().getFoodData().getFoodLevel();
+    }
+
+    /** The hotbar slot the player holds, 1 to 9, as its key. */
+    public int slot() {
+        return (int) player().getInventory().getSelectedSlot() + 1;
+    }
+
+    /** Takes the hotbar's slot in hand, 1 to 9, as its key. */
+    public void selectSlot(int slot) {
+        if (slot < 1 || slot > 9) {
+            throw new IllegalArgumentException("no hotbar slot " + slot + ": they are 1 to 9");
+        }
+        player().getInventory().setSelectedSlot(JavaInt.of(slot - 1));
+    }
+
+    private LocalPlayer player() {
+        return Minecraft.getInstance().player;
+    }
+
+    private KeyMapping binding(Key key) {
+        Options o = Minecraft.getInstance().options;
+        switch (key) {
+            case FORWARD -> { return o.keyUp; }
+            case BACK -> { return o.keyDown; }
+            case LEFT -> { return o.keyLeft; }
+            case RIGHT -> { return o.keyRight; }
+            case JUMP -> { return o.keyJump; }
+            case SNEAK -> { return o.keyShift; }
+            case SPRINT -> { return o.keySprint; }
+            case ATTACK -> { return o.keyAttack; }
+            case USE -> { return o.keyUse; }
+            case DROP -> { return o.keyDrop; }
+            default -> { return o.keySwapOffhand; }
+        }
+    }
+}

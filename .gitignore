@@ -9,6 +9,8 @@ result-*
 examples/22-fabric-mod/server/
 examples/23-lwjgl/lib/
 examples/23-lwjgl/build/
+examples/24-macro-mod/minecraft/
+examples/24-macro-mod/build/
 
 # jar.sh output
 seal.jar

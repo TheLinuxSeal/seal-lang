@@ -172,13 +172,15 @@ Scripts use no Java class the host doesn't allow (`.allowJava("java.util.*")`), 
 through an object the API gives them, while the API uses any; they can't use files unless the
 engine allows them; and the host limits how long they run (`script.limitSteps(1_000_000)`,
 `limitTime`), and stops one from any thread (`script.stop()`). [`docs/EMBED.md`](docs/EMBED.md) is
-the design.
+the design, and [`examples/24-macro-mod`](examples/24-macro-mod) a host: a Minecraft mod whose
+players write macros in Seal.
 
 ## Examples
 
 [`examples/`](examples) has 21 programs, each with the output it should give, from the basics to
 generics, fixed point, files, packages, static imports, pure functions and Java's own classes, and
-two that use Java libraries: a Minecraft mod, and a window drawn with OpenGL through LWJGL. [`examples/README.md`](examples/README.md) says what each one shows.
+three that use Java libraries: a Minecraft mod, a window drawn with OpenGL through LWJGL, and a
+Minecraft mod that runs macros written in Seal. [`examples/README.md`](examples/README.md) says what each one shows.
 
 ## Status
 

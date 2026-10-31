@@ -105,6 +105,16 @@ public final class Natives {
         nextCheck = stepLimit < soon ? stepLimit + 1 : soon;
     }
 
+    /**
+     * For a host, from any thread: the program stops at its next step. Running, it sees the stop
+     * within CHECK_EVERY steps; waiting in a call to the host that blocks (a macro waiting for the
+     * game's tick), at its first step after the call returns, so it does nothing more.
+     */
+    public static void requestStop() {
+        stopRequested = true;
+        nextCheck = 0; // a running program may write over it, and sees the stop at its next check
+    }
+
     /** For a host: the program may take {@code n} more steps, counted from now. */
     public static void limitSteps(long n) {
         steps = 0;

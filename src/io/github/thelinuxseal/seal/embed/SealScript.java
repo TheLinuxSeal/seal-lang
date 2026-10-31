@@ -250,11 +250,17 @@ public final class SealScript implements AutoCloseable {
 
     /**
      * Stops the script at its next step, wherever it is running: from another thread, a watchdog,
-     * a player's command. It stays stopped; to run it again, compile it again.
+     * a player's command. Running, it stops within a few steps; waiting in a call to the host that
+     * blocks it, at its first step after the call returns. It stays stopped; to run it again,
+     * compile it again.
      */
     public void stop() {
         requireCounting();
-        setNatives("stopRequested", true);
+        try {
+            natives.getMethod("requestStop").invoke(null);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("the runtime's Natives.requestStop failed", e);
+        }
     }
 
     private void requireCounting() {

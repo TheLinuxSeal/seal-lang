@@ -1,0 +1,13 @@
+import macro.*;
+
+// Says where the player is, and counts down a second at a time: /macro run Hello
+class Hello extends(Macro) {
+    public void run() {
+        print("Hello from Seal! You're at " + (int) x() + ", " + (int) y() + ", " + (int) z());
+        for (int i = 3; i > 0; i--) {
+            print("" + i + "...");
+            waitSeconds(1);
+        }
+        print("That was " + ticks() + " ticks");
+    }
+}

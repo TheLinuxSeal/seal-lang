@@ -273,8 +273,10 @@ the fault can't go on. `SealException.stopped()` tells a stop from a fault of th
 Without a limit, a script takes as many steps as it does.
 
 A step is one count and one comparison, with the step limit, so the step past it is exact. A stop
-and the time are seen within 1024 steps, when the step looks at them. Java's code that a script
-calls (one the host allows) isn't counted, and isn't stopped until it returns.
+and the time are seen within 1024 steps, when the step looks at them; but a script stopped while it
+waits in a call to the host (a macro waiting for the game's next tick) stops at its first step
+after the call returns, so it does nothing more (built with the macro mod). Java's code that a
+script calls (one the host allows) isn't counted, and isn't stopped until it returns.
 
 Counting costs time: a loop that does little but add (`s += i % 7`) runs about 1.6 times as long,
 and code that calls, as `fib` does, about 1.15 times. A host that trusts its scripts can build its
@@ -378,7 +380,14 @@ For E5: no limit unless set; a `while (true)` past its steps, stopped where it i
 stopped too until the limit is set again; `fib(40)` stopped by its calls, `fib(10)` not; a time; a
 stop from another thread, which stays; a script that catches `RuntimeException` around the loop,
 stopped all the same; a snippet; the host's own call into an entry class; an engine that doesn't
-count.
+count; a script stopped while it sleeps in Java's `Thread.sleep`, which prints nothing after.
+
+The macro mod's `build.sh` checks, without the game, that the mod's API and its macros compile
+against Minecraft 26.3's classes, and that a macro can't import Java's or Minecraft's classes
+itself (`test/CheckMacros.java`); and runs `MacroRun` through its turns with a test API of its own
+(`test/MacroRunTest.java`): each part of a macro at the tick it waited for, a macro that never
+waits stopped after 100 ms, one stopped while it waits doing nothing more, one stopped before it
+starts never starting, a fault with its line, and a file with no macro in it.
 
 ## 10. Order of work
 
@@ -389,7 +398,7 @@ count.
 | **E3**, **done** | Entry classes: `Builder.entry(Hook.class)`, checked while compiling (a script's classes implementing `Hook` can be made, with `new()`); `script.create(Hook.class)`, each of them made, as `Hook`s; snippets, statements compiled with Java's values bound by name and a prelude of the host's (`seal.snippet(code).bind("ctx", Context.class, ctx).prelude(...)`), run by `run()` | `EmbedTest` |
 | **E4**, **done** | The Java allowlist (§5): scripts use no Java class but those the engine allows, checked wherever a Java type is used, not only in imports; the host's library may use what its scripts can't | a script can't reach `java.io.File` or the game's classes, unless allowed, while the API it uses does (`EmbedTest`) |
 | **E5**, **done** | Limits (§6): steps counted, rounds of loops and calls; `limitSteps`, `limitTime`, `stop()` from any thread; `Stopped`, which `SealException.stopped()` tells; `countSteps(false)` | a `while (true)` is stopped, and the host goes on (`EmbedTest`) |
-| **Macro mod** | `examples/24-macro-mod`: macros in `config/macros/`, compiled in the game; a Seal API, `waitTicks` on virtual threads in step with the game's thread; `/macro reload`; errors in chat | the mod runs a macro in Minecraft 26.3 |
+| **Macro mod**, **built** | `examples/24-macro-mod`: macros in `config/macros/`, each compiled as it is when it is run, off the game's thread; a Seal API over Minecraft's own classes; `waitTicks` on a virtual thread that takes turns with the game's (`MacroRun`); a macro that runs 100 ms without waiting stopped; `/macro run`, `stop`, `check`, `list`; errors and output in the chat | its `build.sh` compiles the mod and the API against Minecraft 26.3's client, checks the macros, and tests `MacroRun`'s turns without the game; running a macro in the game is the player's to try (README there) |
 
 ## 11. Questions
 

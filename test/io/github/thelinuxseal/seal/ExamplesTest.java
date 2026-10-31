@@ -27,8 +27,9 @@ public final class ExamplesTest {
         List<String> skipped = new ArrayList<>();
         for (Path dir : dirs) {
             Path expectedFile = dir.resolve("expected.txt");
-            if (!Files.exists(expectedFile) && Files.exists(dir.resolve("run.sh"))) {
-                skipped.add(dir.getFileName().toString()); // runs its own way: the Minecraft mod, the LWJGL window
+            if (!Files.exists(expectedFile) && (Files.exists(dir.resolve("run.sh")) || Files.exists(dir.resolve("build.sh")))) {
+                // Runs its own way: the Minecraft mods, the LWJGL window.
+                skipped.add(dir.getFileName().toString());
                 continue;
             }
             if (!Files.exists(expectedFile)) {
@@ -50,7 +51,7 @@ public final class ExamplesTest {
             }
         }
         System.out.println(passed + " passed, " + failures.size() + " failed"
-                + (skipped.isEmpty() ? "" : "  (" + String.join(", ", skipped) + " run with run.sh, not here)"));
+                + (skipped.isEmpty() ? "" : "  (" + String.join(", ", skipped) + " run with their own scripts, not here)"));
         failures.forEach(f -> System.out.println("FAIL: " + f));
         if (!failures.isEmpty()) {
             System.exit(1);

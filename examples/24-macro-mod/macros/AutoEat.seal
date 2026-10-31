@@ -1,0 +1,16 @@
+import macro.*;
+
+// Eats what the player holds whenever they're hungry, until /macro stop AutoEat.
+class AutoEat extends(Macro) {
+    const int HUNGRY = 14;
+
+    public void run() {
+        print("AutoEat: eating what you hold when your food is under " + HUNGRY);
+        while (true) {
+            if (food() < HUNGRY) {
+                hold(Key.USE, 40); // eating takes 32 ticks
+            }
+            waitSeconds(1);
+        }
+    }
+}

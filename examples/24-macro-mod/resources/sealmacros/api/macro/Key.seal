@@ -1,0 +1,16 @@
+package macro;
+
+/** A key a macro presses: the player's own binding for it, whichever key they bound. */
+enum Key {
+    FORWARD,
+    BACK,
+    LEFT,
+    RIGHT,
+    JUMP,
+    SNEAK,
+    SPRINT,
+    ATTACK,
+    USE,
+    DROP,
+    SWAP_HANDS
+}

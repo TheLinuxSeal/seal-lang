@@ -382,6 +382,35 @@ public final class EmbedTest {
             check(thrown(stubborn::run) instanceof SealException s && s.stopped(), "limitSteps: catching it doesn't help");
         }
 
+        // Stopped while it waits in a call to Java (as a macro waits for the game's tick), it does
+        // nothing more: it stops at its first step after the call, not some steps later.
+        ByteArrayOutputStream slept = new ByteArrayOutputStream();
+        SealScript sleeper = SealEngine.builder().allowJava("java.lang.Thread")
+                .out(new PrintStream(slept, true, StandardCharsets.UTF_8)).build().compile("Main.seal", """
+                import java.lang.Thread;
+                import seal.java.*;
+
+                struct Main {
+                    static void main() {
+                        System.stdout.println("before");
+                        Thread.sleep(JavaLong.of(500));
+                        System.stdout.println("after");
+                    }
+                }
+                """);
+        check(sleeper.ok(), "limits: a script that sleeps compiles " + sleeper.errors());
+        if (sleeper.ok()) {
+            Throwable[] woke = new Throwable[1];
+            Thread sleeping = Thread.ofPlatform().start(() -> woke[0] = thrown(sleeper::run));
+            for (int i = 0; i < 500 && slept.size() == 0; i++) {
+                Thread.sleep(10);
+            }
+            sleeper.stop();
+            sleeping.join();
+            check(woke[0] instanceof SealException s && s.stopped() && slept.toString(StandardCharsets.UTF_8).equals("before\n"),
+                    "stop: a script waiting in a call stops at its next step " + slept.toString(StandardCharsets.UTF_8));
+        }
+
         // A snippet, and a class the host made and calls itself.
         SealSnippet loops = seal.snippet("while (true) { }").compile();
         loops.limitSteps(10_000);
