@@ -6650,11 +6650,29 @@ public final class Checker {
         }
     }
 
+    /**
+     * name(...) where name is a variable's: not a method, or a method the variable hides, which
+     * this.name(...), or Type.name(...) for a static one, calls past it.
+     */
+    private String hiddenMethod(Body b, String name) {
+        List<MemberInfo> own = b.cls.members.getOrDefault(name, List.of()).stream()
+                .filter(m -> m.member instanceof Method).toList();
+        String call;
+        if (!own.isEmpty() && own.stream().allMatch(m -> m.member.modifiers().isStatic())) {
+            call = b.cls.name + "." + name;
+        } else if (!b.isStatic && b.self != null && hasMethod(b.self, name)) {
+            call = "this." + name;
+        } else {
+            return name + " is not a method";
+        }
+        return name + " is a variable here, which hides the method " + name + ": " + call + "(...) calls the method";
+    }
+
     private Candidates calleeCandidates(Body b, Call c) {
         switch (c.callee()) {
             case Name n -> {
                 if (lookupLocal(b, n.name()) != null || b.env.values.containsKey(n.name())) {
-                    report(n.pos(), n.name() + " is not a method");
+                    report(n.pos(), hiddenMethod(b, n.name()));
                     return null;
                 }
                 Found f = findMembers(b, b.self, b.cls, n.name(), n.pos(), b.isStatic);

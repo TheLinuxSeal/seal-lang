@@ -693,6 +693,7 @@ class Node {
 * In a class, `this` is a handle to the object, used like any other: returned, passed, stored, compared with `==`. A lambda that uses it keeps the object alive (§30.3).
 * In a struct or unique, `this` is the value itself: `this.x = 1` changes it, and using `this` as a whole value copies it, which a unique allows only when lending it to a method.
 * `this.f()` and `f()` call the same method. `this` can't be assigned, and doesn't exist in static methods or static field initializers.
+* A local or parameter hides a method of its name: with a parameter `run`, `run()` is an error, and `this.run()` calls the method (`Type.run()` a static one).
 
 ## 12.2 Generic methods
 

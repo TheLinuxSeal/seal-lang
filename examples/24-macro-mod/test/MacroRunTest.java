@@ -33,9 +33,9 @@ public class MacroRunTest {
 
                 public abstract void run();
 
-                public void start(MacroRun given) {
-                    macro = given;
-                    run();
+                public void start(MacroRun run) {
+                    macro = run;
+                    this.run(); // the method, past the parameter
                 }
 
                 public void waitTicks(int ticks) { macro.waitTicks(JavaInt.of(ticks)); }

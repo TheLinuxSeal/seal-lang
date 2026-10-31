@@ -1569,6 +1569,30 @@ public final class CheckerTest {
     }
 
     private static void statements() {
+        error("a parameter hides a method of its name", """
+                class Main {
+                    void run() { }
+                    void start(int run) { run(); }
+                }
+                """, "run is a variable here, which hides the method run: this.run(...) calls the method");
+        error("a local hides a static method of its name", """
+                class Main {
+                    static void run() { }
+                    static void start() { int run = 1; run(); }
+                }
+                """, "run is a variable here, which hides the method run: Main.run(...) calls the method");
+        error("a variable with no method of its name", """
+                class Main {
+                    void start(int run) { run(); }
+                }
+                """, "run is not a method");
+        ok("this.m() and Type.m() call methods past variables of their names", files("Main", """
+                class Main {
+                    void run() { }
+                    static void go() { }
+                    void start(int run) { int go = run; this.run(); Main.go(); }
+                }
+                """));
         error("missing return", """
                 struct Main {
                     int f(bit b) { if (b) { return 1; } }

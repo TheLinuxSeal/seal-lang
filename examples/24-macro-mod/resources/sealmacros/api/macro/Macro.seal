@@ -25,9 +25,9 @@ abstract class Macro implements(MacroEntry) {
     public abstract void run();
 
     /** The mod starts the macro through this, on the macro's own thread. */
-    public void start(MacroRun given) {
-        macro = given;
-        run();
+    public void start(MacroRun run) {
+        macro = run;
+        this.run(); // the method, past the parameter
     }
 
     // Time
