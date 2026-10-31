@@ -9,3 +9,6 @@ result-*
 examples/22-fabric-mod/server/
 examples/23-lwjgl/lib/
 examples/23-lwjgl/build/
+
+# jar.sh output
+seal.jar

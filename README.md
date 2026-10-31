@@ -147,6 +147,25 @@ seal build [options] PATH...   write the class files, for java to run
   -Wall              all of the -W flags
 ```
 
+### Inside a Java program
+
+A Java program can compile and run Seal while it runs: a mod whose players write their scripts in
+Seal, an application with Seal plugins. `./jar.sh` builds `seal.jar`, the compiler with its
+standard library, which the program puts on its class path (and which runs as `seal` does:
+`java -jar seal.jar run PATH...`):
+
+```java
+SealEngine seal = SealEngine.builder().out(log).build();
+SealScript script = seal.compile(Path.of("scripts"));
+script.errors().forEach(log::println);    // Main.seal:3:9: unknown method printn
+int code = script.run();                  // Main's main()
+```
+
+Each script is a program of its own, with its own static fields and streams, and its classes are
+the host's to use: a Seal class implementing a Java interface is called through it. Scripts can't
+use files unless the engine allows them. [`docs/EMBED.md`](docs/EMBED.md) is the design, and what
+comes next: entry points the host checks, an allowlist of Java classes, and a budget for loops.
+
 ## Examples
 
 [`examples/`](examples) has 21 programs, each with the output it should give, from the basics to
@@ -181,6 +200,7 @@ The compiler is in the Java package `io.github.thelinuxseal.seal`, under
 | `check/` | the type checker, which resolves everything the backend needs |
 | `jvm/` | code generation for the JVM: class files, and running them |
 | `runtime/` | the Java classes compiled programs use on the JVM |
+| `embed/` | Seal inside a Java program: `SealEngine`, `SealScript` |
 | `Main.java` | the command line, which the `seal` script runs |
 
 And at the top of the repository:
@@ -188,6 +208,7 @@ And at the top of the repository:
 | Path | What's there |
 | ---- | ------------ |
 | `seal` | the command-line script |
+| `jar.sh` | builds `seal.jar`: the compiler and its standard library in one jar |
 | `stdlib/` | the standard library, in Seal: `seal/lang/`, `seal/util/`, `seal/io/`, and the built-in `string` and `array` |
 | `examples/` | example programs and their output |
 | `test/` | the test suites, run by `./test.sh` |

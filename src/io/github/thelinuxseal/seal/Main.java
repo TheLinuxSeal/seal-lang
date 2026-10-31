@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import io.github.thelinuxseal.seal.check.Checker;
 import io.github.thelinuxseal.seal.check.Diagnostic;
@@ -40,8 +39,8 @@ import io.github.thelinuxseal.seal.parser.Parser;
  *   --main Class      the class whose main() is the entry point (default Main); com.example.Main for one in a package
  *   --classpath PATH  (or -cp) the jars and class folders of the Java classes the program imports, after the
  *                     JDK's (docs/JAVA.md), separated as Java's class path is (: on Linux and macOS)
- *   --stdlib DIR      where the standard library is (default: the stdlib directory
- *                     next to the compiler's class files, or the seal.stdlib property)
+ *   --stdlib DIR      where the standard library is (default: the seal.stdlib property, else the stdlib
+ *                     directory next to the compiler's class files, else seal.jar's own, else ./stdlib)
  *   --no-stdlib       do not load the standard library
  *   -WautoCast        warn about every number converted without a cast (int to double, i += 2.5)
  *   -WautoCastLossy   warn only about those that may lose data (i += 2.5, int to float)
@@ -73,7 +72,8 @@ public final class Main {
         }
         String command = args[0];
         String mainClass = "Main";
-        Path stdlib = defaultStdlib();
+        Path stdlib = null;
+        boolean useStdlib = true;
         List<Path> paths = new ArrayList<>();
         Set<Warning> warn = EnumSet.noneOf(Warning.class);
         Path classDir = Path.of("classes");
@@ -106,7 +106,7 @@ public final class Main {
             } else if (args[i].equals("--stdlib") && i + 1 < args.length) {
                 stdlib = Path.of(args[++i]);
             } else if (args[i].equals("--no-stdlib")) {
-                stdlib = null;
+                useStdlib = false;
             } else if (args[i].equals("-Wall")) {
                 warn.addAll(EnumSet.allOf(Warning.class));
             } else if (args[i].startsWith("-W")) {
@@ -128,7 +128,14 @@ public final class Main {
             readSources(p, sources, javaFiles);
         }
         Map<String, String> library = new LinkedHashMap<>();
-        if (stdlib != null) {
+        if (useStdlib && stdlib == null) {
+            try {
+                library.putAll(Sources.stdlib());
+            } catch (IOException e) {
+                err.println(e.getMessage() + "; use --stdlib DIR or --no-stdlib");
+                return 2;
+            }
+        } else if (useStdlib) {
             if (!Files.isDirectory(stdlib)) {
                 err.println("standard library not found at " + stdlib + "; use --stdlib DIR or --no-stdlib");
                 return 2;
@@ -266,40 +273,11 @@ public final class Main {
 
     /** Reads a `.seal` file, or every `.seal` file under a directory. */
     static void readSources(Path p, Map<String, String> into) throws IOException {
-        readSources(p, into, null);
+        Sources.read(p, into);
     }
 
     /** As above, and adds the `.java` files given, or under the directory, to {@code java} (docs/JAVA.md §11). */
     static void readSources(Path p, Map<String, String> into, List<Path> java) throws IOException {
-        if (Files.isDirectory(p)) {
-            try (Stream<Path> files = Files.walk(p)) {
-                for (Path f : files.sorted().toList()) {
-                    if (f.toString().endsWith(".seal")) {
-                        into.put(f.toString(), Files.readString(f));
-                    } else if (java != null && f.toString().endsWith(".java") && Files.isRegularFile(f)) {
-                        java.add(f);
-                    }
-                }
-            }
-        } else if (java != null && p.toString().endsWith(".java")) {
-            java.add(p);
-        } else {
-            into.put(p.toString(), Files.readString(p));
-        }
-    }
-
-    /** The `seal.stdlib` property, else a `stdlib` directory beside the compiler's class directory. */
-    static Path defaultStdlib() {
-        String prop = System.getProperty("seal.stdlib");
-        if (prop != null) {
-            return Path.of(prop);
-        }
-        try {
-            Path classes = Path.of(Main.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-            Path candidate = classes.toAbsolutePath().getParent().resolve("stdlib");
-            return Files.isDirectory(candidate) ? candidate : Path.of("stdlib");
-        } catch (Exception e) {
-            return Path.of("stdlib");
-        }
+        Sources.read(p, into, java);
     }
 }
