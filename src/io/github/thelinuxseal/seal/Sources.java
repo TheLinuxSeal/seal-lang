@@ -93,7 +93,16 @@ public final class Sources {
      * stdlib/seal/lang/Math.seal; null if there is none.
      */
     public static Map<String, String> bundled(ClassLoader loader) throws IOException {
-        InputStream index = loader.getResourceAsStream(BUNDLED + "index");
+        return resources(loader, BUNDLED, "stdlib/");
+    }
+
+    /**
+     * The `.seal` files among a class loader's resources in the folder {@code dir} ("api/"), which
+     * its file {@code index} lists, one path to a line, relative to the folder; each named
+     * {@code name} and its path. Null if the folder has no index.
+     */
+    public static Map<String, String> resources(ClassLoader loader, String dir, String name) throws IOException {
+        InputStream index = loader.getResourceAsStream(dir + "index");
         if (index == null) {
             return null;
         }
@@ -103,11 +112,11 @@ public final class Sources {
                 if (line.isBlank()) {
                     continue;
                 }
-                try (InputStream in = loader.getResourceAsStream(BUNDLED + line)) {
+                try (InputStream in = loader.getResourceAsStream(dir + line)) {
                     if (in == null) {
-                        throw new IOException("the standard library's index names " + line + ", which isn't there");
+                        throw new IOException(dir + "index names " + line + ", which isn't there");
                     }
-                    files.put("stdlib/" + line, new String(in.readAllBytes(), StandardCharsets.UTF_8));
+                    files.put(name + line, new String(in.readAllBytes(), StandardCharsets.UTF_8));
                 }
             }
         }

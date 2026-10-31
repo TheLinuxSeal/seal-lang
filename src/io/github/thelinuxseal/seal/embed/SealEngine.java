@@ -9,6 +9,7 @@ import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,8 +26,9 @@ import io.github.thelinuxseal.seal.jvm.JvmGen;
 /**
  * Seal inside a Java program (docs/EMBED.md): compiles Seal's code while the program runs, into
  * classes in the program's own JVM, which its Java code then uses. An engine holds what its
- * compiles share: the standard library, read once; the Java classes scripts may use; the warnings
- * asked for; and the standard streams and file access each script gets.
+ * compiles share: the standard library, read once; the host's own Seal library, which every script
+ * is compiled with; the Java classes scripts may use; the warnings asked for; and the standard
+ * streams and file access each script gets.
  *
  * <pre>
  *   SealEngine seal = SealEngine.builder().out(log).build();
@@ -38,7 +40,9 @@ import io.github.thelinuxseal.seal.jvm.JvmGen;
 public final class SealEngine {
 
     private final Map<String, String> stdlib;
+    private final Map<String, String> library;
     private final List<Path> classPath;
+    private final ClassLoader parent;
     private final ClassLoader loader;
     private final Set<Warning> warn;
     final InputStream in;
@@ -46,9 +50,11 @@ public final class SealEngine {
     final PrintStream err;
     final boolean files;
 
-    private SealEngine(Builder b, Map<String, String> stdlib) {
+    private SealEngine(Builder b, Map<String, String> stdlib, Map<String, String> library) {
         this.stdlib = stdlib;
+        this.library = library;
         this.classPath = List.copyOf(b.classPath);
+        this.parent = b.parent;
         this.loader = classPath.isEmpty() ? b.parent : new URLClassLoader(urls(classPath), b.parent);
         this.warn = EnumSet.copyOf(b.warn);
         this.in = b.in;
@@ -84,18 +90,31 @@ public final class SealEngine {
         return compile(Map.of(file, code));
     }
 
-    /** Compiles several files' code, by name, as one script. */
+    /**
+     * Compiles several files' code, by name, as one script, with the engine's library (its
+     * {@link Builder#library} files), whose classes the script then has its own of.
+     */
     public SealScript compile(Map<String, String> sources) {
-        Checker checker = Checker.analyze(sources, stdlib, warn, new JavaClasses(classPath));
+        for (String file : sources.keySet()) {
+            if (library.containsKey(file)) {
+                return new SealScript(this, List.of(new Diagnostic(file, 1, 1,
+                        "the engine's library has a file named " + file + "; a script's files need other names")), List.of(), null);
+            }
+        }
+        Map<String, String> all = new LinkedHashMap<>(library);
+        all.putAll(sources);
+        Checker checker = Checker.analyze(all, stdlib, warn, new JavaClasses(parent, classPath, Map.of()));
+        // The script's warnings: the library's are the host's to see, when it is built.
+        List<Diagnostic> warnings = checker.warnings().stream().filter(w -> !library.containsKey(w.file())).toList();
         if (!checker.diagnostics().isEmpty()) {
-            return new SealScript(this, checker.diagnostics(), checker.warnings(), null);
+            return new SealScript(this, checker.diagnostics(), warnings, null);
         }
         // Every class, as a library's (docs/JAVA.md §5): the program's Java code uses them, not only main.
         JvmGen.Result result = JvmGen.generateLibrary(checker);
         if (!result.errors().isEmpty()) {
-            return new SealScript(this, result.errors(), checker.warnings(), null);
+            return new SealScript(this, result.errors(), warnings, null);
         }
-        return new SealScript(this, List.of(), checker.warnings(), result.classes());
+        return new SealScript(this, List.of(), warnings, result.classes());
     }
 
     /** The class loader a script's classes are loaded under. */
@@ -118,6 +137,7 @@ public final class SealEngine {
     /** What an engine is made with. Unset, scripts write to System.out and System.err, read nothing, and can't use files. */
     public static final class Builder {
         private Path stdlib;
+        private final List<LibraryFiles> library = new ArrayList<>();
         private final List<Path> classPath = new ArrayList<>();
         private ClassLoader parent = SealEngine.class.getClassLoader();
         private final Set<Warning> warn = EnumSet.noneOf(Warning.class);
@@ -135,13 +155,56 @@ public final class SealEngine {
             return this;
         }
 
+        /**
+         * The host's own Seal code, `.seal` files and folders, which every script is compiled with
+         * and may use: the API a host gives its scripts, with Seal's types, which takes the host's
+         * Java objects and calls them (docs/EMBED.md §3). Each script has its own of its classes.
+         */
+        public Builder library(Path... paths) {
+            library.add(into -> {
+                for (Path p : paths) {
+                    Sources.read(p, into);
+                }
+            });
+            return this;
+        }
+
+        /**
+         * As above, from a class loader's resources: the `.seal` files in the folder {@code dir}
+         * ("api/"), which its file {@code index} lists, one path to a line, relative to the folder,
+         * since a class loader can't list a jar's folders. The files are named {@code dir} and
+         * their path, in errors.
+         */
+        public Builder library(ClassLoader loader, String dir) {
+            String folder = dir.endsWith("/") ? dir : dir + "/";
+            library.add(into -> {
+                Map<String, String> files = Sources.resources(loader, folder, folder);
+                if (files == null) {
+                    throw new IOException("no library at " + folder + ": it has no index of its files");
+                }
+                into.putAll(files);
+            });
+            return this;
+        }
+
+        /** As above, the files' code, by name. */
+        public Builder library(Map<String, String> sources) {
+            Map<String, String> copy = new LinkedHashMap<>(sources);
+            library.add(into -> into.putAll(copy));
+            return this;
+        }
+
         /** Jars and class folders of Java classes that scripts may import, after the parent's (docs/JAVA.md §6). */
         public Builder classPath(Path... entries) {
             classPath.addAll(List.of(entries));
             return this;
         }
 
-        /** The class loader under which scripts' classes are loaded, whose classes they use: by default, the engine's. */
+        /**
+         * The class loader under which scripts' classes are loaded, whose Java classes they may use,
+         * as the host's code does: the interfaces the host calls scripts through, the game's
+         * classes. By default, the engine's.
+         */
         public Builder parent(ClassLoader loader) {
             this.parent = loader;
             return this;
@@ -177,17 +240,38 @@ public final class SealEngine {
             return this;
         }
 
-        /** Reads the standard library, which every compile of the engine then shares. */
+        /**
+         * Reads the standard library and the engine's library, which every compile of the engine
+         * then shares, and compiles the engine's library by itself: an IllegalArgumentException
+         * gives its errors.
+         */
         public SealEngine build() throws IOException {
-            Map<String, String> library = new LinkedHashMap<>();
+            Map<String, String> std = new LinkedHashMap<>();
             if (stdlib == null) {
-                library.putAll(Sources.stdlib());
+                std.putAll(Sources.stdlib());
             } else if (!Files.isDirectory(stdlib)) {
                 throw new IOException("standard library not found at " + stdlib);
             } else {
-                Sources.read(stdlib, library);
+                Sources.read(stdlib, std);
             }
-            return new SealEngine(this, library);
+            Map<String, String> host = new LinkedHashMap<>();
+            for (LibraryFiles files : library) {
+                files.readInto(host);
+            }
+            SealEngine engine = new SealEngine(this, std, Collections.unmodifiableMap(host));
+            if (!host.isEmpty()) {
+                SealScript alone = engine.compile(Map.of());
+                if (!alone.ok()) {
+                    throw new IllegalArgumentException("the engine's library has errors:\n" + String.join("\n",
+                            alone.errors().stream().map(Diagnostic::toString).toList()));
+                }
+            }
+            return engine;
         }
+    }
+
+    /** Where some of an engine's library files come from, read when it is built. */
+    private interface LibraryFiles {
+        void readInto(Map<String, String> into) throws IOException;
     }
 }

@@ -162,9 +162,12 @@ int code = script.run();                  // Main's main()
 ```
 
 Each script is a program of its own, with its own static fields and streams, and its classes are
-the host's to use: a Seal class implementing a Java interface is called through it. Scripts can't
-use files unless the engine allows them. [`docs/EMBED.md`](docs/EMBED.md) is the design, and what
-comes next: entry points the host checks, an allowlist of Java classes, and a budget for loops.
+the host's to use: a Seal class implementing a Java interface is called through it. A host gives
+its scripts an API written in Seal (`.library(...)`), compiled with each one, so that they use
+Seal's types while the API calls the host's Java objects, and scripts may use the Java classes of
+the host's class loader (`.parent(...)`), a game's. Scripts can't use files unless the engine
+allows them. [`docs/EMBED.md`](docs/EMBED.md) is the design, and what comes next: entry points the
+host checks, an allowlist of Java classes, and a budget for loops.
 
 ## Examples
 

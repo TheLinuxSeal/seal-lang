@@ -34,8 +34,10 @@ import java.util.zip.ZipFile;
 /**
  * Java's classes as the compiler sees them (docs/JAVA.md §6): read from their class files, never
  * loaded, so that no static initializer runs and Minecraft's classes can be read outside the game.
- * The JDK's come from its module image; a jar's or a folder's from the class path. A class is read
- * when it is first asked for, and kept; the JDK's are kept for as long as the compiler runs.
+ * The JDK's come from its module image; the rest from a class loader's resources, when the
+ * compiler runs inside the program whose classes they are (docs/EMBED.md), and from the class
+ * path's jars and folders. A class is read when it is first asked for, and kept; the JDK's are
+ * kept for as long as the compiler runs.
  */
 public final class JavaClasses {
 
@@ -115,6 +117,7 @@ public final class JavaClasses {
     private static volatile Set<String> jdkExported;
 
     private final List<Path> classPath;
+    private final ClassLoader loader;
     private final Map<String, String> afterSeal;
     private final Map<Path, ZipFile> jars = new HashMap<>();
     private final Map<Path, Set<String>> jarPackages = new HashMap<>();
@@ -131,6 +134,16 @@ public final class JavaClasses {
      * the checker says why.
      */
     public JavaClasses(List<Path> classPath, Map<String, String> afterSeal) {
+        this(null, classPath, afterSeal);
+    }
+
+    /**
+     * The JDK's classes, then those a class loader has (a game's, whose classes a script uses), then
+     * the class path's: the order in which a class loader under that one, over the class path,
+     * finds them.
+     */
+    public JavaClasses(ClassLoader loader, List<Path> classPath, Map<String, String> afterSeal) {
+        this.loader = loader;
         this.classPath = List.copyOf(classPath);
         this.afterSeal = Map.copyOf(afterSeal);
     }
@@ -157,12 +170,15 @@ public final class JavaClasses {
         return read.computeIfAbsent(binaryName, n -> Optional.ofNullable(parse(classPathBytes(n), false))).orElse(null);
     }
 
-    /** Whether there is a package of this name a program may import from: one the JDK exports, or one on the class path. */
+    /** Whether there is a package of this name a program may import from: one the JDK exports, the loader's, or the class path's. */
     public boolean hasPackage(String pkg) {
         if (exported().contains(pkg)) {
             return true;
         }
         String dir = pkg.replace('.', '/');
+        if (loader != null && hasLoaderPackage(pkg, dir)) {
+            return true;
+        }
         for (Path entry : classPath) {
             if (Files.isDirectory(entry) && Files.isDirectory(entry.resolve(dir))) {
                 return true;
@@ -238,6 +254,15 @@ public final class JavaClasses {
 
     private byte[] classPathBytes(String binaryName) {
         String file = binaryName.replace('.', '/') + ".class";
+        if (loader != null) {
+            try (InputStream in = loader.getResourceAsStream(file)) {
+                if (in != null) {
+                    return in.readAllBytes();
+                }
+            } catch (IOException e) {
+                // Nothing to give: the class path may have it.
+            }
+        }
         for (Path entry : classPath) {
             try {
                 if (Files.isDirectory(entry)) {
@@ -259,6 +284,22 @@ public final class JavaClasses {
             }
         }
         return null;
+    }
+
+    /**
+     * Whether the loader has a package: a folder of it among its resources (which a jar without
+     * folder entries hasn't got), or one it or a parent has defined, a class of it being loaded.
+     */
+    private boolean hasLoaderPackage(String pkg, String dir) {
+        if (loader.getResource(dir + "/") != null) {
+            return true;
+        }
+        for (ClassLoader l = loader; l != null; l = l.getParent()) {
+            if (l.getDefinedPackage(pkg) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private ZipFile jar(Path p) {

@@ -278,6 +278,190 @@ public final class EmbedTest {
         try (URLClassLoader empty = new URLClassLoader(new URL[0], null)) {
             check(Sources.bundled(empty) == null, "Sources.bundled: null without an index");
         }
+
+        library(dir);
+    }
+
+    /** The host's own Java classes, which its loader has: what it calls scripts through, and what it gives them. */
+    private static final Map<String, String> HOST = Map.of("demo/Hook.java", """
+            package demo;
+
+            /** What the host calls a script's macro through. */
+            public interface Hook {
+                String name();
+                int run(Context ctx);
+            }
+            """, "demo/Context.java", """
+            package demo;
+
+            import java.util.ArrayList;
+            import java.util.List;
+
+            /** The host's object a macro gets: the tick it runs at, and what it said. */
+            public final class Context {
+                public final List<String> said = new ArrayList<>();
+                private final int ticks;
+                public Context(int ticks) { this.ticks = ticks; }
+                public int ticks() { return ticks; }
+                public void say(String text) { said.add(text); }
+            }
+            """);
+
+    /** A host's Seal API (E2): Seal's types for its scripts, over the host's Java objects. */
+    private static final Map<String, String> API = Map.of("api/Game.seal", """
+            package api;
+
+            import demo.Context;
+            import seal.java.*;
+
+            /** The game, as a macro sees it: Seal's types, over the host's Context. */
+            class Game {
+                static int made = 0;
+                Context ctx;
+
+                public new(Context ctx) {
+                    this.ctx = ctx;
+                    made++;
+                }
+
+                public void say(string text) { ctx.say(JavaString.of(text)); }
+
+                public int ticks() { return (int) ctx.ticks(); }
+
+                public static int games() { return made; }
+            }
+            """, "api/Macro.seal", """
+            package api;
+
+            import demo.*;
+            import seal.java.*;
+
+            /** A macro: the host calls it through Hook, in Java's types; a macro has Seal's. */
+            abstract class Macro implements(Hook) {
+                public abstract string title();
+                public abstract int act(Game game);
+
+                public JavaString name() { return JavaString.of(title()); }
+                public JavaInt run(Context ctx) { return JavaInt.of(act(new Game(ctx))); }
+            }
+            """);
+
+    private static final String HELLO = """
+            import api.*;
+
+            class Hello extends(Macro) {
+                public string title() { return "hello"; }
+
+                public int act(Game game) {
+                    game.say("hi at tick " + (game.ticks() + 1) + ", game " + Game.games());
+                    return 1;
+                }
+            }
+            """;
+
+    /**
+     * E2: the host's Seal library, compiled with every script, and Java's classes from the host's
+     * class loader: a script implements the host's Java interface through the library's class, and
+     * the host calls it with its own objects.
+     */
+    private static void library(Path dir) throws Exception {
+        Path hostClasses = dir.resolve("host");
+        List<String> javaFiles = new ArrayList<>();
+        for (Map.Entry<String, String> e : HOST.entrySet()) {
+            write(dir.resolve("host-src").resolve(e.getKey()), e.getValue());
+            javaFiles.add(dir.resolve("host-src").resolve(e.getKey()).toString());
+        }
+        List<String> javacArgs = new ArrayList<>(List.of("-d", hostClasses.toString()));
+        javacArgs.addAll(javaFiles);
+        check(ToolProvider.getSystemJavaCompiler().run(null, null, null, javacArgs.toArray(String[]::new)) == 0,
+                "javac compiles the host's classes");
+        Path api = dir.resolve("api");
+        for (Map.Entry<String, String> e : API.entrySet()) {
+            write(api.resolve(e.getKey()), e.getValue());
+        }
+
+        try (URLClassLoader host = new URLClassLoader(new URL[] {hostClasses.toUri().toURL()}, EmbedTest.class.getClassLoader())) {
+            Class<?> hook = host.loadClass("demo.Hook");
+            Class<?> context = host.loadClass("demo.Context");
+            SealEngine seal = SealEngine.builder().parent(host).library(api).build();
+            SealScript hello = seal.compile("Hello.seal", HELLO);
+            check(hello.ok(), "a script extends the library's class, which implements the host's interface " + hello.errors());
+            if (hello.ok()) {
+                Object macro = hello.load("Hello").getConstructor().newInstance();
+                Object ctx = context.getConstructor(int.class).newInstance(41);
+                Object result = hook.getMethod("run", context).invoke(macro, ctx);
+                check(hook.isInstance(macro) && "hello".equals(hook.getMethod("name").invoke(macro))
+                                && Integer.valueOf(1).equals(result)
+                                && List.of("hi at tick 42, game 1").equals(context.getField("said").get(ctx)),
+                        "the host calls the script through its interface, with its own objects: " + context.getField("said").get(ctx));
+                // The library's classes are the script's own: another script's static fields start again.
+                SealScript other = seal.compile("Hello.seal", HELLO);
+                Object ctx2 = context.getConstructor(int.class).newInstance(1);
+                hook.getMethod("run", context).invoke(other.load("Hello").getConstructor().newInstance(), ctx2);
+                hook.getMethod("run", context).invoke(macro, ctx);
+                check(List.of("hi at tick 2, game 1").equals(context.getField("said").get(ctx2))
+                                && List.of("hi at tick 42, game 1", "hi at tick 42, game 2").equals(context.getField("said").get(ctx)),
+                        "each script has its own of the library's classes " + context.getField("said").get(ctx));
+            }
+
+            // Java's classes from the parent loader alone, with no class path: one by one, and a package's (import demo.*).
+            check(seal.compile("Main.seal", "import demo.Context;\nstruct Main { }\n").ok()
+                    && seal.compile("Main.seal", "import demo.*;\nstruct Main { static int f(Context c) { return (int) c.ticks(); } }\n").ok(),
+                    "parent: scripts use the Java classes of the loader they are loaded under");
+            // A jar with no folder entries (as `seal build --jar` writes one): its package is found once a class of it is loaded.
+            Path flat = dir.resolve("flat.jar");
+            try (java.util.jar.JarOutputStream out = new java.util.jar.JarOutputStream(Files.newOutputStream(flat))) {
+                for (String name : List.of("demo/Hook.class", "demo/Context.class")) {
+                    out.putNextEntry(new java.util.jar.JarEntry(name));
+                    out.write(Files.readAllBytes(hostClasses.resolve(name)));
+                    out.closeEntry();
+                }
+            }
+            try (URLClassLoader game = new URLClassLoader(new URL[] {flat.toUri().toURL()}, EmbedTest.class.getClassLoader())) {
+                SealEngine inGame = SealEngine.builder().parent(game).build();
+                String wildcard = "import demo.*;\nstruct Main { static int f(Context c) { return (int) c.ticks(); } }\n";
+                check(!inGame.compile("Main.seal", wildcard).ok() && inGame.compile("Main.seal", "import demo.Context;\nstruct Main { }\n").ok(),
+                        "parent: a jar without folders has its classes, but no package to import with * before one is loaded");
+                game.loadClass("demo.Context");
+                check(inGame.compile("Main.seal", wildcard).ok(), "parent: a package the loader has defined, by loading a class of it");
+            }
+            SealEngine plain = SealEngine.builder().build();
+            SealScript unseen = plain.compile("Main.seal", "import demo.Context;\nstruct Main { }\n");
+            check(!unseen.ok() && unseen.errors().get(0).message().startsWith("no type demo.Context to import"),
+                    "parent: another loader's classes aren't seen " + unseen.errors());
+
+            // The library from a class loader's resources, by its index, as a host's jar has it.
+            Path res = dir.resolve("api-res");
+            for (Map.Entry<String, String> e : API.entrySet()) {
+                write(res.resolve("macros/api/").resolve(e.getKey()), e.getValue());
+            }
+            write(res.resolve("macros/api/index"), "api/Game.seal\napi/Macro.seal\n");
+            try (URLClassLoader jar = new URLClassLoader(new URL[] {res.toUri().toURL()}, null)) {
+                SealEngine fromJar = SealEngine.builder().parent(host).library(jar, "macros/api").build();
+                SealScript bad = fromJar.compile("Hello.seal", HELLO.replace("game.ticks() + 1", "game.tick()"));
+                check(!bad.ok() && bad.errors().get(0).toString().startsWith("Hello.seal:7:"),
+                        "library(loader, dir): the library from resources " + bad.errors());
+                check(fromJar.compile("Hello.seal", HELLO).ok(), "library(loader, dir): a script compiles with it");
+                check(throwsWith(IOException.class, "no library at nothing/: it has no index of its files",
+                        () -> SealEngine.builder().library(jar, "nothing").build()), "library(loader, dir): no index");
+            }
+
+            // A library's errors when the engine is built; its warnings aren't a script's.
+            Map<String, String> broken = new LinkedHashMap<>(API);
+            broken.put("api/Broken.seal", "package api;\nclass Broken {\n    int f() { return g(); }\n}\n");
+            check(throwsWith(IllegalArgumentException.class,
+                    "the engine's library has errors:\napi/Broken.seal:3:22: unknown method g",
+                    () -> SealEngine.builder().parent(host).library(broken).build()), "build: the library's errors");
+            Map<String, String> widens = new LinkedHashMap<>(API);
+            widens.put("api/Widen.seal", "package api;\nclass Widen {\n    static double f(int i) { double d = 1.5; d += i; return d; }\n}\n");
+            SealEngine warns = SealEngine.builder().parent(host).library(widens).warn(Warning.AUTO_CAST).build();
+            SealScript mine = warns.compile("Main.seal", "struct Main {\n    static double g(int i) { double d = 0.5; d += i; return d; }\n}\n");
+            check(mine.ok() && mine.warnings().size() == 1 && mine.warnings().get(0).file().equals("Main.seal"),
+                    "warnings: the script's, not the library's " + mine.warnings());
+            SealScript clash = warns.compile("api/Game.seal", "struct Game { }\n");
+            check(!clash.ok() && clash.errors().get(0).message().startsWith("the engine's library has a file named api/Game.seal"),
+                    "a script's file can't have a library file's name " + clash.errors());
+        }
     }
 
     private static boolean throwsWith(Class<? extends Throwable> type, String message, ThrowingRunnable r) {
