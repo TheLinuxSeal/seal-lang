@@ -406,7 +406,20 @@ Array<int><<64>> x = new Array();
 Array<int><<64,2>> y = new Array();
 ```
 
-The `new` expression therefore does not need to repeat the shape.
+The `new` expression therefore does not need to repeat the shape, or the type arguments. `<>` leaves them out as Java's does, and means the same:
+
+```text
+HashMap<string, List<int>> m = new HashMap();
+HashMap<string, List<int>> n = new HashMap<>();
+counts.put("a", new List());        // List<int>, from put's parameter
+counts.put("b", new List<>());
+```
+
+* They come from the type the object goes to: a variable's, a field's, an assignment's, a return's, or a parameter's. A `new` passed as an argument waits for the call to be resolved, as a lambda does (§30.3): it fits a parameter of its own class, whatever its type arguments and shape, and is then made with that parameter's. Two overloads it fits are ambiguous.
+* It goes to its own class alone, not a parent or an interface of it: `Iterable<int> xs = new List();` is an error, and `List<int>` says which list.
+* With nothing to give them, as in `new List().size()`, it is an error that says to assign it or pass it. A class with no type parameters and a shape with no values is made with no context, as `new Point()`.
+* `<>` on a class with no type parameters is an error (`new Point<>()`), and so is `<>` with a shape (`new Array<><<64>>()`): it leaves both out.
+* Both spellings stay. `-Wdiamond` reports each `<>`, for code written as `new List()`, and `-WmissingDiamond` each `new` of a generic class without it, for code written as `new List<>()` (§56.1). `Box::new` gives neither.
 
 The compile-time values are part of the resulting type, while constructor arguments represent ordinary runtime state.
 
@@ -3026,8 +3039,10 @@ The compiler, in the Java package `io.github.thelinuxseal.seal` (`src/io/github/
   | `-WautoCast`      | every number converted to another type without a cast: `double d = i`, `i + d`, `f(i)` for `f(double)`, `i += 2.5` (§41.6) |
   | `-WautoCastLossy` | only those that may lose data: narrowing (`int<<8>> b = i`, `int a = 2.5`, the narrowing in `i += 2.5`), and `int` to `float` or `int<<64>>` to `double`, which may round |
   | `-Wassert` | not a warning: runs `assert` statements, as Java's `-ea` does (§41.4); without it they are skipped |
+  | `-Wdiamond` | a style: every `new List<>()`, for code that leaves type arguments out as `new List()` (§7) |
+  | `-WmissingDiamond` | a style: every `new List()` of a generic class, for code that writes `new List<>()` (§7) |
 
-  With both on (as with `-Wall`, which turns on every `-W` flag, `-Wassert` too), each cast is reported once, under `-WautoCastLossy` if it may lose data.
+  With both cast warnings on (as with `-Wall`, which turns on every `-W` flag, `-Wassert` too, but the two styles, which are opposites), each cast is reported once, under `-WautoCastLossy` if it may lose data.
 * When several overloads accept a constant argument, the one that gives the most constants their default type, `int` for integer constants and `double` for floating-point ones, is chosen; if that still ties, one without value binders (§9.3). Among overloads that need widening, the most specific is chosen, as in Java; an argument narrows only when no overload takes it otherwise, and only one may then (§41.6).
 
 ### Instantiation

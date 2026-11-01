@@ -452,8 +452,14 @@ public final class Ast {
     public record MethodRef(Pos pos, Expr target, String name) implements Expr {
     }
 
-    /** `new Array(args)`. The shape comes from the declared type (§7). */
-    public record New(Pos pos, TypeRef type, List<Expr> args) implements Expr {
+    /**
+     * `new Array(args)`, or `new List<>(args)` ({@code diamond}). Type arguments and a shape left
+     * out come from where the object goes (§7).
+     */
+    public record New(Pos pos, TypeRef type, List<Expr> args, boolean diamond) implements Expr {
+        public New(Pos pos, TypeRef type, List<Expr> args) {
+            this(pos, type, args, false);
+        }
     }
 
     /** `new<int>(n)`: runtime-sized allocation returning `addr<int>` (§24). */

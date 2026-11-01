@@ -855,7 +855,24 @@ public final class Parser {
         return new ValueExpr(start, parseExpr());
     }
 
+    /** Whether a type with `<>` for its type arguments is next, as in new HashMap<>() (§7). */
+    private boolean diamondAhead() {
+        int i = pos;
+        if (tokens.get(i).kind() != IDENTIFIER) {
+            return false;
+        }
+        while (i + 2 < tokens.size() && tokens.get(i + 1).kind() == DOT && tokens.get(i + 2).kind() == IDENTIFIER) {
+            i += 2;
+        }
+        return i + 2 < tokens.size() && tokens.get(i + 1).kind() == LT && tokens.get(i + 2).kind() == GT;
+    }
+
     private TypeRef parseType() {
+        return parseType(false);
+    }
+
+    /** With {@code diamond}, the type's `<>` is read, and it has no type arguments. */
+    private TypeRef parseType(boolean diamond) {
         Pos start = here();
         String name;
         if (PRIMITIVE_TYPES.contains(kind())) {
@@ -872,7 +889,10 @@ public final class Parser {
         }
 
         List<TypeRef> typeArgs = new ArrayList<>();
-        if (accept(LT)) {
+        if (diamond) {
+            expect(LT, "'<'");
+            expect(GT, "'>'");
+        } else if (accept(LT)) {
             do {
                 typeArgs.add(parseType());
             } while (accept(COMMA));
@@ -1586,7 +1606,16 @@ public final class Parser {
                     expect(RPAREN, "')'");
                     return new NewArray(start, element, count);
                 }
-                TypeRef type = parseType();
+                boolean diamond = diamondAhead();
+                TypeRef type = parseType(diamond);
+                if (diamond) {
+                    if (type.valueArgs() != null || !type.arrayDims().isEmpty()) {
+                        error("<> leaves out the type arguments, and the shape with them: new " + type.name() + "<>(...)"
+                                + " takes both from where it goes");
+                        type = new TypeRef(type.pos(), type.name(), List.of(), null, List.of());
+                    }
+                    return new New(start, type, parseArgs(), true);
+                }
                 if (!check(LPAREN) && type.arrayDims().size() == 1 && type.arrayDims().get(0) != null) {
                     // Java's new int[n]: reported, and read as new array<int>(n) to go on.
                     TypeRef element = new TypeRef(type.pos(), type.name(), type.typeArgs(), type.valueArgs(), List.of());

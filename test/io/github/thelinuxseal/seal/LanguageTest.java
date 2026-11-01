@@ -303,6 +303,34 @@ public final class LanguageTest {
     }
 
     private static void generics() {
+        output("<> and type arguments left out, from where the object goes (§7)", files(
+                "Box", """
+                        class Box<T> {
+                            public T value;
+                            public new() { }
+                            public new(T value) { this.value = value; }
+                        }
+                        """,
+                "Pair", "struct Pair<A, B> { public A first; public B second; }",
+                "Cell", "class Cell<<int N>> { public int size() { return N; } }",
+                "Use", """
+                        struct Use {
+                            public static int open(Box<int> b) { return b.value; }
+                            public static int sum(Pair<int, int> p) { return p.first + p.second; }
+                            public static int size(Cell<<4>> c) { return c.size(); }
+                            public static <T> Box<T> put(Box<T> b, T value) { b.value = value; return b; }
+                        }
+                        """,
+                "Main", main("""
+                        Box<int> a = new Box<>(1);
+                        Box<int> b = new Box(2);
+                        pr(a.value + b.value);
+                        pr(Use.open(new Box<>(3)) + Use.open(new Box(4)));
+                        pr(Use.sum(new Pair()) + Use.size(new Cell()));
+                        pr(Use.put(new Box(), 5).value);
+                        Box<Box<int>> nested = new Box<>(new Box<>(6));
+                        pr(nested.value.value);
+                        """)), "3 7 4 5 6 ");
         String cell = "struct Cell<T><<int N>> { public array<T><<N>> items; }";
         output("nested generic types", files("Cell", cell, "Main", main("""
                 Cell<Cell<int><<2>>><<3>> grid;

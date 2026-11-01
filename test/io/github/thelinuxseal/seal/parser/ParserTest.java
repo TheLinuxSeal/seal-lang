@@ -159,6 +159,11 @@ public final class ParserTest {
         expr("(a < b)", "(< a b)");
         expr("new Array()", "(new Array)");
         expr("new Array(1, 2)", "(new Array 1 2)");
+        expr("new List<>()", "(new List<>)");
+        expr("new util.List<>(1, 2)", "(new util.List<> 1 2)");
+        expr("new List<>() < b", "(< (new List<>) b)");
+        exprError("new Array<><<4>>()", "<> leaves out the type arguments, and the shape with them: new Array<>(...) takes both"
+                + " from where it goes");
         expr("new<int>(n)", "(new<int> n)");
         expr("new<addr<int>>(n)", "(new<addr<int>> n)");
         expr("sizeof(Array<int><<64>>)", "(sizeof Array<int><<64>>)");

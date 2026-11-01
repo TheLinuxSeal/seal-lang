@@ -144,7 +144,9 @@ seal build [options] PATH...   write the class files, for java to run
   -WautoCast         warn about every number converted without a cast
   -WautoCastLossy    warn only about those that may lose data
   -Wassert           run assert statements
-  -Wall              all of the -W flags
+  -Wdiamond          warn about every new List<>(), for code that writes new List()
+  -WmissingDiamond   warn about every new List() of a generic class, for code that writes new List<>()
+  -Wall              all of the -W flags but the two styles
 ```
 
 ### Inside a Java program

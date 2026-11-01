@@ -247,7 +247,7 @@ class Main {
   back.
 - **Inferred** as Java infers them: `new TreeMap()` from the variable it initializes, also through
   a parent (`List<JavaString> l = new ArrayList()` makes an `ArrayList<JavaString>`, as Java's
-  `new ArrayList<>()`); a generic method's (`Collections.max(xs)`, `List.of(...)`, Fabric's
+  `new ArrayList<>()`, which Seal takes too, SPEC §7); a generic method's (`Collections.max(xs)`, `List.of(...)`, Fabric's
   `Registry.register(...)`) from its arguments, then from the type wanted (`List<JavaString> l =
   List.of()`), or given: `Collections.<JavaString>emptyList()`. Two arguments of different
   classes make a `JavaObject`; one no argument decides is what it erases to.

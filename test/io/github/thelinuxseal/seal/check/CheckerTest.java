@@ -104,6 +104,7 @@ public final class CheckerTest {
         operators();
         accessAndStatic();
         statements();
+        diamond();
         files();
         dynamicPlacement();
         typeParameters();
@@ -1566,6 +1567,78 @@ public final class CheckerTest {
                     int peek() { return inner; }
                 }
                 """));
+    }
+
+    /** new List<>(), and new List() where a parameter gives the type arguments (§7). */
+    private static void diamond() {
+        String box = """
+                class Box<T> {
+                    public T value;
+                    public new() { }
+                    public new(T value) { this.value = value; }
+                }
+                """;
+        String pair = "struct Pair<A, B> { public A first; public B second; }";
+        String cell = "class Cell<<int N>> { public int size() { return N; } }";
+        ok("<> and type arguments left out, from where the object goes", files("Box", box, "Pair", pair, "Cell", cell,
+                "Main", """
+                        class Main {
+                            Box<int> field = new Box<>();
+                            static Box<char> make() { return new Box<>('x'); }
+                            static int open(Box<int> b) { return b.value; }
+                            static int sum(Pair<int, int> p) { return p.first + p.second; }
+                            static int size(Cell<<4>> c) { return c.size(); }
+                            static <T> void put(Box<T> b, T value) { b.value = value; }
+                            static void main() {
+                                Box<int> a = new Box<>(1);
+                                Box<int> b = new Box(2);
+                                a = new Box<>();
+                                int n = open(new Box<>(3)) + open(new Box(4)) + sum(new Pair()) + size(new Cell());
+                                put(new Box(), 5);
+                                Box<Box<int>> nested = new Box<>(new Box<>(6));
+                            }
+                        }
+                        """));
+        error("<> on a class with no type parameters", """
+                class Main {
+                    static void main() { Main m = new Main<>(); }
+                }
+                """, "Main has no type parameters for <> to leave out; write new Main(...)");
+        error("a new as an argument of another class", files("Box", box, "Main", """
+                class Main {
+                    static void take(int x) { }
+                    static void main() { take(new Box<>()); }
+                }
+                """), "argument 1 of take: expected int, found new Box<>(...)");
+        error("a new that fits two overloads", files("Box", box, "Main", """
+                class Main {
+                    static void take(Box<int> b) { }
+                    static void take(Box<char> b) { }
+                    static void main() { take(new Box()); }
+                }
+                """), "ambiguous call to take: 2 overloads match");
+        error("a new with nothing to give its type arguments", files("Box", box, "Main", """
+                class Main {
+                    static void main() { int v = new Box<>().value; }
+                }
+                """), "cannot tell which shape of Box to create; assign it to a variable of type Box<...><<...>>, or pass it"
+                + " where one goes");
+        Map<String, String> both = files("Box", box, "Maker", "interface Maker<T> { T make(); }", "Main", """
+                class Main {
+                    static void main() {
+                        Box<int> a = new Box<>(1);
+                        Box<int> b = new Box(2);
+                        Maker<Box<int>> make = Box::new;
+                        Main m = new Main();
+                    }
+                }
+                """);
+        warnings("-Wdiamond reports each <>", Set.of(Warning.DIAMOND), both,
+                "3: [-Wdiamond] new Box<>(...): new Box(...) leaves the type arguments out too");
+        warnings("-WmissingDiamond reports each new of a generic class without <>, but not Box::new",
+                Set.of(Warning.MISSING_DIAMOND), both,
+                "4: [-WmissingDiamond] new Box(...) leaves its type arguments out without <>: new Box<>(...)");
+        warnings("-Wall turns on neither style", Warning.all(), both);
     }
 
     private static void statements() {

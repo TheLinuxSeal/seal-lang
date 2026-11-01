@@ -189,7 +189,7 @@ public final class AstPrinter {
             case Assign a -> "(" + (a.op() == null ? "" : a.op() == BinaryOp.SHIFT ? "<<" : a.op().symbol)
                     + "= " + print(a.target()) + " " + print(a.value()) + ")";
             case Cast c -> "(cast " + print(c.type()) + " " + print(c.operand()) + ")";
-            case New n -> "(new " + print(n.type())
+            case New n -> "(new " + print(n.type()) + (n.diamond() ? "<>" : "")
                     + n.args().stream().map(a -> " " + print(a)).collect(Collectors.joining()) + ")";
             case Lambda l -> "(lambda (" + l.params().stream().map(p -> (p.type() == null ? "" : print(p.type()) + " ") + p.name())
                     .collect(Collectors.joining(" ")) + ") " + (l.expr() != null ? print(l.expr()) : print(l.block())) + ")";

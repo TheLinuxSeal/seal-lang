@@ -217,6 +217,18 @@ public sealed interface Type {
     }
 
     /**
+     * A `new` passed as an argument with its type arguments left out, before the call is resolved
+     * (§7): only the parameter it goes to can give them, so it fits one of its own class, and is
+     * checked once the call is known, as a lambda is.
+     */
+    record NewT(io.github.thelinuxseal.seal.ast.Ast.New site, ClassInfo cls) implements Type {
+        @Override
+        public String toString() {
+            return "new " + cls.name + (site.diamond() ? "<>" : "") + "(...)";
+        }
+    }
+
+    /**
      * One of Java's primitive types, as seal.java names it (docs/JAVA.md §3.1): JavaInt is Java's
      * int. A value of one is held as the Seal number with the same values (a JavaInt as an int,
      * a JavaByte as an int<<8>>), and has no operators: a cast makes it Seal's.

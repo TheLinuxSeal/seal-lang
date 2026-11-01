@@ -141,7 +141,8 @@ public final class CliTest {
         check(r.code() == 0 && endsWithLines(r.err(), widen, narrow.formatted("-WautoCastLossy")), "check -Wall: each cast once " + r);
         r = run("check", "-WautoCasts", lossy.toString());
         check(r.code() == 2 && r.err().equals(
-                        "unknown flag -WautoCasts; the -W flags are -WautoCast, -WautoCastLossy, -Wassert, and -Wall for all of them\n"),
+                        "unknown flag -WautoCasts; the -W flags are -WautoCast, -WautoCastLossy, -Wassert, -Wdiamond,"
+                        + " -WmissingDiamond, and -Wall for all of them but the last two, which are styles\n"),
                 "-W with an unknown name " + r);
 
         Path asserts = write(dir, "asserts/Main.seal", """

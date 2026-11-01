@@ -670,6 +670,8 @@ public final class Checker {
     private final Set<String> libraryFiles = new HashSet<>();
     /** The warnings to report. */
     private final Set<Warning> warn = java.util.EnumSet.noneOf(Warning.class);
+    /** The news a Box::new makes, which no one wrote, so they give no -Wdiamond or -WmissingDiamond. */
+    private final Set<New> madeNews = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
     /** File that positions currently refer to. */
     private String file = "";
@@ -5207,6 +5209,9 @@ public final class Checker {
         if (from.isError() || to.isError() || from.equals(to)) {
             return true;
         }
+        if (from instanceof NewT n) {
+            return newFits(n, to);
+        }
         return switch (to) {
             case IntT it -> (from instanceof IntConstT ic && (ic.value() == null || fits(ic.value(), it))) || widens(from, it);
             case FixedT ft -> constFitsFixed(from, ft) || widens(from, ft);
@@ -5982,8 +5987,11 @@ public final class Checker {
         }
     }
 
-    /** Checks the lambdas among a resolved call's arguments against the parameter types. */
-    private void checkLambdaArgs(Body b, Expr site, List<Expr> args) {
+    /**
+     * Checks the arguments that waited for a resolved call's parameter types: lambdas, method
+     * references, and news that leave out their type arguments (checkArg).
+     */
+    private void checkDeferredArgs(Body b, Expr site, List<Expr> args) {
         CallInfo ci = b.calls.get(site);
         if (ci == null || ci.member() == null) {
             return;
@@ -5994,6 +6002,8 @@ public final class Checker {
                 b.types.put(lam, checkLambda(b, lam, ps.get(i)));
             } else if (args.get(i) instanceof MethodRef r) {
                 b.types.put(r, checkMethodRef(b, r, ps.get(i)));
+            } else if (waitingNew(b, args.get(i)) != null) {
+                checkExpr(b, args.get(i), ps.get(i)); // new List(), with the parameter's type arguments (§7)
             }
         }
     }
@@ -6092,7 +6102,9 @@ public final class Checker {
                 return new RefLambda(null, "::new makes an object of the type before it, as in Box::new; "
                         + dottedName(receiver) + " is a value");
             }
-            body = new New(pos, new TypeRef(pos, dottedName(receiver), List.of(), null, List.of()), args);
+            New made = new New(pos, new TypeRef(pos, dottedName(receiver), List.of(), null, List.of()), args);
+            madeNews.add(made);
+            body = made;
         } else if (target instanceof ClassRefT cr) {
             List<Method> methods = methodsNamed(b, cr.cls(), r.name(), pos);
             String type = isJavaType(cr.cls()) ? javaName(cr.cls()) : cr.cls().name;
@@ -6550,10 +6562,38 @@ public final class Checker {
 
     // ================================================================ calls
 
+    /**
+     * A call's argument. A new that leaves out type arguments its class can't do without, as
+     * new List() does, waits for the parameter it goes to: it is checked once the call is
+     * resolved, with that parameter's type, as a lambda is (§7).
+     */
+    private Type checkArg(Body b, Expr a) {
+        ClassInfo c = waitingNew(b, a);
+        return c != null ? new NewT((New) a, c) : checkExpr(b, a, null);
+    }
+
+    /** For an argument that is a new waiting for its parameter's type (checkArg), its class; otherwise null. */
+    private ClassInfo waitingNew(Body b, Expr a) {
+        if (!(a instanceof New n) || !n.type().typeArgs().isEmpty() || n.type().valueArgs() != null
+                || !n.type().arrayDims().isEmpty()) {
+            return null;
+        }
+        ClassInfo c = lookupClass(n.type().name(), b.cls);
+        boolean needsType = c != null && c.java == null && !c.isAbstract
+                && (!c.typeParams.isEmpty() || c.shapes.stream().noneMatch(s -> s.binders.isEmpty()));
+        return needsType ? c : null;
+    }
+
+    /** Whether a new waiting for its parameter's type can be of this one: of its own class, and kind. */
+    private static boolean newFits(NewT n, Type to) {
+        Type target = to instanceof HandleT h ? h.target() : to instanceof AddrT a ? a.target() : to;
+        return target instanceof ClassT t && t.cls() == n.cls() && n.cls().dynamic == to instanceof HandleT;
+    }
+
     private Type checkCall(Body b, Call c) {
         List<Type> argTypes = new ArrayList<>();
         for (Expr a : c.args()) {
-            argTypes.add(checkExpr(b, a, null));
+            argTypes.add(checkArg(b, a));
         }
         if (argTypes.stream().anyMatch(Type::isError)) {
             // Still resolve the callee for its own errors.
@@ -6583,11 +6623,11 @@ public final class Checker {
                 if (b.calls.get(c) instanceof CallInfo ci) {
                     b.calls.put(c, new CallInfo(CallKind.SUPER_CONSTRUCTOR, ci.member(), ci.owner(), ci.binders(), false, false));
                 }
-                checkLambdaArgs(b, c, c.args());
+                checkDeferredArgs(b, c, c.args());
                 return Type.VOID;
             }
             resolveConstructor(b, parent, argTypes, c.pos(), c, CallKind.SUPER_CONSTRUCTOR);
-            checkLambdaArgs(b, c, c.args());
+            checkDeferredArgs(b, c, c.args());
             return Type.VOID;
         }
 
@@ -6596,7 +6636,7 @@ public final class Checker {
             return b.componentReads.containsKey(c) ? b.componentReads.get(c) : Type.ERROR;
         }
         Type result = resolveCallOverload(b, c, cands, argTypes);
-        checkLambdaArgs(b, c, c.args());
+        checkDeferredArgs(b, c, c.args());
         if (isRawAssembly(b.calls.get(c)) && !(argTypes.get(0) instanceof StrConstT s && s.value() != null)) {
             report(c.args().get(0).pos(), "System.rawAssembly needs its code as a string literal: a native compiler"
                     + " would assemble it when compiling, so it can't be computed while the program runs");
@@ -7372,6 +7412,9 @@ public final class Checker {
         if (a instanceof NullT) {
             return true;
         }
+        if (a instanceof NewT n) {
+            return newFits(n, p);
+        }
         if (a instanceof LambdaT lt) {
             // A lambda goes where Java wants an interface with one abstract method that takes as many parameters,
             // returning a value if the lambda gives one, and nothing if it can (docs/JAVA.md §5).
@@ -7962,6 +8005,7 @@ public final class Checker {
             case FloatConstT f -> Type.DOUBLE;
             case NullT n -> null;
             case LambdaT l -> null;
+            case NewT n -> null;
             case ErrorT e -> null;
             default -> defaultOf(arg);
         };
@@ -8129,7 +8173,7 @@ public final class Checker {
     private Type checkNew(Body b, New n, Type expected) {
         List<Type> args = new ArrayList<>();
         for (Expr a : n.args()) {
-            args.add(checkExpr(b, a, null));
+            args.add(checkArg(b, a));
         }
         TypeRef ref = n.type();
         ClassInfo c = lookupClass(ref.name(), b.cls);
@@ -8148,6 +8192,17 @@ public final class Checker {
             report(n.pos(), "cannot create " + (c.isInterface ? "interface " : "abstract class ") + c.name
                     + " with new; create a class that " + (c.isInterface ? "implements" : "extends") + " it");
             return Type.ERROR;
+        }
+        if (n.diamond() && c.typeParams.isEmpty()) {
+            report(n.pos(), (c.java != null ? javaName(c) : c.name) + " has no type parameters for <> to leave out; write new "
+                    + c.name + "(...)");
+        } else if (ref.typeArgs().isEmpty() && ref.valueArgs() == null && !madeNews.contains(n) && !c.typeParams.isEmpty()) {
+            if (n.diamond()) {
+                warn(Warning.DIAMOND, n.pos(), "new " + c.name + "<>(...): new " + c.name + "(...) leaves the type arguments out too");
+            } else {
+                warn(Warning.MISSING_DIAMOND, n.pos(), "new " + c.name + "(...) leaves its type arguments out without <>: new "
+                        + c.name + "<>(...)");
+            }
         }
         if (isJavaArray(c) && ref.typeArgs().isEmpty()) {
             return newJavaArray(b, n, expected, args);
@@ -8174,7 +8229,7 @@ public final class Checker {
                         c.shapes.stream().filter(s -> s.binders.isEmpty()).findFirst().orElseThrow().index);
             } else {
                 report(n.pos(), "cannot tell which shape of " + c.name + " to create; assign it to a variable of type "
-                        + c.name + (c.typeParams.isEmpty() ? "" : "<...>") + "<<...>>");
+                        + c.name + (c.typeParams.isEmpty() ? "" : "<...>") + "<<...>>, or pass it where one goes");
                 return Type.ERROR;
             }
         }
@@ -8192,7 +8247,7 @@ public final class Checker {
             } else if (args.stream().noneMatch(Type::isError)) {
                 resolveJava(b, "new", t, t, c.constructors.stream()
                         .filter(k -> (javaMembers.get(k.member).flags() & JavaClasses.PUBLIC) != 0).toList(), Map.of(), args, n.pos(), n);
-                checkLambdaArgs(b, n, n.args());
+                checkDeferredArgs(b, n, n.args());
             }
             return new HandleT(t);
         }
@@ -8201,7 +8256,7 @@ public final class Checker {
         }
         if (args.stream().noneMatch(Type::isError)) {
             resolveConstructor(b, t, args, n.pos(), n, CallKind.CONSTRUCTOR);
-            checkLambdaArgs(b, n, n.args());
+            checkDeferredArgs(b, n, n.args());
         }
         if (c.dynamic) {
             return new HandleT(t);
