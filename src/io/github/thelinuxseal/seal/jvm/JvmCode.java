@@ -3101,6 +3101,40 @@ final class JvmCode {
         }
     }
 
+    /**
+     * Two fixed-point values held in ints on the stack: their product, rounded to nearest, ties
+     * up (§37.1), as a long, as FixedPoint.mul gives it. Both are below 2^32, so the product is
+     * exact in a long (unsigned, read without its sign), and adding half of the last place before
+     * shifting it out rounds it: floor((p + 2^(M-1)) / 2^M) is the bits above M plus bit M - 1.
+     */
+    private void fixedMul(FixedT ft) {
+        boolean full = !ft.signed() && width(ft) == 32; // its int may look negative: zero-extended
+        c.i2l();
+        if (full) {
+            c.loadConstant(0xFFFFFFFFL);
+            c.land();
+        }
+        c.dup2_x1();
+        c.pop2();
+        c.i2l();
+        if (full) {
+            c.loadConstant(0xFFFFFFFFL);
+            c.land();
+        }
+        c.lmul();
+        int m = frac(ft);
+        if (m > 0) {
+            c.loadConstant(1L << (m - 1));
+            c.ladd();
+            c.loadConstant(m);
+            if (ft.signed()) {
+                c.lshr();
+            } else {
+                c.lushr();
+            }
+        }
+    }
+
     /** Seal's <<< (§50): value and amount (an int) on the stack, through the runtime. */
     private void shift(Type t) {
         c.loadConstant(width(t));
@@ -3112,6 +3146,11 @@ final class JvmCode {
     /** Both operands of type t on the stack: the result, normalized to t. */
     private void arithmetic(BinaryOp op, Type t, Pos at) {
         if (t instanceof FixedT ft) {
+            if (op == BinaryOp.MUL && load(ft) == TypeKind.INT && frac(ft) >= 0 && frac(ft) <= 32) {
+                fixedMul(ft);
+                fromLong(ft);
+                return;
+            }
             if (op == BinaryOp.MUL || op == BinaryOp.DIV) {
                 // The exact product or quotient, rounded to nearest (§37.1), then wrapped.
                 ClassDesc v = load(ft) == TypeKind.LONG ? CD_long : CD_int;

@@ -699,6 +699,26 @@ public final class JvmTest {
 
     /** Structs, uniques, records, enums and fixed arrays, in storage blocks (docs/JVM.md §4, M3). */
     private static void values() {
+        // A product of fixed-point values held in ints is made inline; wider ones go through the runtime.
+        Map<String, String> products = Map.of("Main.seal", """
+                class Main {
+                    static fixed<<16, 16>> narrow(fixed<<16, 16>> a, fixed<<16, 16>> b) { return a * b; }
+                    static ufixed<<0, 32>> unsigned(ufixed<<0, 32>> a, ufixed<<0, 32>> b) { return a * b; }
+                    static fixed<<40, 24>> wide(fixed<<40, 24>> a, fixed<<40, 24>> b) { return a * b; }
+                    static void main() {
+                        System.stdout.println(narrow(-1.5, 2.25) + " " + narrow(32767.0, 2.0) + " " + unsigned(0.75, 0.5)
+                                + " " + unsigned(0.99999999976716935634613037109375, 0.99999999976716935634613037109375)
+                                + " " + wide(-1.5, 2.25));
+                    }
+                }
+                """);
+        program("fixed-point products, inline and through the runtime", products,
+                "-3.375 -2.0 0.375 0.9999999995343387126922607421875 -3.375\n", 0);
+        String fixedText = ClassText.of(JvmGen.generate(Checker.analyze(products, LIBRARY), "Main").classes());
+        String narrowBody = fixedText.substring(fixedText.indexOf("static narrow("), fixedText.indexOf("static unsigned("));
+        String wideBody = fixedText.substring(fixedText.indexOf("static wide("));
+        check(narrowBody.contains("lmul") && !narrowBody.contains("FixedPoint.mul") && wideBody.contains("FixedPoint.mul"),
+                "a product of fixed<<16, 16>> is inline, of fixed<<40, 24>> through the runtime\n" + narrowBody);
         // An enum with no fields is its ordinal, an int (docs/JVM.md §3), wherever it is held.
         Map<String, String> ordinals = new LinkedHashMap<>();
         ordinals.put("Dir.seal", """

@@ -105,8 +105,10 @@ which already exists in Java form in the VM (`formatFixed`).
 
 Done in M4, as planned: a fixed-point value is held as the integer of its width would be (an
 `int` for a `fixed<<8, 8>>`, a `long` for a `fixed<<40, 24>>`), so fields, arrays, blocks,
-comparisons, `+`, `-` and `%` are the integer's. The runtime's `FixedPoint` has the rest, as the
-VM computes it: `mul` (a `long` product while both values are below 2^31, else
+comparisons, `+`, `-` and `%` are the integer's. So is `*` for a value held in an `int` (32 bits
+or fewer): both widen to `long`, whose product is exact, and adding half of the last place before
+shifting the fraction out rounds it as `mul` does; it matched `mul` on 72,000 products in 18
+formats. The runtime's `FixedPoint` has the rest, as the VM computes it: `mul` (a `long` product while both values are below 2^31, else
 `Math.multiplyHigh` or `unsignedMultiplyHigh` for the 128-bit one), `div` (a `long` quotient while
 it fits, else `BigInteger`), `rescale` for casts between formats and to and from integers, and the
 exact text. Conversions to and from `double` are inline: a multiplication by 2^±M, and rounding
