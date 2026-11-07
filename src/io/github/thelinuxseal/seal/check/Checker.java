@@ -4629,6 +4629,17 @@ public final class Checker {
         };
     }
 
+    /** Whether a field is one of an enum's constants, which are fixed, as Java's are (§38.1). */
+    private boolean isEnumConstant(MemberInfo m) {
+        return m.member instanceof Field f && f.modifiers().isStatic() && f.init() instanceof New
+                && declaringClass(m).kind == Kind.ENUM;
+    }
+
+    private String enumConstantFixed(MemberInfo m) {
+        ClassInfo e = declaringClass(m);
+        return e.name + "." + ((Field) m.member).name() + " is a constant of enum " + e.name + ", so it can't be assigned";
+    }
+
     /** An enum's constants, in order: its static fields made with new (only constants may call its constructors). */
     private static List<String> enumConstants(ClassInfo e) {
         List<String> out = new ArrayList<>();
@@ -8372,6 +8383,12 @@ public final class Checker {
                 return Type.ERROR;
             }
             case ADDRESS_OF: {
+                MemberInfo field = u.operand() instanceof Select s ? b.selected.get(s)
+                        : u.operand() instanceof Name n ? b.fieldOf.get(n) : null;
+                if (field != null && isEnumConstant(field)) {
+                    report(u.pos(), enumConstantFixed(field) + ", nor its address taken; copy it into a variable first");
+                    return Type.ERROR;
+                }
                 Lval l = lvalue(b, u.operand());
                 if (l == Lval.VIA_HANDLE) {
                     report(u.pos(), "cannot take an address inside a class object; it may move (§26)");
@@ -9324,6 +9341,10 @@ public final class Checker {
         }
         if (field != null && javaMembers.get(field.member) instanceof JavaClasses.JMember jm && jm.isFinal()) {
             report(pos, "Java's field " + jm.name() + " is final, so it can't be assigned");
+            return false;
+        }
+        if (field != null && isEnumConstant(field)) {
+            report(pos, enumConstantFixed(field));
             return false;
         }
         if (target instanceof Name n && b.resources.contains(n.name()) && "local".equals(b.nameKinds.get(n))) {

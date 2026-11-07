@@ -1859,7 +1859,7 @@ enum Planet {
 
 * An enum is a struct: a value that is copied, holding its ordinal and its fields. It works anywhere a struct does (locals, fields, arrays, `List<Color>`, parameters).
 * A value's ordinal is fixed when it is made: only the enum's constructors set it, and assigning it elsewhere is an error. Its fields can change, on that copy alone (`p.mass = 5` leaves `Planet.MERCURY.mass` as it was). An enum with no fields is then its ordinal and nothing else, which the JVM holds as an `int` (docs/JVM.md §3).
-* Its constants are static fields, created when the program starts. Only they can call its constructors.
+* Its constants are static fields, created when the program starts. Only they can call its constructors. They are fixed, as Java's are: `Dir.EAST = Dir.NORTH;` is an error, and so is taking a constant's address. A constant's fields can change, as in Java (`Planet.MERCURY.mass = 5`).
 * A variable declared without a value holds the first constant's ordinal (`Color c;` is `RED`), with fields zero; assign a constant to get its fields.
 * An enum has no type parameters, shapes, parents or interfaces, and its constants can't be named `ordinal`, `name`, `values` or `valueOf`.
 * `switch` on an enum may name constants bare: `case RED ->` (§41.3).

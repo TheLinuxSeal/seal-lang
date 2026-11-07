@@ -712,6 +712,14 @@ public final class CheckerTest {
         error("enum with type parameters", "enum Main<T> { A }", "an enum has no type parameters, shapes, parents or interfaces");
         error("an enum value's ordinal is fixed", "enum Main { A, B; public void set() { __ordinal = 1; } }",
                 "an enum value's ordinal is fixed when it is made; assign one of Main's constants instead");
+        error("an enum constant can't be assigned", files("Dir", "enum Dir { NORTH, EAST }",
+                "Main", "struct Main { static void run() { Dir.EAST = Dir.NORTH; } }"),
+                "Dir.EAST is a constant of enum Dir, so it can't be assigned");
+        error("an enum constant can't be assigned inside its enum", "enum Main { A, B; public static void swap() { A = B; } }",
+                "Main.A is a constant of enum Main, so it can't be assigned");
+        error("an enum constant has no address", files("Dir", "enum Dir { NORTH, EAST }",
+                "Main", "struct Main { static void run() { addr<Dir> p = *Dir.EAST; } }"),
+                "Dir.EAST is a constant of enum Dir, so it can't be assigned, nor its address taken; copy it into a variable first");
         error("unknown enum constant", files("Color", "enum Color { RED }", "Main",
                 "struct Main { static void run() { Color c = Color.PINK; } }"), "PINK");
         error("mixed switch styles", "struct Main { static void run(int x) { switch (x) { case 1 -> { } case 2: break; } } }",

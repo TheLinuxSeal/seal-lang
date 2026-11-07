@@ -787,6 +787,18 @@ public final class JvmTest {
                 WEST side down
                 e 2 18980 MERCURY
                 """, 0);
+        program("a field of an enum constant can change, as in Java; a copy's alone", Map.of(
+                "Planet.seal", "enum Planet { MERCURY(3); public int mass; new(int m) { mass = m; } }",
+                "Main.seal", """
+                        class Main {
+                            static void main() {
+                                Planet p = Planet.MERCURY;
+                                Planet.MERCURY.mass = 5;
+                                p.mass = 7;
+                                System.stdout.println(Planet.MERCURY.mass + " " + p.mass);
+                            }
+                        }
+                        """), "5 7\n", 0);
         String text = ClassText.of(JvmGen.generate(Checker.analyze(ordinals, LIBRARY), "Main").classes());
         check(text.contains("  static int NORTH\n") && text.contains("  static turn(int)int\n") && text.contains("  int facing\n")
                         && text.contains("  static name(Block,int)String\n") && text.contains("class Planet  (Planet.seal)\n  static Block $statics"),
