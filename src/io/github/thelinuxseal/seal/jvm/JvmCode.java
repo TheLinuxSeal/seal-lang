@@ -2207,6 +2207,52 @@ final class JvmCode {
     }
 
     /**
+     * Whether a struct value can be made right in the place it is assigned to. A copy from another
+     * place can: the place is written once, at the end. Anything made piece by piece (a new, a
+     * call's result, an operator's) can only into a local whose address isn't taken and that the
+     * value doesn't name: anything else, as p in p = p.plus(q) or a field a call reads, would be
+     * read while it is half made.
+     */
+    private boolean safeInPlace(Expr target, Expr value) {
+        return isPlace(value) || (target instanceof Name n && "local".equals(tb.nameKinds.get(n))
+                && !addressTaken.contains(n.name()) && !names(value, n.name()));
+    }
+
+    /** Whether a struct-valued expression is a place's value, which into() copies (mem). */
+    private boolean isPlace(Expr e) {
+        Expr x = tb.rewritten.getOrDefault(e, e);
+        return switch (x) {
+            case Name n -> true;
+            case This th -> true;
+            case Select s -> true;
+            case Index ix -> !tb.calls.containsKey(ix);
+            case Unary u -> u.op() == UnaryOp.DEREF && !tb.calls.containsKey(u);
+            default -> false;
+        };
+    }
+
+    /**
+     * Whether an expression may read the local {@code name}: it names it, as written or as the
+     * checker rewrote it, or holds what this doesn't look into (a switch's cases, a lambda's body).
+     */
+    private boolean names(Expr e, String name) {
+        if (e instanceof SwitchExpr || e instanceof Lambda || e instanceof io.github.thelinuxseal.seal.ast.Ast.MethodRef
+                || (e instanceof Name n && n.name().equals(name))) {
+            return true;
+        }
+        Expr rewritten = tb.rewritten.get(e);
+        if (rewritten != null && names(rewritten, name)) {
+            return true;
+        }
+        for (Expr child : io.github.thelinuxseal.seal.ast.Ast.children(e)) {
+            if (names(child, name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * The place a struct-valued expression names: a variable, a field (of a struct, of a class
      * object, a static one), an element of a fixed array, `this`; or null if it names none (a call's
      * result, which is made somewhere instead).
@@ -3497,8 +3543,8 @@ final class JvmCode {
             if (dst == null) {
                 throw unsupported(a.target().pos(), "assigning " + describe(a.target()));
             }
-            if (g.needsDestroy(t) || a.value() instanceof ArrayLit) {
-                // Made aside first: the old value is destroyed, and `a = [a[1], a[0]]` reads a while the new one is made.
+            if (g.needsDestroy(t) || !safeInPlace(a.target(), a.value())) {
+                // Made aside first: the old value is destroyed, and `p = p.plus(q)` reads p while the new one is made.
                 Mem fresh = temp(t);
                 into(fresh, a.value(), t);
                 destroyValue(dst, t);
@@ -4127,8 +4173,13 @@ final class JvmCode {
                 Mem element_ = new Mem(array, index, 0);
                 if (spec.equals("array.get")) {
                     copy(dst, element_, element);
-                } else {
+                } else if (isPlace(args.get(1))) {
                     into(element_, args.get(1), element);
+                } else {
+                    // Made aside first: xs[i] = new Vec(xs[i].y, xs[i].x) reads the element while the new one is made.
+                    Mem fresh = temp(element);
+                    into(fresh, args.get(1), element);
+                    copy(element_, fresh, element);
                 }
             }
             default -> throw unsupported(at, "the JVM intrinsic " + spec);

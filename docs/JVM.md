@@ -247,7 +247,10 @@ version.
   it (`a && f()`). Uniques in static fields are destroyed after `main` returns (`$fini`). As on the
   VM, a fault stops the program without running destructors.
 - Assigning to a unique builds the new value aside, destroys the old one, then copies it in, so
-  `u = u.next()` works.
+  `u = u.next()` works. A struct is built aside too, then copied, unless nothing can read the place
+  while it is built: a value copied from another place, or one built into a local whose address
+  isn't taken and which the value doesn't name. Built in place, `p = p.plus(q)` read `p` half made,
+  and so did a call that reads the field it is assigned to.
 - An instance `main()` of a struct or unique runs on a value `$start` makes and destroys.
 - Not done: §4.5's optimization, and fixed strings stored inline (§8.2). `addr<T>` came with M5
   (§4.4).

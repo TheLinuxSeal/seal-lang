@@ -149,6 +149,65 @@ public final class LanguageTest {
     }
 
     private static void construction() {
+        // A struct made by a call, a new or an operator, assigned to a place the making reads: made aside, then copied.
+        String vec = """
+                struct Vec {
+                    public double x;
+                    public double y;
+                    public new() { }
+                    public new(double x, double y) { this.x = x; this.y = y; }
+                    public Vec plus(Vec o) { return new Vec(x + o.x, y + o.y); }
+                    @overload(Operator.ADD) public Vec add(Vec o) { return new Vec(x + o.x, y + o.y); }
+                }
+                """;
+        output("a struct assigned what is made from it", files("Vec", vec,
+                "Body", """
+                        class Body {
+                            public Vec pos = new Vec(1, 2);
+                            public void move(Vec v) { pos = pos.plus(v); }
+                        }
+                        """,
+                "Walker", """
+                        struct Walker {
+                            public Vec pos;
+                            public void move(Vec v) { pos = new Vec(pos.y + v.x, pos.x + v.y); }
+                        }
+                        """,
+                "Use", """
+                        struct Use {
+                            public static Vec field = new Vec(1, 2);
+                            public static Vec readsField() { return new Vec(field.x + 10, field.y + 10); }
+                            public static Vec through(addr<Vec> a) { return new Vec((&a).x + 1, (&a).y + 1); }
+                        }
+                        """,
+                "Main", main("""
+                        Vec s = new Vec(1, 2);
+                        Vec p = new Vec(1, 2);
+                        p = p.plus(s); pr(p.x); pr(p.y);
+                        p = new Vec(p.y, p.x); pr(p.x); pr(p.y);
+                        p = p + s; pr(p.x); pr(p.y);
+                        p = p.x > 0 ? p.plus(s) : s; pr(p.x); pr(p.y);
+                        p = switch ((int) p.x) { case 6 -> p.plus(s); default -> s; }; pr(p.x); pr(p.y);
+                        addr<Vec> ap = *p;
+                        p = Use.through(ap); pr(p.x); pr(p.y);
+                        Use.field = Use.readsField(); pr(Use.field.x); pr(Use.field.y);
+                        array<Vec> xs = new array<Vec>(1);
+                        xs[0] = new Vec(1, 2);
+                        xs[0] = new Vec(xs[0].y, xs[0].x); pr(xs[0].x); pr(xs[0].y);
+                        xs[0] = xs[0].plus(s); pr(xs[0].x); pr(xs[0].y);
+                        array<Vec><<1>> fa;
+                        fa[0] = new Vec(1, 2);
+                        fa[0] = fa[0].plus(s); pr(fa[0].x); pr(fa[0].y);
+                        Body b = new Body();
+                        b.move(s);
+                        b.pos = new Vec(b.pos.y, b.pos.x); pr(b.pos.x); pr(b.pos.y);
+                        Walker w;
+                        w.pos = new Vec(1, 2);
+                        w.move(s); pr(w.pos.x); pr(w.pos.y);
+                        Vec q = new Vec(0, 0);
+                        q = p.plus(s); pr(q.x); pr(q.y);
+                        """)),
+                "2.0 4.0 4.0 2.0 5.0 4.0 6.0 6.0 7.0 8.0 8.0 9.0 11.0 12.0 2.0 1.0 3.0 3.0 2.0 4.0 4.0 2.0 3.0 3.0 9.0 11.0 ");
         output("constructor with a binder", files(
                 "Buf", """
                         struct Buf<<int N>> {
