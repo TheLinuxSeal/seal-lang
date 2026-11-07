@@ -70,7 +70,8 @@ desugared (`rewritten`, `desugared` for-each loops, `switches`, `switchExprs`, `
 | `float`, `double` | `float`, `double` | same IEEE semantics; Java's `Float.toString` and `Double.toString` give the same text the VM prints |
 | `fixed<<N, M>>`, `ufixed<<N, M>>` | `int` (N+M ≤ 32) or `long` (≤ 64) | the scaled integer; `*` and `/` through runtime helpers (§3.2) |
 | `handle<C>`, a class or interface type | a reference to C's JVM class or interface | `null` is `null` |
-| struct, unique, record, enum, `array<T><<N>>` | a storage reference (§4) | values in `long[]` storage |
+| an enum with no fields | `int` | its ordinal, all it holds; its methods are static, taking it first |
+| struct, unique, record, enum with fields, `array<T><<N>>` | a storage reference (§4) | values in `long[]` storage |
 | `addr<T>` | a pointer object (§4.4) | |
 | `array<T>` (sized at run time) | a JVM array (§8.1) | |
 | `string` | `java.lang.String` (§8.2) | immutable |

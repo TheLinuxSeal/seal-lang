@@ -4,6 +4,7 @@ import static io.github.thelinuxseal.seal.jvm.JvmGen.concrete;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.fullUnsigned;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.isArray;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.isNumber;
+import static io.github.thelinuxseal.seal.jvm.JvmGen.isOrdinal;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.isString;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.isValue;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.kind;
@@ -431,15 +432,15 @@ final class JvmCode {
             addressTaken = AddressTaken.in(ctor.body());
             bindParams(ctor.params(), tb.params, 0, params);
         }
-        thisLocal = new Local(t, c.allocateLocal(TypeKind.REFERENCE));
+        thisLocal = new Local(t, c.allocateLocal(kind(t)));
         zero(t);
-        c.astore(thisLocal.slot());
+        c.storeLocal(load(t), thisLocal.slot());
         openScope(params);
         if (ctor != null) {
             block(ctor.body());
         }
-        c.aload(thisLocal.slot());
-        c.areturn();
+        c.loadLocal(load(t), thisLocal.slot());
+        c.return_(load(t));
     }
 
     /** A struct's or unique's constructor (§15): it makes the value in the place it is given, zeroed. */
@@ -741,10 +742,10 @@ final class JvmCode {
         }
     }
 
-    /** Pushes `this`: the object, or a string's or array's value. */
+    /** Pushes `this`: the object, or a string's, array's or enum's value. */
     private void loadThis(Pos at) {
         if (thisLocal != null) {
-            c.aload(thisLocal.slot());
+            c.loadLocal(load(thisLocal.type()), thisLocal.slot());
         } else if (lambdaThis != null) {
             c.aload(0);
             c.getfield(lambdaClass.desc, lambdaThis.name(), lambdaThis.type());
@@ -1028,6 +1029,10 @@ final class JvmCode {
             loadPushed(j.sealType()); // stored as the Seal number with its values (docs/JAVA.md §3.1)
             return;
         }
+        if (isOrdinal(t)) {
+            loadPushed(Type.INT); // its ordinal, where the enum's layout has it
+            return;
+        }
         if (isString(t)) {
             c.invokestatic(JvmGen.BLOCK, "string", MethodTypeDesc.of(CD_String, JvmGen.BLOCK, CD_int));
             return;
@@ -1081,6 +1086,10 @@ final class JvmCode {
     private void storePushed(Type t) {
         if (t instanceof JavaPrimT j) {
             storePushed(j.sealType());
+            return;
+        }
+        if (isOrdinal(t)) {
+            storePushed(Type.INT);
             return;
         }
         if (kind(t) == TypeKind.REFERENCE) {
@@ -2616,6 +2625,9 @@ final class JvmCode {
             c.invokevirtual(CD_String, "length", MethodTypeDesc.of(CD_int));
             return Type.INT;
         }
+        if (isOrdinal(target) && f.name().equals("__ordinal")) {
+            return Type.INT; // the enum's value is its ordinal
+        }
         if (isArray(target) && f.name().equals("len")) {
             if (g.isAggregate(((ClassT) target).typeArgs().get(0))) {
                 c.invokestatic(JvmGen.BLOCK, "count", MethodTypeDesc.of(CD_int, JvmGen.BLOCK));
@@ -3287,7 +3299,7 @@ final class JvmCode {
     }
 
     private static boolean isReference(Type t) {
-        return t instanceof HandleT || t instanceof NullT || isValue(t);
+        return t instanceof HandleT || t instanceof NullT || (isValue(t) && kind(t) == TypeKind.REFERENCE);
     }
 
     /** a == b and a != b on handles: the same object (§31), or null. */
@@ -3419,6 +3431,9 @@ final class JvmCode {
                 MemberInfo m = tb.fieldOf.get(n);
                 if (((Field) m.member).modifiers().isStatic()) {
                     return staticPlace(m);
+                }
+                if (thisLocal != null && isOrdinal(thisLocal.type())) {
+                    return new LocalPlace(new Local(Type.INT, thisLocal.slot())); // __ordinal, which its constructor sets
                 }
                 if (thisMem != null) {
                     return new MemPlace(fieldMem(thisMem, k.owner(), m), type(n));

@@ -1547,9 +1547,20 @@ public final class JvmGen {
     private final Map<Type, Boolean> initCache = new HashMap<>();
     private final Map<Type, Boolean> destroyCache = new HashMap<>();
 
-    /** A string or an array<T>: on the JVM a String or a Java array, whose methods take it first. */
+    /**
+     * A string, an array<T> or an enum with no fields: on the JVM a String, a Java array or the
+     * enum's ordinal, an int; their methods take it first.
+     */
     static boolean isValue(Type t) {
-        return isString(t) || isArray(t);
+        return isString(t) || isArray(t) || isOrdinal(t);
+    }
+
+    /**
+     * An enum with no fields of its own (docs/JVM.md §3): its ordinal alone, which never changes
+     * once it is made (the checker sees to that), so it is held as that int.
+     */
+    static boolean isOrdinal(Type t) {
+        return t instanceof ClassT ct && ct.cls().kind == Kind.ENUM && ct.cls().storedFields(ct.header()).size() == 1;
     }
 
     static boolean isString(Type t) {
@@ -1579,6 +1590,7 @@ public final class JvmGen {
             case HandleT h -> TypeKind.REFERENCE;
             case AddrT a -> TypeKind.REFERENCE;
             case NullT n -> TypeKind.REFERENCE;
+            case ClassT ct when isOrdinal(ct) -> TypeKind.INT;
             case ClassT ct when isValue(ct) -> TypeKind.REFERENCE;
             default -> throw new Unsupported(null, "values of type " + t + " are not available on the JVM yet");
         };

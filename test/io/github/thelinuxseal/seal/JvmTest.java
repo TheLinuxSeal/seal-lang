@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Random;
 
 import io.github.thelinuxseal.seal.check.Checker;
+import io.github.thelinuxseal.seal.jvm.ClassText;
 import io.github.thelinuxseal.seal.jvm.JvmGen;
 import io.github.thelinuxseal.seal.jvm.JvmRunner;
 
@@ -698,6 +699,99 @@ public final class JvmTest {
 
     /** Structs, uniques, records, enums and fixed arrays, in storage blocks (docs/JVM.md §4, M3). */
     private static void values() {
+        // An enum with no fields is its ordinal, an int (docs/JVM.md §3), wherever it is held.
+        Map<String, String> ordinals = new LinkedHashMap<>();
+        ordinals.put("Dir.seal", """
+                enum Dir {
+                    NORTH, EAST, SOUTH, WEST;
+                    public Dir turn() { return values()[(ordinal() + 1) % 4]; }
+                    public bit vertical() { return this == NORTH || this == SOUTH; }
+                }
+                """);
+        ordinals.put("Planet.seal", """
+                enum Planet {
+                    MERCURY(3), JUPITER(18980);
+                    public int mass;
+                    new(int m) { mass = m; }
+                }
+                """);
+        ordinals.put("Cell.seal", "struct Cell { public int x; public Dir facing; public int y; }");
+        ordinals.put("Robot.seal", """
+                class Robot {
+                    public Dir facing = Dir.EAST;
+                    public Dir unset;
+                    public void turn() { facing = facing.turn(); }
+                }
+                """);
+        ordinals.put("Main.seal", """
+                import seal.util.*;
+                import seal.util.function.*;
+
+                class Main {
+                    static Dir start = Dir.SOUTH;
+
+                    static string describe(Dir d) {
+                        switch (d) {
+                            case NORTH -> { return "up"; }
+                            case SOUTH -> { return "down"; }
+                            default -> { return "side"; }
+                        }
+                    }
+
+                    static void main() {
+                        Dir d = Dir.NORTH;
+                        Dir unset;
+                        System.stdout.println(d + " " + unset + " " + d.ordinal() + " " + d.name() + " " + (d == unset) + " "
+                                + (d != Dir.EAST));
+                        System.stdout.println(d.turn() + " " + d.turn().turn().vertical() + " " + (Dir.EAST < Dir.WEST) + " "
+                                + Dir.valueOf("WEST"));
+                        Cell c;
+                        c.x = 1; c.facing = Dir.WEST; c.y = 2;
+                        Cell copy = c;
+                        copy.facing = copy.facing.turn();
+                        System.stdout.println(c.x + " " + c.facing + " " + c.y + " " + copy.facing);
+                        array<Dir><<3>> fa;
+                        fa[1] = Dir.SOUTH;
+                        array<Dir> xs = Dir.values();
+                        array<Dir> grown = new array<Dir>(2);
+                        System.stdout.println(fa[0] + " " + fa[1] + " " + xs.length() + " " + xs[3] + " " + grown[1]);
+                        List<Dir> list = new List<>();
+                        list.add(Dir.WEST);
+                        list.add(Dir.EAST);
+                        System.stdout.println(list.get(0) + " " + list.indexOf(Dir.EAST) + " " + list.contains(Dir.NORTH));
+                        Robot r = new Robot();
+                        r.turn();
+                        System.stdout.println(r.facing + " " + r.unset + " " + start);
+                        addr<Dir> p = *d;
+                        &p = Dir.WEST;
+                        System.stdout.println(d + " " + &p);
+                        Supplier<Dir> later = () -> d;
+                        d = Dir.EAST;
+                        Function<Dir, string> f = x -> describe(x);
+                        System.stdout.println(later.get() + " " + f.apply(d) + " " + describe(Dir.SOUTH));
+                        string s = switch (d) { case EAST -> "e"; case WEST -> "w"; default -> "?"; };
+                        int count = 0;
+                        for (Dir each : Dir.values()) { if (each.vertical()) { count++; } }
+                        System.stdout.println(s + " " + count + " " + Planet.JUPITER.mass + " " + Planet.MERCURY);
+                    }
+                }
+                """);
+        program("an enum with no fields, in every place a value goes", ordinals, """
+                NORTH NORTH 0 NORTH true true
+                EAST true true WEST
+                1 WEST 2 NORTH
+                NORTH SOUTH 4 WEST NORTH
+                WEST 1 false
+                SOUTH NORTH SOUTH
+                WEST WEST
+                WEST side down
+                e 2 18980 MERCURY
+                """, 0);
+        String text = ClassText.of(JvmGen.generate(Checker.analyze(ordinals, LIBRARY), "Main").classes());
+        check(text.contains("  static int NORTH\n") && text.contains("  static turn(int)int\n") && text.contains("  int facing\n")
+                        && text.contains("  static name(Block,int)String\n") && text.contains("class Planet  (Planet.seal)\n  static Block $statics"),
+                "an enum with no fields is an int; one with fields is a struct\n" + text.lines()
+                        .filter(l -> l.contains("Dir") || l.contains("Planet")).limit(40).reduce("", (a, b) -> a + b + "\n"));
         same("structs are values: copied, passed, returned, changed in place", "1 10 101 1 11 4 33 1233 1 99 7 10 11 4 6 0 0 true true \n", """
                 Vec a = new Vec(1, 2);
                 Vec b = a;

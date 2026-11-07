@@ -710,6 +710,8 @@ public final class CheckerTest {
         error("duplicate enum constant", "enum Main { A, B, A }", "duplicate enum constant A");
         error("reserved enum constant", "enum Main { A, values }", "enum constant can't be named values");
         error("enum with type parameters", "enum Main<T> { A }", "an enum has no type parameters, shapes, parents or interfaces");
+        error("an enum value's ordinal is fixed", "enum Main { A, B; public void set() { __ordinal = 1; } }",
+                "an enum value's ordinal is fixed when it is made; assign one of Main's constants instead");
         error("unknown enum constant", files("Color", "enum Color { RED }", "Main",
                 "struct Main { static void run() { Color c = Color.PINK; } }"), "PINK");
         error("mixed switch styles", "struct Main { static void run(int x) { switch (x) { case 1 -> { } case 2: break; } } }",

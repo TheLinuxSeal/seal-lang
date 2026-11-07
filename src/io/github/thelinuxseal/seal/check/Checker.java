@@ -9349,7 +9349,7 @@ public final class Checker {
      * Why assigning {@code target} would change a record's component, or null: components are
      * fixed once the record is made (§2.5), so only its constructors assign them. That includes
      * what a component holds inline, as p.from.x; a component that is a class object can still
-     * change, as in Java.
+     * change, as in Java. An enum value's ordinal is fixed the same way (§38.1).
      */
     private String recordComponent(Body b, Expr target) {
         Expr e = target;
@@ -9359,6 +9359,11 @@ public final class Checker {
             if (owner != null && owner.cls().kind == Kind.RECORD && !(b.inConstructor && b.cls == owner.cls())) {
                 return name + " is a component of record " + owner.cls().name + ", fixed when it is made; make a new "
                         + owner.cls().name + " with the value instead";
+            }
+            if (owner != null && owner.cls().kind == Kind.ENUM && "__ordinal".equals(name)
+                    && !(b.inConstructor && b.cls == owner.cls())) {
+                return "an enum value's ordinal is fixed when it is made; assign one of " + owner.cls().name
+                        + "'s constants instead";
             }
             Expr inner = switch (e) {
                 case Select s when !(b.types.get(s.target()) instanceof HandleT) -> s.target();
