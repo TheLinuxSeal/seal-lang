@@ -1,0 +1,70 @@
+import seal.io.*;
+import seal.util.*;
+import seal.util.function.*;
+import seal.util.List as Items;
+import static seal.lang.Math.max;
+
+/**
+ * Every kind of thing the editors' grammars color: open this file to check one. It is a
+ * program too, which `seal check editors/Sample.seal` checks.
+ */
+class Sample extends(Exception) implements(Runnable) {
+    const int LIMIT = 1_000;
+    private static string greeting = "hi\tthere!";
+
+    public enum Dir { NORTH, EAST, SOUTH, WEST }
+
+    public struct Cell<<int N>> {
+        public array<int><<N>> items;
+        public uint<<8>> flags;
+        public fixed<<16, 16>> weight;
+    }
+
+    public record Point(int x, int y) { }
+
+    public new() { super("a sample"); }
+
+    @overload(Operator.ADD)
+    public Sample add(Sample other) { return this; }
+
+    public static pure int twice(int n) { return n * 2; }
+
+    public static int widthOf(int<<size W>> bits) { return W; }
+
+    public void run() { }
+
+    public int count() {
+        var count = 0;                                  // var is a keyword here
+        int var = 3;                                    // and a name here
+        var names = new HashMap<string, List<int>>();
+        size width = 8;
+        double d = 2.5e3 + 0x1F + 0b1010 + 'a';
+        char nl = '\n';
+        bit ok = true && !false;
+        addr<int> p = *count;
+        &p = 7;
+        Items<int> xs = new Items<>();
+        for (var x : xs) { count += x; }
+        for (var i = 0; i < LIMIT; i++) {
+            if (i % 2 == 0) { continue; } else { break; }
+        }
+        int k = 1 <<< 3;
+        string s = switch (Dir.EAST) {
+            case NORTH -> "n";
+            default -> { yield "other"; }
+        };
+        string text = """
+                a text block, with "quotes"
+                """;
+        Function<int, int> f = x -> x ** 2;
+        Function<int, int> g = Sample::twice;
+        try (var in = new FileReader("sample.seal")) {
+            assert count >= 0 : "never negative";
+        } catch (IOException e) {
+            throw new IllegalStateException(e.getMessage());
+        } finally {
+            count += sizeof(int);
+        }
+        return xs.size() + max(1, 2) + super.getMessage().length() + (this instanceof Runnable ? 1 : 0) + (int) width + var;
+    }
+}

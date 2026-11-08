@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE language>
+<!--
+  Seal (https://github.com/TheLinuxSeal/seal-lang) for KDE's syntax highlighting: Kate, KWrite,
+  KDevelop. Copy it into ~/.local/share/org.kde.syntax-highlighting/syntax/ (editors/README.md).
+-->
+<language name="Seal" version="1" kateversion="5.0" section="Sources" extensions="*.seal"
+          mimetype="text/x-seal" indenter="cstyle" license="GPL-3.0-only" author="Seal's authors">
+  <highlighting>
+    <list name="control">
+      <item>if</item>
+      <item>else</item>
+      <item>while</item>
+      <item>for</item>
+      <item>break</item>
+      <item>continue</item>
+      <item>return</item>
+      <item>switch</item>
+      <item>case</item>
+      <item>default</item>
+      <item>try</item>
+      <item>catch</item>
+      <item>finally</item>
+      <item>throw</item>
+      <item>assert</item>
+    </list>
+    <list name="keywords">
+      <item>class</item>
+      <item>struct</item>
+      <item>unique</item>
+      <item>interface</item>
+      <item>enum</item>
+      <item>package</item>
+      <item>import</item>
+      <item>new</item>
+      <item>delete</item>
+      <item>instanceof</item>
+      <item>sizeof</item>
+      <item>alignof</item>
+      <item>extends</item>
+      <item>implements</item>
+      <item>public</item>
+      <item>private</item>
+      <item>static</item>
+      <item>const</item>
+      <item>pure</item>
+      <item>abstract</item>
+    </list>
+    <list name="types">
+      <item>int</item>
+      <item>uint</item>
+      <item>bit</item>
+      <item>char</item>
+      <item>float</item>
+      <item>double</item>
+      <item>void</item>
+      <item>fixed</item>
+      <item>ufixed</item>
+      <item>addr</item>
+      <item>handle</item>
+      <item>string</item>
+      <item>array</item>
+    </list>
+    <list name="constants">
+      <item>true</item>
+      <item>false</item>
+      <item>null</item>
+    </list>
+    <list name="self">
+      <item>this</item>
+      <item>super</item>
+    </list>
+
+    <contexts>
+      <context name="Normal" attribute="Normal Text" lineEndContext="#stay">
+        <DetectSpaces/>
+        <RegExpr String="/\*\*(?!/)" attribute="Documentation" context="Documentation" beginRegion="Comment"/>
+        <Detect2Chars char="/" char1="*" attribute="Comment" context="Block Comment" beginRegion="Comment"/>
+        <Detect2Chars char="/" char1="/" attribute="Comment" context="Line Comment"/>
+        <StringDetect String="&quot;&quot;&quot;" attribute="String" context="Text Block"/>
+        <DetectChar char="&quot;" attribute="String" context="String"/>
+        <RegExpr String="'(\\([ntr0s\\&quot;']|u[0-9A-Fa-f]{4})|[^'\\])'" attribute="Char"/>
+        <RegExpr String="@[A-Za-z_][A-Za-z0-9_]*" attribute="Annotation"/>
+
+        <!-- Words Seal knows by where they are: var x = ...; a variable may still be named var. -->
+        <RegExpr String="\bvar\b(?=\s+[A-Za-z_])" attribute="Keyword"/>
+        <RegExpr String="\byield\b(?=\s+[^\s=;.(])" attribute="Control Flow"/>
+        <RegExpr String="\brecord\b(?=\s+[A-Za-z_][A-Za-z0-9_]*\s*[(&lt;])" attribute="Keyword"/>
+        <RegExpr String="\bas\b(?=\s+[A-Za-z_][A-Za-z0-9_]*\s*;)" attribute="Keyword"/>
+        <RegExpr String="(?&lt;!\.)\bsize\b(?!\s*\()" attribute="Data Type"/>
+
+        <keyword attribute="Control Flow" String="control"/>
+        <keyword attribute="Keyword" String="keywords"/>
+        <keyword attribute="Data Type" String="types"/>
+        <keyword attribute="Constant" String="constants"/>
+        <keyword attribute="Keyword" String="self"/>
+
+        <RegExpr String="\b0[xX][0-9A-Fa-f](_?[0-9A-Fa-f])*\b" attribute="Hex"/>
+        <RegExpr String="\b0[bB][01](_?[01])*\b" attribute="Hex"/>
+        <RegExpr String="\b[0-9](_?[0-9])*(\.[0-9](_?[0-9])*)?[eE][+-]?[0-9](_?[0-9])*\b|\b[0-9](_?[0-9])*\.[0-9](_?[0-9])*\b" attribute="Float"/>
+        <RegExpr String="\b[0-9](_?[0-9])*\b" attribute="Decimal"/>
+
+        <StringDetect String="&lt;&lt;&lt;" attribute="Operator"/>
+        <Detect2Chars char="&lt;" char1="&lt;" attribute="Shape"/>
+        <Detect2Chars char="&gt;" char1="&gt;" attribute="Shape"/>
+
+        <RegExpr String="\b[A-Z][A-Z0-9_]*[A-Z0-9]\b(?!\s*\()" attribute="Constant"/>
+        <RegExpr String="\b[A-Z][A-Za-z0-9_]*\b" attribute="Class"/>
+        <RegExpr String="\b[a-z_][A-Za-z0-9_]*(?=\s*(&lt;&lt;[^;{}]*&gt;&gt;)?\s*\()" attribute="Function"/>
+
+        <DetectChar char="{" attribute="Symbol" beginRegion="Brace"/>
+        <DetectChar char="}" attribute="Symbol" endRegion="Brace"/>
+        <AnyChar String="+-*/%=&lt;&gt;!&amp;|^~?:" attribute="Operator"/>
+        <AnyChar String="()[];,." attribute="Symbol"/>
+      </context>
+
+      <context name="String" attribute="String" lineEndContext="#pop">
+        <RegExpr String="\\([ntr0s\\&quot;']|u[0-9A-Fa-f]{4})" attribute="Escape"/>
+        <RegExpr String="\\." attribute="Error"/>
+        <DetectChar char="&quot;" attribute="String" context="#pop"/>
+      </context>
+
+      <context name="Text Block" attribute="String" lineEndContext="#stay">
+        <RegExpr String="\\([ntr0s\\&quot;']|u[0-9A-Fa-f]{4})" attribute="Escape"/>
+        <RegExpr String="\\." attribute="Error"/>
+        <StringDetect String="&quot;&quot;&quot;" attribute="String" context="#pop"/>
+      </context>
+
+      <context name="Line Comment" attribute="Comment" lineEndContext="#pop">
+        <DetectSpaces/>
+        <IncludeRules context="##Comments"/>
+      </context>
+
+      <context name="Block Comment" attribute="Comment" lineEndContext="#stay">
+        <DetectSpaces/>
+        <Detect2Chars char="*" char1="/" attribute="Comment" context="#pop" endRegion="Comment"/>
+        <IncludeRules context="##Comments"/>
+      </context>
+
+      <context name="Documentation" attribute="Documentation" lineEndContext="#stay">
+        <DetectSpaces/>
+        <Detect2Chars char="*" char1="/" attribute="Documentation" context="#pop" endRegion="Comment"/>
+        <IncludeRules context="##Comments"/>
+      </context>
+    </contexts>
+
+    <itemDatas>
+      <itemData name="Normal Text" defStyleNum="dsNormal"/>
+      <itemData name="Keyword" defStyleNum="dsKeyword"/>
+      <itemData name="Control Flow" defStyleNum="dsControlFlow"/>
+      <itemData name="Data Type" defStyleNum="dsDataType"/>
+      <itemData name="Class" defStyleNum="dsDataType"/>
+      <itemData name="Constant" defStyleNum="dsConstant"/>
+      <itemData name="Function" defStyleNum="dsFunction"/>
+      <itemData name="Decimal" defStyleNum="dsDecVal"/>
+      <itemData name="Hex" defStyleNum="dsBaseN"/>
+      <itemData name="Float" defStyleNum="dsFloat"/>
+      <itemData name="Char" defStyleNum="dsChar"/>
+      <itemData name="String" defStyleNum="dsString"/>
+      <itemData name="Escape" defStyleNum="dsSpecialChar"/>
+      <itemData name="Annotation" defStyleNum="dsAttribute"/>
+      <itemData name="Comment" defStyleNum="dsComment"/>
+      <itemData name="Documentation" defStyleNum="dsDocumentation"/>
+      <itemData name="Operator" defStyleNum="dsOperator"/>
+      <itemData name="Shape" defStyleNum="dsOperator"/>
+      <itemData name="Symbol" defStyleNum="dsNormal"/>
+      <itemData name="Error" defStyleNum="dsError"/>
+    </itemDatas>
+  </highlighting>
+
+  <general>
+    <comments>
+      <comment name="singleLine" start="//"/>
+      <comment name="multiLine" start="/*" end="*/" region="Comment"/>
+    </comments>
+    <keywords casesensitive="1"/>
+  </general>
+</language>

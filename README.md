@@ -194,6 +194,11 @@ Greeter g = (Greeter) script.create("Greeter")[0];
 
 A script can't use `seal.embed` itself unless its host allows it (docs/EMBED.md §12).
 
+## Editors
+
+[`editors/`](editors) has syntax highlighting for VSCodium (and VS Code), IntelliJ IDEA and Kate,
+and how to install it ([`editors/README.md`](editors/README.md)).
+
 ## Examples
 
 [`examples/`](examples) has 21 programs, each with the output it should give, from the basics to
@@ -240,6 +245,7 @@ And at the top of the repository:
 | `jar.sh` | builds `seal.jar`: the compiler and its standard library in one jar |
 | `stdlib/` | the standard library, in Seal: `seal/lang/`, `seal/util/`, `seal/io/`, and the built-in `string` and `array` |
 | `examples/` | example programs and their output |
+| `editors/` | syntax highlighting for VSCodium, IntelliJ IDEA and Kate (`editors/README.md`) |
 | `test/` | the test suites, run by `./test.sh` |
 | `SPEC.md` | the language specification |
 

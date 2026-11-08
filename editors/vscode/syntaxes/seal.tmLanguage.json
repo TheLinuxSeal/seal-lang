@@ -1,0 +1,204 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Seal",
+  "scopeName": "source.seal",
+  "fileTypes": ["seal"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#package-import" },
+    { "include": "#annotations" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#operators" },
+    { "include": "#names" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.documentation.seal",
+          "begin": "/\\*\\*(?!/)",
+          "end": "\\*/"
+        },
+        {
+          "name": "comment.block.seal",
+          "begin": "/\\*",
+          "end": "\\*/"
+        },
+        {
+          "name": "comment.line.double-slash.seal",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "package-import": {
+      "patterns": [
+        {
+          "begin": "\\b(package)\\b",
+          "beginCaptures": { "1": { "name": "keyword.other.package.seal" } },
+          "end": ";",
+          "endCaptures": { "0": { "name": "punctuation.terminator.seal" } },
+          "patterns": [{ "include": "#comments" }]
+        },
+        {
+          "begin": "\\b(import)\\b",
+          "beginCaptures": { "1": { "name": "keyword.other.import.seal" } },
+          "end": ";",
+          "endCaptures": { "0": { "name": "punctuation.terminator.seal" } },
+          "patterns": [
+            { "include": "#comments" },
+            { "match": "\\bstatic\\b", "name": "storage.modifier.seal" },
+            { "match": "\\bas\\b", "name": "keyword.other.as.seal" },
+            { "match": "\\*", "name": "keyword.operator.wildcard.seal" }
+          ]
+        }
+      ]
+    },
+    "annotations": {
+      "match": "(@)([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "0": { "name": "storage.type.annotation.seal" },
+        "1": { "name": "punctuation.definition.annotation.seal" }
+      }
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.triple.seal",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "patterns": [{ "include": "#escapes" }]
+        },
+        {
+          "name": "string.quoted.double.seal",
+          "begin": "\"",
+          "end": "\"|$",
+          "patterns": [{ "include": "#escapes" }]
+        },
+        {
+          "name": "string.quoted.single.seal",
+          "match": "'(?:\\\\(?:[ntr0s\\\\\"']|u[0-9A-Fa-f]{4})|[^'\\\\])'",
+          "captures": { "0": { "patterns": [{ "include": "#escapes" }] } }
+        }
+      ]
+    },
+    "escapes": {
+      "patterns": [
+        { "name": "constant.character.escape.seal", "match": "\\\\(?:[ntr0s\\\\\"']|u[0-9A-Fa-f]{4})" },
+        { "name": "invalid.illegal.escape.seal", "match": "\\\\." }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.hex.seal", "match": "\\b0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*\\b" },
+        { "name": "constant.numeric.binary.seal", "match": "\\b0[bB][01](?:_?[01])*\\b" },
+        {
+          "name": "constant.numeric.float.seal",
+          "match": "\\b[0-9](?:_?[0-9])*(?:\\.[0-9](?:_?[0-9])*)?[eE][+-]?[0-9](?:_?[0-9])*\\b|\\b[0-9](?:_?[0-9])*\\.[0-9](?:_?[0-9])*\\b"
+        },
+        { "name": "constant.numeric.decimal.seal", "match": "\\b[0-9](?:_?[0-9])*\\b" }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(class|struct|unique|interface|enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.$1.seal" },
+            "2": { "name": "entity.name.type.seal" }
+          }
+        },
+        {
+          "comment": "record is a word Seal knows only where it declares a record: record Point(int x, int y)",
+          "match": "\\b(record)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*[(<])",
+          "captures": {
+            "1": { "name": "storage.type.record.seal" },
+            "2": { "name": "entity.name.type.seal" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.seal",
+          "match": "\\b(if|else|while|for|break|continue|return|switch|case|default|try|catch|finally|throw|assert)\\b"
+        },
+        {
+          "comment": "yield gives a switch expression's value; elsewhere it is a name",
+          "name": "keyword.control.seal",
+          "match": "\\byield\\b(?=\\s+[^\\s=;.(])"
+        },
+        {
+          "comment": "var declares a local whose type is its initializer's: var x = ...; a variable may still be named var",
+          "name": "storage.type.var.seal",
+          "match": "\\bvar\\b(?=\\s+[A-Za-z_])"
+        },
+        { "name": "keyword.operator.new.seal", "match": "\\b(new|delete)\\b" },
+        { "name": "keyword.operator.word.seal", "match": "\\b(instanceof|sizeof|alignof)\\b" },
+        { "name": "storage.modifier.seal", "match": "\\b(public|private|static|const|pure|abstract|extends|implements)\\b" },
+        { "name": "constant.language.seal", "match": "\\b(true|false|null)\\b" },
+        { "name": "variable.language.seal", "match": "\\b(this|super)\\b" }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.seal",
+          "match": "\\b(int|uint|bit|char|float|double|void|fixed|ufixed|addr|handle)\\b"
+        },
+        {
+          "comment": "size is a primitive where it is a type: int<<size W>>, size n = 8; s.size() is a method",
+          "name": "storage.type.primitive.seal",
+          "match": "(?<!\\.)\\bsize\\b(?!\\s*\\()"
+        },
+        {
+          "name": "storage.type.builtin.seal",
+          "match": "(?<!\\.)\\b(string|array)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.shift.seal", "match": "<<<=?" },
+        {
+          "comment": "a shape's or a compile-time value list's brackets: Array<int><<64>>",
+          "name": "punctuation.definition.shape.seal",
+          "match": "<<|>>"
+        },
+        { "name": "keyword.operator.arrow.seal", "match": "->" },
+        { "name": "keyword.operator.method-reference.seal", "match": "::" },
+        { "name": "keyword.operator.range.seal", "match": "\\.\\." },
+        { "name": "keyword.operator.comparison.seal", "match": "==|!=|<=|>=|<|>" },
+        { "name": "keyword.operator.logical.seal", "match": "&&|\\|\\||!" },
+        { "name": "keyword.operator.increment-decrement.seal", "match": "\\+\\+|--" },
+        { "name": "keyword.operator.assignment.seal", "match": "(?:\\*\\*|[-+*/%^&|])?=" },
+        { "name": "keyword.operator.arithmetic.seal", "match": "\\*\\*|[-+*/%]" },
+        { "name": "keyword.operator.bitwise.seal", "match": "[&|^~]" },
+        { "name": "keyword.operator.ternary.seal", "match": "[?:]" },
+        { "name": "punctuation.terminator.seal", "match": ";" },
+        { "name": "punctuation.separator.seal", "match": "[,.]" }
+      ]
+    },
+    "names": {
+      "patterns": [
+        {
+          "comment": "ALL_CAPS: enum constants and const fields",
+          "name": "variable.other.constant.seal",
+          "match": "\\b[A-Z][A-Z0-9_]*[A-Z0-9]\\b(?!\\s*\\()"
+        },
+        {
+          "name": "entity.name.type.seal",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        },
+        {
+          "name": "entity.name.function.seal",
+          "match": "\\b[a-z_][A-Za-z0-9_]*(?=\\s*(?:<<[^;{}]*>>)?\\s*\\()"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "seal",
+  "displayName": "Seal",
+  "description": "Syntax highlighting for the Seal programming language",
+  "version": "0.1.0",
+  "publisher": "thelinuxseal",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TheLinuxSeal/seal-lang"
+  },
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "seal",
+        "aliases": ["Seal", "seal"],
+        "extensions": [".seal"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "seal",
+        "scopeName": "source.seal",
+        "path": "./syntaxes/seal.tmLanguage.json"
+      }
+    ]
+  }
+}

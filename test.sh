@@ -23,6 +23,7 @@ suites=(
     io.github.thelinuxseal.seal.JvmTest
     io.github.thelinuxseal.seal.JavaInteropTest
     io.github.thelinuxseal.seal.EmbedTest
+    io.github.thelinuxseal.seal.EditorsTest
 )
 
 failed=0
