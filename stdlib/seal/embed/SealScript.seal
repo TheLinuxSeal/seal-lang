@@ -1,0 +1,42 @@
+package seal.embed;
+
+import seal.java.*;
+
+// A compiled script (docs/EMBED.md §12): its errors, and when it has none, its classes, in the
+// program's JVM. Each script is a program of its own: its static fields, open files and standard
+// streams are its own. On the JVM it is the compiler's io.github.thelinuxseal.seal.embed.SealScript.
+class SealScript {
+    /** Whether it compiled: it has no errors, and can run. */
+    public bit ok();
+
+    /** Its errors, as `seal check` prints them: Main.seal:3:9: unknown method printn. */
+    @jvm("errorTexts") public array<string> errors();
+
+    /** The warnings the engine asked for. */
+    @jvm("warningTexts") public array<string> warnings();
+
+    /** Runs Main's static main(), and gives its exit code: main's result, 0 for a void main, or System.exit's. */
+    public int run();
+
+    /** Runs the static main() of the class named. */
+    public int run(string mainClass);
+
+    /**
+     * Makes each of the script's classes that is the entry type named (SealEngine.Builder.entry),
+     * with its constructor without parameters, for the program to cast to its interface:
+     * Greeter g = (Greeter) script.create("Greeter")[0].
+     */
+    public array<JavaObject> create(string type);
+
+    /** Lets it take this many more steps, rounds of loops and calls; then it stops, wherever it is. */
+    public void limitSteps(int<<64>> steps);
+
+    /** Lets it run this many milliseconds more; then it stops, wherever it is. */
+    public void limitTime(int<<64>> millis);
+
+    /** Stops it at its next step: from another thread, or a call the script made into the program. */
+    public void stop();
+
+    /** Closes the files it left open and flushes its output: once the program is done with it. */
+    public void close();
+}

@@ -41,7 +41,9 @@ final class JavaAllowlist implements Predicate<String> {
         boolean everything = all;
         Set<String> cs = new HashSet<>(classes);
         Set<String> ps = new HashSet<>(packages);
-        for (String p : patterns) {
+        for (String written : patterns) {
+            // Seal's seal.embed.* names its JVM package, as Seal's packages are named on the JVM.
+            String p = written.startsWith("seal.") ? "io.github.thelinuxseal." + written : written;
             if (p.equals("*")) {
                 everything = true;
             } else if (p.endsWith(".*")) {

@@ -382,6 +382,12 @@ stop from another thread, which stays; a script that catches `RuntimeException` 
 stopped all the same; a snippet; the host's own call into an entry class; an engine that doesn't
 count; a script stopped while it sleeps in Java's `Thread.sleep`, which prints nothing after.
 
+Seal hosts (§12): `CliTest` runs a Seal program, with `seal run` and as the classes `seal build`
+writes, that compiles and runs a script, prints another's errors, makes a third's class that
+implements the program's own `Greeter` and calls it, stops a fourth after 1000 steps and catches
+its `SealException`, and is refused, then allowed, a script that hosts its own. `EmbedTest` has a
+Java host's script refused `seal.embed`, then allowed it.
+
 The macro mod's `build.sh` checks, without the game, that the mod's API and its macros compile
 against Minecraft 26.3's classes, and that a macro can't import Java's or Minecraft's classes
 itself (`test/CheckMacros.java`); and runs `MacroRun` through its turns with a test API of its own
@@ -398,6 +404,7 @@ starts never starting, a fault with its line, and a file with no macro in it.
 | **E3**, **done** | Entry classes: `Builder.entry(Hook.class)`, checked while compiling (a script's classes implementing `Hook` can be made, with `new()`); `script.create(Hook.class)`, each of them made, as `Hook`s; snippets, statements compiled with Java's values bound by name and a prelude of the host's (`seal.snippet(code).bind("ctx", Context.class, ctx).prelude(...)`), run by `run()` | `EmbedTest` |
 | **E4**, **done** | The Java allowlist (§5): scripts use no Java class but those the engine allows, checked wherever a Java type is used, not only in imports; the host's library may use what its scripts can't | a script can't reach `java.io.File` or the game's classes, unless allowed, while the API it uses does (`EmbedTest`) |
 | **E5**, **done** | Limits (§6): steps counted, rounds of loops and calls; `limitSteps`, `limitTime`, `stop()` from any thread; `Stopped`, which `SealException.stopped()` tells; `countSteps(false)` | a `while (true)` is stopped, and the host goes on (`EmbedTest`) |
+| **Seal hosts**, **done** | `seal.embed` (§12): the Java API's classes with Seal's types, bound method by method; Seal-friendly overloads; the builder's loader the caller's, and its output the program's; in-memory classes given as files (`MemoryClassLoader`); scripts denied it unless allowed | a Seal program, under `seal run` and as built classes, compiles, runs, makes and stops scripts that implement its own interface (`CliTest`); a script hosts its own only when allowed (`EmbedTest`) |
 | **Macro mod**, **built** | `examples/24-macro-mod`: macros in `config/macros/`, each compiled as it is when it is run, off the game's thread; a Seal API over Minecraft's own classes; `waitTicks` on a virtual thread that takes turns with the game's (`MacroRun`); a macro that runs 100 ms without waiting stopped; `/macro run`, `stop`, `check`, `list`; errors and output in the chat | its `build.sh` compiles the mod and the API against Minecraft 26.3's client, checks the macros, and tests `MacroRun`'s turns without the game; running a macro in the game is the player's to try (README there) |
 
 ## 11. Questions
@@ -408,3 +415,58 @@ starts never starting, a fault with its line, and a file with no macro in it.
    library's (it is an error); a script's class can't have the name of one of the library's
    classes either, as two of a program's can't. Whether a script may replace an API class, as a
    mod's player might want to, is left until a host asks.
+
+## 12. Seal programs as hosts: seal.embed
+
+A Seal program hosts scripts as a Java program does, with `seal.embed`:
+
+```java
+import seal.embed.*;
+
+class Main {
+    static void main() {
+        SealEngine engine = SealEngine.builder().entry("Greeter").build();
+        SealScript script = engine.compileFiles(["plugins"]);
+        for (string e : script.errors()) {
+            System.stdout.println(e);              // Hi.seal:3:9: unknown method printn
+        }
+        if (script.ok()) {
+            Greeter g = (Greeter) script.create("Greeter")[0];
+            System.stdout.println(g.greet("Seal"));
+        }
+    }
+}
+```
+
+* **The same classes.** Seal's package `seal.x` is `io.github.thelinuxseal.seal.x` on the JVM, so
+  `seal.embed.SealEngine` is `io.github.thelinuxseal.seal.embed.SealEngine`: the Java API's own
+  class, not a copy of it. `stdlib/seal/embed/` declares `SealEngine`, `SealEngine.Builder`,
+  `SealScript` and `SealException` with Seal's types, and the checker binds each method to the
+  Java class's method of its name (or the one its `@jvm` names: `errors()` is `errorTexts()`)
+  whose descriptor those types give. Seal's `string` is Java's `String`, `bit` `boolean`, `int`
+  `int`, `int<<64>>` `long`, `array<string>` `String[]`, so a call is Java's, and nothing is
+  converted. A declaration that no Java method matches is an error, so the two can't drift apart.
+  In Seal the class is seal.embed's by either name: importing
+  `io.github.thelinuxseal.seal.embed.SealEngine` gives the same Seal-typed class.
+* **Overloads for Seal.** Where the Java API takes a type Seal hasn't got, it has a method that
+  takes Seal's: `compileFiles(String...)` for `compile(Path...)`, where a file that can't be read
+  is an error of the script's; `limitTime(long millis)` for a `Duration`; `entry(String)` and
+  `create(String)` for a `Class`, giving the objects for the program to cast to its interface;
+  `errorTexts()` for `List<Diagnostic>`; `library`, `classPath` and `allowJava` of one string.
+* **What a Seal host gets.** Its scripts' classes are loaded under the class loader of the code
+  that called `SealEngine.builder()`: the program's own, under `seal run` too, where its classes
+  are in memory and a script's compile reads them from there (`MemoryClassLoader`), so its
+  scripts implement its interfaces. They print where the program prints: the runtime's standard
+  output when the builder is made, a Java program's `System.out`, a Seal program's own, which
+  `seal run` and the tests capture. They read nothing, and use no file and no Java class.
+* **The compiler is the program's.** `seal run` has it, and the checker finds seal.embed's
+  classes in the compiler itself, whatever the class path; a program `seal build` wrote runs with
+  the compiler on its class path: `java -cp classes:seal.jar Main`.
+* **Only hosts.** A script uses `seal.embed` only if its host lets it: its classes are Java's,
+  which scripts use only when allowed (§5), so a macro can't make an engine with fewer limits than
+  its own. `allowJava("seal.embed.*")`, in Seal's name for the package, lets a script host
+  scripts of its own, each a program of its own again (§7).
+* **Faults.** `run` and `create` throw a `SealException`, which Seal catches: `stopped()`, and
+  `getMessage()` with the script's lines alone. Its frames stop where the host called into the
+  script, so a Seal host's own lines aren't among them.
+

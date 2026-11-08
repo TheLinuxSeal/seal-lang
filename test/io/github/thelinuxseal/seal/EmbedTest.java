@@ -703,6 +703,24 @@ public final class EmbedTest {
                         + " a package's classes (java.util.*), or every class (*)",
                 () -> SealEngine.builder().allowJava("java.**").build()), "allowJava: a pattern it doesn't take");
 
+        // seal.embed is for a program hosting scripts: a script hosts its own only if its host allows it (§12).
+        String hosting = """
+                import seal.embed.*;
+
+                class Main {
+                    static int main() {
+                        SealScript inner = SealEngine.builder().build().compile("Main.seal", "class Main { static int main() { return 5; } }");
+                        return inner.run() + 1;
+                    }
+                }
+                """;
+        expectDenied(seal, hosting, "Main.seal:5:9: seal.embed is for a program that hosts scripts: a script may host its own"
+                        + " only if its host lets it, with allowJava(\"seal.embed.*\")",
+                "Main.seal:5:28: seal.embed is for a program that hosts scripts: a script may host its own only if its host lets"
+                        + " it, with allowJava(\"seal.embed.*\")");
+        SealScript nesting = SealEngine.builder().allowJava("seal.embed.*").build().compile("Main.seal", hosting);
+        check(nesting.ok() && nesting.run() == 6, "allowJava(\"seal.embed.*\"): a script hosts a script of its own " + nesting.errors());
+
         // A snippet may use what the host binds, and no other.
         Object ctx = context.getConstructor(int.class).newInstance(1);
         SealSnippet says = seal.snippet("ctx.say(JavaString.of(\"x\"));").bind("ctx", context, ctx).compile();

@@ -171,8 +171,14 @@ public final class JvmRunner {
         return null;
     }
 
+    /** The package of the embedding API (docs/EMBED.md), through which a host calls its scripts. */
+    private static final String EMBED = "io.github.thelinuxseal.seal.embed.";
+
     private static String frames(Throwable t, StringBuilder sb) {
         for (StackTraceElement e : t.getStackTrace()) {
+            if (e.getClassName().startsWith(EMBED)) {
+                break; // where a host called into its script: the frames after are the host's own, a Seal host's too
+            }
             // Seal's own methods only: not the generated entry points ($run, $init), which have no Seal line.
             if (e.getFileName() != null && e.getFileName().endsWith(".seal") && e.getLineNumber() > 0) {
                 String cls = JvmGen.sealName(e.getClassName());

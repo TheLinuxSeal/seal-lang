@@ -1,0 +1,57 @@
+package seal.embed;
+
+// Seal inside a Seal program (docs/EMBED.md §12): an engine compiles Seal scripts while the
+// program runs, into classes of the program's own JVM, which it then runs or uses.
+//
+//   SealEngine engine = SealEngine.builder().build();
+//   SealScript script = engine.compile("Main.seal", code);
+//   for (string e : script.errors()) { System.stdout.println(e); }   // Main.seal:3:9: unknown method printn
+//   if (script.ok()) { int code = script.run(); }
+//
+// On the JVM it is the compiler's own io.github.thelinuxseal.seal.embed.SealEngine, which Java
+// programs host scripts with too, here with Seal's types. A script may use seal.embed only if its
+// host lets it, with allowJava("seal.embed.*").
+class SealEngine {
+    /**
+     * A builder of an engine, whose scripts see the program's own classes (an interface of its
+     * that they implement), print where the program prints, and use no Java class and no file
+     * unless the builder allows them.
+     */
+    public static Builder builder();
+
+    /** Compiles one file's code, as one script: file names it in errors and in the lines a fault reports. */
+    public SealScript compile(string file, string code);
+
+    /**
+     * Compiles the .seal files named, and those in the folders named, as one script. A file that
+     * can't be read is an error of the script's.
+     */
+    public SealScript compileFiles(array<string> paths);
+
+    /** What an engine is made with. */
+    public static class Builder {
+        /** The program's own Seal code, a .seal file or a folder of them, which every script is compiled with and may use. */
+        public Builder library(string path);
+
+        /** Java classes scripts may use: a class (java.util.ArrayList), a package's (java.util.*), or every one (*). */
+        public Builder allowJava(string name);
+
+        /**
+         * An interface (or class) of the program's that scripts' classes implement, for the
+         * program to make with SealScript.create: Greeter, com.example.Plugin.
+         */
+        public Builder entry(string name);
+
+        /** Whether scripts may use files and folders; without it, every file operation fails. */
+        public Builder files(bit allowed);
+
+        /** Whether scripts count their steps, so that they can be limited and stopped: by default, they do. */
+        public Builder countSteps(bit count);
+
+        /** A jar or class folder of Java classes scripts may import. */
+        public Builder classPath(string path);
+
+        /** The engine: it reads the standard library, and compiles the program's library, whose errors it throws. */
+        public SealEngine build();
+    }
+}

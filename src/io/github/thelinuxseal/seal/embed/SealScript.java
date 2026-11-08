@@ -40,8 +40,10 @@ public final class SealScript implements AutoCloseable {
     private final boolean countsSteps;
     /** For each of the engine's entry types, the binary names of the script's classes that are one, in order. */
     private final Map<Class<?>, List<String>> entries = new LinkedHashMap<>();
+    private final SealEngine engine;
 
     SealScript(SealEngine engine, List<Diagnostic> errors, List<Diagnostic> warnings, Map<String, byte[]> classes) {
+        this.engine = engine;
         this.errors = List.copyOf(errors);
         this.warnings = List.copyOf(warnings);
         this.countsSteps = engine.countSteps;
@@ -75,6 +77,16 @@ public final class SealScript implements AutoCloseable {
     /** The warnings the engine asked for (its {@code warn}). */
     public List<Diagnostic> warnings() {
         return warnings;
+    }
+
+    /** Its errors as text, `seal check`'s lines: for Seal's seal.embed. */
+    public String[] errorTexts() {
+        return errors.stream().map(Diagnostic::toString).toArray(String[]::new);
+    }
+
+    /** Its warnings as text, for Seal's seal.embed. */
+    public String[] warningTexts() {
+        return warnings.stream().map(Diagnostic::toString).toArray(String[]::new);
     }
 
     /**
@@ -119,6 +131,20 @@ public final class SealScript implements AutoCloseable {
             }
         }
         return made;
+    }
+
+    /**
+     * As above, the entry type of this binary name, for Seal's seal.embed: the objects, for the
+     * program to cast to its interface.
+     */
+    public Object[] create(String type) {
+        requireOk();
+        Class<?> t = engine.entryNamed(type);
+        if (t == null) {
+            throw new IllegalArgumentException(type + " isn't one of the engine's entry types; name it with entry(\"" + type
+                    + "\")");
+        }
+        return create(t).toArray();
     }
 
     /**
@@ -235,6 +261,11 @@ public final class SealScript implements AutoCloseable {
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("the runtime's Natives.limitSteps failed", e);
         }
+    }
+
+    /** As above, a time in milliseconds, for Seal's seal.embed. */
+    public void limitTime(long millis) {
+        limitTime(Duration.ofMillis(millis));
     }
 
     /** As above, a time: the script stops at its first step past {@code time} from now. */

@@ -2331,7 +2331,8 @@ The standard library is a directory of ordinary source files (`stdlib/`), compil
 * `seal.lang` (`stdlib/seal/lang/`): what every program uses, which every file sees without an import, as Java's `java.lang`;
 * `seal.util`: collections and other utilities, as `java.util`; `seal.util.function`: the functional interfaces lambdas implement, as `java.util.function`;
 * `seal.io`: files, folders and streams, as `java.io` and `java.nio.file`;
-* `seal.java`: Java's types as Seal names them, for using Java's own classes (§42.7).
+* `seal.java`: Java's types as Seal names them, for using Java's own classes (§42.7);
+* `seal.embed`: the engine a program compiles and runs Seal scripts with, `SealEngine` and `SealScript` (docs/EMBED.md §12). A script may use it only if its host allows it.
 
 A file imports the types it uses outside `seal.lang`: `import seal.util.List;`, or `import seal.io.*;`. `string` and `array` are built in: they are in no package, and every file sees them. A program's type in no package can't take the name of a `seal.lang` type or a built-in one, and a program can't declare a type in package `seal` or one in it (§2.4).
 

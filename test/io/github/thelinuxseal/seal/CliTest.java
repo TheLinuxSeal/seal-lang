@@ -583,41 +583,65 @@ public final class CliTest {
     }
 
     /**
-     * A Seal program that hosts scripts, through the Java API: under `seal run`, its classes are in
-     * memory, and the script's compile reads them from there, so a script implements its interface.
+     * A Seal program that hosts scripts, with seal.embed (docs/EMBED.md §12), the compiler's own
+     * classes with Seal's types: under `seal run`, with no class path, its classes are in memory,
+     * and a script's compile reads them from there, so a script implements its interface.
      */
     private static void sealHost(Path dir) throws IOException {
         write(dir, "host/Greeter.seal", "interface Greeter { string greet(string name); }\n");
         String host = write(dir, "host/Main.seal", """
-                import io.github.thelinuxseal.seal.embed.SealEngine;
-                import io.github.thelinuxseal.seal.embed.SealScript;
-                import java.lang.Class;
-                import java.util.List;
-                import seal.java.*;
+                import seal.embed.*;
 
                 class Main {
                     static void main() {
-                        Class<JavaObject> greeter = (Class<JavaObject>) Class.forName(JavaString.of("Greeter"));
-                        SealEngine engine = SealEngine.builder().parent(greeter.getClassLoader()).entry(greeter).build();
-                        string code = \"""
+                        SealEngine engine = SealEngine.builder().entry("Greeter").build();
+                        SealScript hello = engine.compile("Main.seal", "class Main { static int main() { System.stdout.println(\\"hello\\"); return 7; } }");
+                        System.stdout.println(hello.ok() + " " + hello.run());
+                        for (string e : engine.compile("Main.seal", "class Main { static void main() { printn(1); } }").errors()) {
+                            System.stdout.println(e);
+                        }
+                        SealScript hi = engine.compile("Hi.seal", \"""
                                 import seal.java.*;
 
                                 class Hi implements(Greeter) {
                                     public JavaString greet(JavaString name) { return JavaString.of("hi " + (string) name); }
                                 }
-                                \""";
-                        SealScript script = engine.compile(JavaString.of("Hi.seal"), JavaString.of(code));
-                        if (!(bit) script.ok()) {
-                            System.stdout.println((string) script.errors().toString());
-                            return;
+                                \""");
+                        System.stdout.println(((Greeter) hi.create("Greeter")[0]).greet("Seal"));
+                        SealScript forever = engine.compile("Main.seal", "class Main { static void main() { while (true) { } } }");
+                        forever.limitSteps(1000);
+                        try {
+                            forever.run();
+                        } catch (SealException e) {
+                            System.stdout.println(e.stopped() + " " + e.getMessage());
                         }
-                        List<JavaObject> made = script.create(greeter);
-                        System.stdout.println(((Greeter) made.get(JavaInt.of(0))).greet("Seal"));
+                        string nested = "import seal.embed.*; class Main { static int main() { return SealEngine.builder().build()"
+                                + ".compile(\\"Main.seal\\", \\"class Main { static int main() { return 5; } }\\").run() + 1; } }";
+                        System.stdout.println(SealEngine.builder().build().compile("Main.seal", nested).errors()[0]);
+                        System.stdout.println(SealEngine.builder().allowJava("seal.embed.*").build().compile("Main.seal", nested).run());
                     }
                 }
                 """).getParent().toString();
-        Run r = run("run", "--classpath", System.getProperty("java.class.path"), host);
-        check(r.code() == 0 && r.out().equals("hi Seal\n"), "run: a script implements its Seal host's own interface " + r);
+        String expected = """
+                hello
+                true 7
+                Main.seal:1:35: unknown method printn
+                hi Seal
+                true stopped: it took more than 1000 steps
+                    at Main.main (Main.seal:1)
+                Main.seal:1:62: seal.embed is for a program that hosts scripts: a script may host its own only if its host \
+                lets it, with allowJava("seal.embed.*")
+                6
+                """;
+        Run r = run("run", host);
+        check(r.code() == 0 && r.out().equals(expected), "run: a Seal program hosts scripts with seal.embed " + r);
+        Path classes = dir.resolve("host-classes");
+        r = run("build", "-d", classes.toString(), host);
+        String javaCommand = ProcessHandle.current().info().command().orElse("java");
+        String compiler = String.join(java.io.File.pathSeparator, java.util.Arrays.stream(
+                System.getProperty("java.class.path").split(java.io.File.pathSeparator)).map(e -> Path.of(e).toAbsolutePath().toString()).toList());
+        String got = runProcess(dir, javaCommand, "-cp", classes + java.io.File.pathSeparator + compiler, "Main");
+        check(r.code() == 0 && got.equals(expected), "build: the program runs with the compiler on its class path: " + got);
     }
 
     /** --classpath: Java classes of a class folder and of a jar, which a program imports (docs/JAVA.md §6). */

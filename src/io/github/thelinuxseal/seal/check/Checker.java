@@ -112,6 +112,13 @@ public final class Checker {
             Map.entry("JavaFloatBoxed", "java.lang.Float"), Map.entry("JavaDoubleBoxed", "java.lang.Double"),
             Map.entry("JavaCharBoxed", "java.lang.Character"), Map.entry("JavaBooleanBoxed", "java.lang.Boolean"));
 
+    /**
+     * The package whose types are Java classes of the compiler's, of the same JVM name
+     * (seal.embed.SealEngine is io.github.thelinuxseal.seal.embed.SealEngine), which its files
+     * declare with Seal's types: the engine a Seal program hosts scripts with (docs/EMBED.md §12).
+     */
+    private static final String BOUND_PACKAGE = "seal.embed";
+
     /** seal.java's names for Java's primitive types, and their descriptors. */
     private static final Map<String, Character> JAVA_PRIMITIVES = Map.of("JavaInt", 'I', "JavaLong", 'J', "JavaShort", 'S',
             "JavaByte", 'B', "JavaFloat", 'F', "JavaDouble", 'D', "JavaChar", 'C', "JavaBoolean", 'Z');
@@ -656,6 +663,8 @@ public final class Checker {
     private JavaClasses javaClasses = JavaClasses.jdk();
     /** The Java classes read so far, by binary name (java.util.Map$Entry); java.lang.String's is seal.java's JavaString. */
     private final Map<String, ClassInfo> javaByBinary = new HashMap<>();
+    /** seal.embed's types, each the Java class it declares (BOUND_PACKAGE), nested ones too. */
+    private final List<ClassInfo> boundClasses = new ArrayList<>();
     /** Binary names that name no Java class. */
     private final Set<String> notJava = new HashSet<>();
     /** The class-file member each of a Java class's members was made from. */
@@ -795,9 +804,12 @@ public final class Checker {
             ClassInfo info = load(e.getKey(), e.getValue(), true);
             if (info != null && info.pkg.equals("seal.java") && JAVA_NAMES.containsKey(info.name)) {
                 info = javaBacked(info);
+            } else if (info != null && info.pkg.equals(BOUND_PACKAGE)) {
+                file = e.getKey();
+                info = javaBound(info);
             }
-            if (info != null) {
-                addClass(e.getKey(), info, true, order);
+            if (info != null && addClass(e.getKey(), info, true, order) && info.java != null && info.pkg.equals(BOUND_PACKAGE)) {
+                bindNested(info);
             }
         }
         for (Map.Entry<String, String> e : sources.entrySet()) {
@@ -834,6 +846,7 @@ public final class Checker {
                 declareHeaders(c);
             }
         }
+        bindMembers();
         synthesizeVirtualFields();
         for (ClassInfo c : allClasses()) {
             if (c.java == null) {
@@ -1132,6 +1145,130 @@ public final class Checker {
         c.java = jc;
         javaByBinary.put(jc.name(), c);
         return c;
+    }
+
+    /**
+     * A library class of seal.embed: the Java class of its JVM name, declared with Seal's types.
+     * It keeps its own members, which bindMembers matches to the Java class's, and takes the Java
+     * class's parents, so that a SealScript is Java's AutoCloseable, a SealException Java's
+     * RuntimeException; and so do the types nested in it.
+     */
+    private ClassInfo javaBound(ClassInfo lib) {
+        String binary = "io.github.thelinuxseal." + lib.pkg + "." + lib.name;
+        JavaClasses.JClass jc = javaClasses.find(binary);
+        if (jc == null) {
+            report(lib.decl.pos(), lib.pkg + "." + lib.name + " is the compiler's " + binary + ", which it hasn't got");
+            return lib;
+        }
+        ClassInfo c = new ClassInfo(lib.file, boundDecl(lib.decl, jc), true);
+        c.pkg = lib.pkg;
+        c.pkgPos = lib.pkgPos;
+        c.imports = lib.imports;
+        c.java = jc;
+        javaByBinary.put(jc.name(), c);
+        boundClasses.add(c);
+        return c;
+    }
+
+    /** A seal.embed declaration with the Java class's parents, and the same for each type nested in it. */
+    private ClassDecl boundDecl(ClassDecl decl, JavaClasses.JClass jc) {
+        String name = decl.headers().get(0).name();
+        List<NestedType> nested = new ArrayList<>();
+        for (NestedType n : decl.nested()) {
+            JavaClasses.JClass inner = n.decl().headers().isEmpty() ? null
+                    : javaClasses.find(jc.name() + "$" + n.decl().headers().get(0).name());
+            if (inner == null) {
+                report(n.pos(), name + "." + (n.decl().headers().isEmpty() ? "?" : n.decl().headers().get(0).name())
+                        + " is none of " + jc.name() + "'s nested classes");
+                continue;
+            }
+            nested.add(new NestedType(n.pos(), n.modifiers(), boundDecl(n.decl(), inner)));
+        }
+        return new ClassDecl(decl.pos(), javaDecl(jc, name).headers(), decl.members(), nested);
+    }
+
+    /** The types nested in a seal.embed type, which addClass registered: each its Java class too. */
+    private void bindNested(ClassInfo outer) {
+        for (NestedType n : outer.decl.nested()) {
+            ClassInfo inner = classes.get(outer.qualifiedName() + "." + n.decl().headers().get(0).name());
+            JavaClasses.JClass jc = javaClasses.find(outer.java.name() + "$" + n.decl().headers().get(0).name());
+            if (inner != null && jc != null) {
+                inner.java = jc;
+                javaByBinary.put(jc.name(), inner);
+                boundClasses.add(inner);
+                bindNested(inner);
+            }
+        }
+    }
+
+    /**
+     * Each method seal.embed declares is the Java class's method of its name (or the one its @jvm
+     * names) whose descriptor its Seal types give: Seal's string is Java's String, bit boolean, int
+     * int, int<<64>> long, array<string> String[]. Calls to it are Java's calls, with no conversion.
+     */
+    private void bindMembers() {
+        for (ClassInfo c : boundClasses) {
+            file = c.file;
+            ClassT self = new ClassT(c, List.of(), List.of(), 0);
+            for (MemberInfo m : c.all) {
+                if (!(m.member instanceof Method md)) {
+                    report(m.member.pos(), c.name + " declares methods alone: it is Java's " + c.java.name());
+                    continue;
+                }
+                StringBuilder d = new StringBuilder("(");
+                boolean known = true;
+                for (Type p : paramTypes(self, m, Map.of())) {
+                    String pd = boundDescriptor(p);
+                    known &= pd != null;
+                    d.append(pd);
+                }
+                String rd = boundDescriptor(returnTypeOf(self, m, Map.of()));
+                if (!known || rd == null) {
+                    report(md.pos(), c.name + "." + md.name() + " has a type Java's " + c.java.name() + " can't be called with");
+                    continue;
+                }
+                String name = jvmName(md) != null ? jvmName(md) : md.name();
+                String descriptor = d.append(")").append(rd).toString();
+                JavaClasses.JMember jm = boundMethod(c.java, name, descriptor, md.modifiers().isStatic());
+                if (jm == null) {
+                    report(md.pos(), c.name + "." + md.name() + " is none of Java's " + c.java.name() + "'s methods: it has no "
+                            + (md.modifiers().isStatic() ? "static " : "") + name + descriptor);
+                } else {
+                    javaMembers.put(md, jm);
+                }
+            }
+        }
+    }
+
+    /** The JVM descriptor of a Seal type a seal.embed method takes or gives, or null for one Java's can't. */
+    private static String boundDescriptor(Type t) {
+        return switch (t) {
+            case VoidT v -> "V";
+            case BitT b -> "Z";
+            case IntT it when it.isChar() -> "C";
+            case IntT it when it.signed() && !it.isSize() && it.width() instanceof IntV w && w.value().intValue() == 32 -> "I";
+            case IntT it when it.signed() && !it.isSize() && it.width() instanceof IntV w && w.value().intValue() == 64 -> "J";
+            case DoubleT d -> "D";
+            case FloatT f -> "F";
+            case ClassT ct when ct.cls().builtin && ct.cls().name.equals("string") -> "Ljava/lang/String;";
+            case ClassT ct when ct.cls().builtin && ct.cls().name.equals("array") && ct.valueArgs().isEmpty()
+                    && boundDescriptor(ct.typeArgs().get(0)) instanceof String e && !e.equals("V") -> "[" + e;
+            case HandleT h when h.target() instanceof ClassT ct && ct.cls().java != null -> "L" + ct.cls().java.internalName() + ";";
+            default -> null;
+        };
+    }
+
+    /** The public method of a Java class or its parents with this name and descriptor; null if none. */
+    private JavaClasses.JMember boundMethod(JavaClasses.JClass jc, String name, String descriptor, boolean isStatic) {
+        for (JavaClasses.JClass k = jc; k != null; k = k.superName() == null ? null : javaClasses.find(k.superName())) {
+            for (JavaClasses.JMember m : k.members()) {
+                if (!m.isField() && m.name().equals(name) && m.descriptor().equals(descriptor) && m.isStatic() == isStatic
+                        && (m.flags() & JavaClasses.PUBLIC) != 0) {
+                    return m;
+                }
+            }
+        }
+        return null;
     }
 
     /** seal.java's name for a Java class Seal names its own way (JavaString for java.lang.String), or null. */
@@ -1699,6 +1836,10 @@ public final class Checker {
     }
 
     private static String javaDeniedMessage(ClassInfo c) {
+        if (c.pkg.equals(BOUND_PACKAGE)) {
+            return BOUND_PACKAGE + " is for a program that hosts scripts: a script may host its own only if its host"
+                    + " lets it, with allowJava(\"" + BOUND_PACKAGE + ".*\")";
+        }
         return "Java's " + c.java.name() + " isn't one the host lets scripts use";
     }
 
@@ -7418,7 +7559,7 @@ public final class Checker {
             return a instanceof JavaPrimT ap && javaWidens(ap, pp);
         }
         if (!(p instanceof HandleT ph && ph.target() instanceof ClassT pc)) {
-            return false;
+            return p instanceof ParamT ? false : assignable(a, p); // a seal.embed method's Seal type: as a Seal parameter
         }
         if (a instanceof NullT) {
             return true;

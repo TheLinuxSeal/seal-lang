@@ -1,0 +1,13 @@
+package seal.embed;
+
+// A fault a script didn't catch, an exception or an error, as SealScript.run and create throw it:
+// its message is what `seal run` prints for it, with the lines it happened at (docs/EMBED.md §12).
+// On the JVM it is the compiler's io.github.thelinuxseal.seal.embed.SealException, Java's
+// RuntimeException.
+class SealException {
+    /** Whether the script was stopped: it ran past its limit, or SealScript.stop stopped it. */
+    public bit stopped();
+
+    /** What happened, and where. */
+    public string getMessage();
+}

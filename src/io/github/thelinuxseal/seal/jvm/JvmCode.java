@@ -4415,7 +4415,7 @@ final class JvmCode {
         boolean isStatic = m.member.modifiers().isStatic();
         ClassT owner = isStatic ? null : ci.owner();
         Type ret = type(call);
-        String name = ((Method) m.member).name();
+        String name = ck.javaMember(m.member).name(); // a seal.embed method's may differ (its @jvm)
         String descriptor = ck.javaMember(m.member).descriptor();
         MethodTypeDesc type = MethodTypeDesc.ofDescriptor(descriptor);
         if (!isStatic) {

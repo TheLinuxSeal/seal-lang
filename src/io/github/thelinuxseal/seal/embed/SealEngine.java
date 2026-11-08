@@ -23,6 +23,7 @@ import io.github.thelinuxseal.seal.check.Diagnostic;
 import io.github.thelinuxseal.seal.check.JavaClasses;
 import io.github.thelinuxseal.seal.check.Warning;
 import io.github.thelinuxseal.seal.jvm.JvmGen;
+import io.github.thelinuxseal.seal.runtime.Natives;
 
 /**
  * Seal inside a Java program (docs/EMBED.md): compiles Seal's code while the program runs, into
@@ -47,6 +48,7 @@ public final class SealEngine {
     private final ClassLoader loader;
     private final Set<Warning> warn;
     private final Set<Class<?>> entries;
+    private final Map<String, Class<?>> entriesByName = new LinkedHashMap<>();
     private final JavaAllowlist javaAllowed;
     final boolean countSteps;
     final InputStream in;
@@ -62,6 +64,7 @@ public final class SealEngine {
         this.loader = classPath.isEmpty() ? b.parent : new URLClassLoader(urls(classPath), b.parent);
         this.warn = EnumSet.copyOf(b.warn);
         this.entries = Set.copyOf(b.entries);
+        b.entries.forEach(t -> entriesByName.put(t.getName(), t));
         List<String> allowed = new ArrayList<>(b.allowJava);
         // The entry types are the host's for its scripts to implement: they may name them.
         b.entries.forEach(t -> allowed.add(t.getName()));
@@ -73,8 +76,14 @@ public final class SealEngine {
         this.files = b.files;
     }
 
+    /**
+     * A builder of an engine, whose scripts' classes are loaded under the class loader of the code
+     * that calls this, and whose scripts write where the program's Seal code does: a Java
+     * program's System.out, a Seal program's own standard output (docs/EMBED.md §12).
+     */
     public static Builder builder() {
-        return new Builder();
+        Class<?> caller = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE).getCallerClass();
+        return new Builder(caller.getClassLoader() != null ? caller.getClassLoader() : SealEngine.class.getClassLoader());
     }
 
     /**
@@ -93,6 +102,29 @@ public final class SealEngine {
                     "a script can't have .java files: compile them with the program that runs it")), List.of(), null);
         }
         return compile(sources);
+    }
+
+    /**
+     * As {@link #compile(Path...)}, the files and folders named, for Seal's seal.embed: a file
+     * that can't be read is an error of the script's, not an IOException.
+     */
+    public SealScript compileFiles(String... paths) {
+        Path[] ps = new Path[paths.length];
+        for (int i = 0; i < paths.length; i++) {
+            ps[i] = Path.of(paths[i]);
+        }
+        try {
+            return compile(ps);
+        } catch (IOException e) {
+            String file = e instanceof java.nio.file.NoSuchFileException n && n.getFile() != null ? n.getFile()
+                    : String.join(", ", paths);
+            return new SealScript(this, List.of(new Diagnostic(file, 1, 1, "can't be read: " + e.getMessage())), List.of(), null);
+        }
+    }
+
+    /** One of the engine's entry types, by its binary name; null if it has none of the name. */
+    Class<?> entryNamed(String name) {
+        return entriesByName.get(name);
     }
 
     /** Compiles one file's code, named {@code file} in errors and in the lines a fault reports. */
@@ -172,17 +204,19 @@ public final class SealEngine {
         private Path stdlib;
         private final List<LibraryFiles> library = new ArrayList<>();
         private final List<Path> classPath = new ArrayList<>();
-        private ClassLoader parent = SealEngine.class.getClassLoader();
+        private ClassLoader parent;
         private final Set<Warning> warn = EnumSet.noneOf(Warning.class);
         private final Set<Class<?>> entries = new LinkedHashSet<>();
+        private final List<String> entryNames = new ArrayList<>();
         private final List<String> allowJava = new ArrayList<>();
         private boolean countSteps = true;
         private InputStream in = InputStream.nullInputStream();
-        private PrintStream out = System.out;
-        private PrintStream err = System.err;
+        private PrintStream out = Natives.out;
+        private PrintStream err = Natives.err;
         private boolean files;
 
-        private Builder() {
+        private Builder(ClassLoader parent) {
+            this.parent = parent;
         }
 
         /** The standard library's folder. Unset, it is found as `seal` finds it: seal.jar's own, when the compiler is in it. */
@@ -203,6 +237,11 @@ public final class SealEngine {
                 }
             });
             return this;
+        }
+
+        /** As above, one file or folder, by its path: for Seal's seal.embed. */
+        public Builder library(String path) {
+            return library(Path.of(path));
         }
 
         /**
@@ -242,6 +281,12 @@ public final class SealEngine {
             return this;
         }
 
+        /** As above, one: for Seal's seal.embed, which also names seal.embed's own as Seal does ("seal.embed.*"). */
+        public Builder allowJava(String name) {
+            allowJava.add(name);
+            return this;
+        }
+
         /** As above, these classes, and the classes nested in them. */
         public Builder allowJava(Class<?>... classes) {
             for (Class<?> c : classes) {
@@ -267,10 +312,15 @@ public final class SealEngine {
             return this;
         }
 
+        /** As above, one, by its path: for Seal's seal.embed. */
+        public Builder classPath(String entry) {
+            return classPath(Path.of(entry));
+        }
+
         /**
          * The class loader under which scripts' classes are loaded, whose Java classes they may use,
          * as the host's code does: the interfaces the host calls scripts through, the game's
-         * classes. By default, the engine's.
+         * classes. By default, that of the code that called {@link SealEngine#builder}.
          */
         public Builder parent(ClassLoader loader) {
             this.parent = loader;
@@ -285,6 +335,15 @@ public final class SealEngine {
          */
         public Builder entry(Class<?>... types) {
             entries.addAll(List.of(types));
+            return this;
+        }
+
+        /**
+         * As above, the type of this binary name, which the parent loader has (found when the
+         * engine is built): for Seal's seal.embed, whose program names its own interface, Greeter.
+         */
+        public Builder entry(String name) {
+            entryNames.add(name);
             return this;
         }
 
@@ -324,6 +383,15 @@ public final class SealEngine {
          * gives its errors.
          */
         public SealEngine build() throws IOException {
+            for (String name : entryNames) {
+                try {
+                    entries.add(Class.forName(name, false, parent));
+                } catch (ClassNotFoundException e) {
+                    throw new IllegalArgumentException("the parent class loader hasn't got the entry type " + name
+                            + ", so scripts can't implement it");
+                }
+            }
+            entryNames.clear();
             for (Class<?> type : entries) {
                 // Scripts implement the parent's class of the name: it must be this one, or the host could make none.
                 Class<?> seen;

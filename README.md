@@ -177,6 +177,22 @@ engine allows them; and the host limits how long they run (`script.limitSteps(1_
 the design, and [`examples/24-macro-mod`](examples/24-macro-mod) a host: a Minecraft mod whose
 players write macros in Seal.
 
+### Inside a Seal program
+
+A Seal program hosts scripts the same way, with `seal.embed`, which is the same engine with Seal's
+types; its scripts implement the program's own interfaces:
+
+```java
+import seal.embed.*;
+
+SealEngine engine = SealEngine.builder().entry("Greeter").build();
+SealScript script = engine.compile("Hi.seal", code);
+for (string e : script.errors()) { System.stdout.println(e); }
+Greeter g = (Greeter) script.create("Greeter")[0];
+```
+
+A script can't use `seal.embed` itself unless its host allows it (docs/EMBED.md §12).
+
 ## Examples
 
 [`examples/`](examples) has 21 programs, each with the output it should give, from the basics to
@@ -212,7 +228,7 @@ The compiler is in the Java package `io.github.thelinuxseal.seal`, under
 | `check/` | the type checker, which resolves everything the backend needs |
 | `jvm/` | code generation for the JVM: class files, and running them |
 | `runtime/` | the Java classes compiled programs use on the JVM |
-| `embed/` | Seal inside a Java program: `SealEngine`, `SealScript` |
+| `embed/` | Seal inside a Java program: `SealEngine`, `SealScript`, which Seal programs use as `seal.embed` |
 | `Main.java` | the command line, which the `seal` script runs |
 
 And at the top of the repository:

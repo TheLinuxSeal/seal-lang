@@ -283,8 +283,21 @@ public final class JavaClasses {
                 // An entry that can't be read has nothing to give.
             }
         }
+        if (binaryName.startsWith(COMPILER_EMBED)) {
+            // seal.embed's types are the compiler's own (docs/EMBED.md §12): wherever it runs, whatever the class path.
+            try (InputStream in = JavaClasses.class.getClassLoader().getResourceAsStream(file)) {
+                if (in != null) {
+                    return in.readAllBytes();
+                }
+            } catch (IOException e) {
+                // None to give.
+            }
+        }
         return null;
     }
+
+    /** The compiler's package that Seal's seal.embed is (docs/EMBED.md §12). */
+    private static final String COMPILER_EMBED = "io.github.thelinuxseal.seal.embed.";
 
     /**
      * Whether the loader has a package: a folder of it among its resources (which a jar without
