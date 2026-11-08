@@ -146,7 +146,8 @@ seal build [options] PATH...   write the class files, for java to run
   -Wassert           run assert statements
   -Wdiamond          warn about every new List<>(), for code that writes new List()
   -WmissingDiamond   warn about every new List() of a generic class, for code that writes new List<>()
-  -Wall              all of the -W flags but the two styles
+  -Wvar              warn about every local declared with var, for code that writes its types
+  -Wall              all of the -W flags but the styles
 ```
 
 ### Inside a Java program

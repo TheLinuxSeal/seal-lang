@@ -105,6 +105,7 @@ public final class CheckerTest {
         accessAndStatic();
         statements();
         diamond();
+        vars();
         files();
         dynamicPlacement();
         typeParameters();
@@ -1577,6 +1578,70 @@ public final class CheckerTest {
                     int peek() { return inner; }
                 }
                 """));
+    }
+
+    /** var: a local variable whose type is its initializer's (§41.2). */
+    private static void vars() {
+        ok("var takes the initializer's type, a constant's default one", files("Main", """
+                class Main {
+                    static char first() { return 'a'; }
+                    static void main() {
+                        var n = 1;
+                        var d = 2.5;
+                        var c = first();
+                        var b = true;
+                        n = n + 1;
+                        d = d * 2;
+                        int var = 3;
+                        var also = var;
+                        for (var i = 0; i < 3; i++) { n += i; }
+                    }
+                }
+                """));
+        String errors = """
+                class Main {
+                    static void nothing() { }
+                    static void main() {
+                        var a;
+                        var b = null;
+                        var c = () -> 1;
+                        var d = nothing();
+                        var e = Main;
+                        var f = 1;
+                        f = true;
+                    }
+                }
+                """;
+        error("var needs an initializer", errors, "var a needs an initializer: its type is the initializer's");
+        error("var of null", errors, "var b takes its type from its initializer, but null is a value of any class's; write the type");
+        error("var of a lambda", errors, "var c takes its type from its initializer, but a lambda is a value of a functional"
+                + " interface, which the initializer doesn't name; write the type");
+        error("var of no value", errors, "var d takes its type from its initializer, but it has no value; write the type");
+        error("var of a type", errors, "var e takes its type from its initializer, but Main is a type, not a value; write the type");
+        error("a var's type is fixed by its initializer", errors, "assignment: expected int, found bit");
+        String elsewhere = "; var declares a local variable, whose type is its initializer's: here, write the type";
+        error("var as a field's type", "class Main { var x = 1; }", "unknown type var" + elsewhere);
+        error("var as a parameter's type", "class Main { static void f(var p) { } }", "unknown type var" + elsewhere);
+        error("var as a return type", "class Main { static var f() { return 1; } }", "unknown type var" + elsewhere);
+        error("var as a type argument", "class Main<T> { static void f() { Main<var> m; } }", "unknown type var" + elsewhere);
+        error("a type named var", "class var { }", "var can't name a type: it declares a local variable, whose type is its initializer's");
+        error("var of a new that leaves its type arguments out", files("Box", "class Box<T> { public new() { } }", "Main",
+                "class Main { static void f() { var b = new Box<>(); } }"),
+                "var b takes its type from its initializer, but new Box<>(...) takes its type arguments from the variable's; write"
+                        + " them, as new Box<int>(...)");
+        Map<String, String> declared = files("Box", "class Box<T> { public new() { } }", "Main", """
+                class Main {
+                    static void main() {
+                        var b = new Box<Box<int>>();
+                        Box<int> plain = new Box<int>();
+                        var c = 'x';
+                    }
+                }
+                """);
+        warnings("-Wvar reports each var, with its type as it is written", Set.of(Warning.VAR), declared,
+                "3: [-Wvar] b is declared with var: its type is Box<Box<int>>",
+                "5: [-Wvar] c is declared with var: its type is char");
+        warnings("-Wall doesn't turn on -Wvar, a style", Warning.all(), declared);
     }
 
     /** new List<>(), and new List() where a parameter gives the type arguments (§7). */

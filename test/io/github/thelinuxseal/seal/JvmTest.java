@@ -699,6 +699,35 @@ public final class JvmTest {
 
     /** Structs, uniques, records, enums and fixed arrays, in storage blocks (docs/JVM.md §4, M3). */
     private static void values() {
+        program("var, in every place a local is declared", Map.of(
+                "Res.seal", "class Res implements(AutoCloseable) { public void close() { System.stdout.println(\"closed\"); } }",
+                "Main.seal", """
+                        import seal.util.*;
+
+                        class Main {
+                            static void main() {
+                                var n = 1;
+                                var d = 2.5;
+                                var s = "hi";
+                                s = s + " there";
+                                var c = 'x';
+                                var b = true;
+                                var m = new HashMap<string, List<int>>();
+                                m.put("a", new List());
+                                m.get("a").add(3);
+                                var xs = m.get("a");
+                                var arr = [1, 2, 3];
+                                int total = 0;
+                                for (var x : xs) { total += x; }
+                                for (var y : [10, 20]) { total += y; }
+                                for (var ch : "ab") { total += ch; }
+                                for (var i = 0; i < 3; i++) { total += i; }
+                                try (var r = new Res()) { System.stdout.println("in"); }
+                                System.stdout.println(n + " " + d + " " + s + " " + c + " " + b + " " + xs.size() + " "
+                                        + arr.length() + " " + total);
+                            }
+                        }
+                        """), "in\nclosed\n1 2.5 hi there x true 1 3 231\n", 0);
         // A product of fixed-point values held in ints is made inline; wider ones go through the runtime.
         Map<String, String> products = Map.of("Main.seal", """
                 class Main {

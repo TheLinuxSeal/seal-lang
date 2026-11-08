@@ -2038,6 +2038,25 @@ A parenthesized primitive type is always a cast. A parenthesized class name is a
 
 A statement beginning with a class name, such as `Foo<T> x = ...;` or `a < b;`, is read as a declaration when it has the form `Type name` followed by `=` or `;`. Otherwise it is an expression.
 
+### var
+
+A local variable declared with `var` has its initializer's type, as in Java:
+
+```text
+var n = 1;                                   // int
+var s = "hi";                                // string, which may grow: s = s + " there"
+var counts = new HashMap<string, List<int>>();
+for (var x : xs) { ... }                     // the elements' type
+for (var i = 0; i < n; i++) { ... }
+try (var in = new FileReader(path)) { ... }
+```
+
+* A constant takes its default type, as a type argument does (§12.2): `1` an `int`, `2.5` a `double`, `'a'` a `char`, `"hi"` a bare `string`, `[1, 2, 3]` an `array<int><<3>>`.
+* The type is fixed then, as a written one is: `var n = 1; n = true;` is an error.
+* It needs an initializer that gives a type: not `null`, a lambda or a method reference (whose interface it doesn't name), a call that gives nothing, or a `new` that leaves its type arguments for the variable to give (`var b = new Box<>()`; write `new Box<int>()`).
+* `var` is for local variables alone, as in Java: a field, a parameter, a return type or a type argument writes its type. It isn't a keyword: a variable may be named `var`, but no type may.
+* `-Wvar` reports each one, with its type as it would be written (§56.1), for code that writes its types out.
+
 ## 41.3 Statements
 
 The statements are Java's: blocks, declarations, expression statements, `if`/`else`, `while`, `for`, `return`, `break`, `continue`, `assert` (§41.4), plus `delete` (§24) and the ones below. A local may shadow one in an enclosing block.
@@ -3043,8 +3062,9 @@ The compiler, in the Java package `io.github.thelinuxseal.seal` (`src/io/github/
   | `-Wassert` | not a warning: runs `assert` statements, as Java's `-ea` does (§41.4); without it they are skipped |
   | `-Wdiamond` | a style: every `new List<>()`, for code that leaves type arguments out as `new List()` (§7) |
   | `-WmissingDiamond` | a style: every `new List()` of a generic class, for code that writes `new List<>()` (§7) |
+  | `-Wvar` | a style: every local declared with `var`, with its type (§41.2), for code that writes its types out |
 
-  With both cast warnings on (as with `-Wall`, which turns on every `-W` flag, `-Wassert` too, but the two styles, which are opposites), each cast is reported once, under `-WautoCastLossy` if it may lose data.
+  With both cast warnings on (as with `-Wall`, which turns on every `-W` flag, `-Wassert` too, but the styles), each cast is reported once, under `-WautoCastLossy` if it may lose data.
 * When several overloads accept a constant argument, the one that gives the most constants their default type, `int` for integer constants and `double` for floating-point ones, is chosen; if that still ties, one without value binders (§9.3). Among overloads that need widening, the most specific is chosen, as in Java; an argument narrows only when no overload takes it otherwise, and only one may then (§41.6).
 
 ### Instantiation

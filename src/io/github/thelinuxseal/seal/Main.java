@@ -47,7 +47,8 @@ import io.github.thelinuxseal.seal.parser.Parser;
  *   -Wassert          run assert statements (as Java's -ea); without it they are skipped
  *   -Wdiamond         warn about every new List<>(), for code that writes new List()
  *   -WmissingDiamond  warn about every new List() of a generic class, for code that writes new List<>()
- *   -Wall             turn on every -W flag but the two styles, -Wdiamond and -WmissingDiamond
+ *   -Wvar             warn about every local declared with var, for code that writes its types
+ *   -Wall             turn on every -W flag but the styles, -Wdiamond, -WmissingDiamond and -Wvar
  * </pre>
  *
  * A PATH is a `.seal` file or a directory searched recursively for them. The `.java` files given,
@@ -69,7 +70,7 @@ public final class Main {
     public static int run(String[] args, java.io.InputStream in, PrintStream out, PrintStream err) throws IOException {
         if (args.length < 2) {
             err.println("usage: seal run|check|dump|build [--main Class] [--classpath PATH] [-d DIR] [--jar FILE]"
-                    + " [--resources DIR] [--library] [-WautoCast] [-WautoCastLossy] [-Wassert] [-Wdiamond] [-WmissingDiamond] [-Wall] PATH...");
+                    + " [--resources DIR] [--library] [-WautoCast] [-WautoCastLossy] [-Wassert] [-Wdiamond] [-WmissingDiamond] [-Wvar] [-Wall] PATH...");
             return 2;
         }
         String command = args[0];
@@ -115,7 +116,7 @@ public final class Main {
                 if (Warning.byFlag(args[i]).isEmpty()) {
                     err.println("unknown flag " + args[i] + "; the -W flags are "
                             + EnumSet.allOf(Warning.class).stream().map(Warning::flag).collect(Collectors.joining(", "))
-                            + ", and -Wall for all of them but the last two, which are styles");
+                            + ", and -Wall for all of them but the last three, which are styles");
                     return 2;
                 }
                 warn.add(Warning.byFlag(args[i]).get());

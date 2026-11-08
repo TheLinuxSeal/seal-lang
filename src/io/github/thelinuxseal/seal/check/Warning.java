@@ -16,7 +16,9 @@ public enum Warning {
     /** A style: every new List<>(), for code that leaves type arguments out as new List() (§7). */
     DIAMOND("-Wdiamond", false),
     /** A style: every new List() of a generic class, for code that writes new List<>() (§7). */
-    MISSING_DIAMOND("-WmissingDiamond", false);
+    MISSING_DIAMOND("-WmissingDiamond", false),
+    /** A style: every local declared with var, for code that writes its types out (§41.2). */
+    VAR("-Wvar", false);
 
     private final String flag;
     private final boolean inAll;

@@ -892,6 +892,9 @@ public final class Checker {
     /** Registers a loaded class; library classes replace built-in prelude classes of the same name. */
     private boolean addClass(String path, ClassInfo info, boolean isLibrary, List<ClassInfo> order) {
         file = path;
+        if (info.name.equals("var")) {
+            report(info.decl.pos(), "var can't name a type: it declares a local variable, whose type is its initializer's");
+        }
         String base = baseName(path);
         if (!base.isEmpty() && !base.equals(info.name)) {
             report(info.decl.pos(), info.kind.keyword + " " + info.name + " must be in a file named " + info.name
@@ -932,6 +935,9 @@ public final class Checker {
                 report(n.pos(), "a nested type is public or private, and may be static; nothing else");
             }
             ClassInfo info = new ClassInfo(path, n.decl(), isLibrary, outer, m.access() == Access.PUBLIC);
+            if (info.simpleName.equals("var")) {
+                report(n.pos(), "var can't name a type: it declares a local variable, whose type is its initializer's");
+            }
             if (classes.containsKey(info.qualifiedName())) {
                 report(n.pos(), info.name + " is declared twice");
                 continue;
@@ -1658,6 +1664,9 @@ public final class Checker {
 
     /** Why a type name means nothing where {@code from} is written, when there is more to say, as "; ...". */
     private String unknownTypeHint(String name, ClassInfo from) {
+        if (name.equals("var")) {
+            return "; var declares a local variable, whose type is its initializer's: here, write the type";
+        }
         if (name.indexOf('.') >= 0) {
             return afterSealHint(name);
         }
@@ -4862,7 +4871,64 @@ public final class Checker {
                 && isSubclass(ct, new ClassT(e, List.of(), List.of(), 0));
     }
 
-    /** The type of a checker-written `var`: its initializer's, with constants at their defaults. */
+    /** `var` as a local variable's type (§41.2): its initializer's. */
+    private static boolean isVar(TypeRef t) {
+        return t != null && t.name().equals("var") && t.typeArgs().isEmpty() && t.valueArgs() == null && t.arrayDims().isEmpty();
+    }
+
+    /**
+     * The type of a local declared with var (§41.2): its initializer's, a constant's its default
+     * one, as a type argument's (var n = 1 is an int, var s = "x" a bare string, which may grow);
+     * an error for an initializer that gives none.
+     */
+    private Type varType(Body b, VarDecl v) {
+        if (v.init() == null) {
+            report(v.pos(), "var " + v.name() + " needs an initializer: its type is the initializer's");
+            return Type.ERROR;
+        }
+        if (waitingNew(b, v.init()) instanceof ClassInfo c) {
+            report(v.init().pos(), "var " + v.name() + " takes its type from its initializer, but new " + c.name
+                    + (((New) v.init()).diamond() ? "<>" : "") + "(...) takes its type arguments from the variable's; write them, as new "
+                    + c.name + "<int>(...)");
+            return Type.ERROR;
+        }
+        Type init = checkExpr(b, v.init(), null);
+        Type d = defaultOf(init);
+        Type t = init instanceof StrConstT ? typeArgOf(init) : d instanceof IntConstT ic ? (ic.isChar() ? Type.CHAR : Type.INT)
+                : d instanceof FloatConstT ? Type.DOUBLE : d;
+        String none = switch (t) {
+            case NullT n -> "null is a value of any class's";
+            case LambdaT l -> "a " + l + " is a value of a functional interface, which the initializer doesn't name";
+            case VoidT vt -> "it has no value";
+            case ClassRefT cr -> cr.cls().name + " is a type, not a value";
+            default -> null;
+        };
+        if (none != null) {
+            report(v.init().pos(), "var " + v.name() + " takes its type from its initializer, but " + none + "; write the type");
+            return Type.ERROR;
+        }
+        return t;
+    }
+
+    /** A type as source code writes it: List<int>, not the handle<List<int>> a class's value is held by. */
+    private static String written(Type t) {
+        return switch (t) {
+            case HandleT h -> written(h.target());
+            case ClassT ct -> {
+                StringBuilder sb = new StringBuilder(ct.cls().name);
+                if (!ct.typeArgs().isEmpty()) {
+                    sb.append(ct.typeArgs().stream().map(Checker::written).collect(Collectors.joining(", ", "<", ">")));
+                }
+                if (!ct.valueArgs().isEmpty()) {
+                    sb.append(ct.valueArgs().stream().map(CVal::toString).collect(Collectors.joining(", ", "<<", ">>")));
+                }
+                yield sb.toString();
+            }
+            default -> t.toString();
+        };
+    }
+
+    /** The type of a checker-written local, or a var's: its initializer's, with constants at their defaults. */
     private Type inferredType(Body b, Expr init) {
         Type t = defaultOf(checkExpr(b, init, null));
         return t instanceof IntConstT ic ? (ic.isChar() ? Type.CHAR : Type.INT) : t instanceof FloatConstT ? Type.DOUBLE : t;
@@ -4879,6 +4945,18 @@ public final class Checker {
         Pos p = fe.pos();
         Expr items = fe.iterable();
         Type t;
+        if (items instanceof ArrayLit al && isVar(fe.type())) {
+            // for (var x : [1, 2, 3]): the literal's elements at their default type, written out (§41.2).
+            Type lit = quietly(() -> defaultOf(checkExpr(b, items, null)));
+            TypeRef elem = lit instanceof ArrayT at ? typeRef(p, at.element()) : null;
+            if (elem == null) {
+                report(fe.type().pos(), "for (var " + fe.name() + " : [...]) can't tell the elements' type: write it, as for ("
+                        + (lit instanceof ArrayT at ? written(at.element()) : "int") + " " + fe.name() + " : [...])");
+                return null;
+            }
+            warn(Warning.VAR, fe.type().pos(), fe.name() + " is declared with var: its type is " + written(((ArrayT) lit).element()));
+            return desugarForEach(b, new ForEach(p, elem, fe.name(), items, fe.body()));
+        }
         if (items instanceof ArrayLit al) {
             // [1, 2, 3] takes the loop variable's type for its elements.
             Type elem = resolveType(fe.type(), b.env, Opts.PLAIN);
@@ -4988,7 +5066,8 @@ public final class Checker {
     private Stmt desugarResources(Body b, Try tr) {
         boolean closable = true;
         for (VarDecl r : tr.resources()) {
-            Type t = resolveType(r.type(), b.env, Opts.PLAIN);
+            Type t = isVar(r.type()) ? quietly(() -> r.init() == null ? Type.ERROR : inferredType(b, r.init()))
+                    : resolveType(r.type(), b.env, Opts.PLAIN);
             if (!t.isError() && !(t instanceof HandleT h && h.target() instanceof ClassT ct && implementsInterface(ct, "AutoCloseable"))) {
                 boolean hasClose = t instanceof HandleT h && h.target() instanceof ClassT ct && hasMethod(ct, "close");
                 report(r.type().pos(), "a resource of try-with-resources must implement AutoCloseable, so that it can be"
@@ -5000,7 +5079,8 @@ public final class Checker {
         Block inner = tr.body();
         for (int i = tr.resources().size() - 1; i >= 0; i--) {
             VarDecl r = tr.resources().get(i);
-            boolean java = isJavaValue(quietly(() -> resolveType(r.type(), b.env, Opts.PLAIN)));
+            boolean java = isJavaValue(quietly(() -> isVar(r.type()) ? (r.init() == null ? Type.ERROR : inferredType(b, r.init()))
+                    : resolveType(r.type(), b.env, Opts.PLAIN)));
             inner = closing(r, inner, closable, java);
         }
         if (tr.catches().isEmpty() && tr.finallyBlock() == null) {
@@ -5170,12 +5250,18 @@ public final class Checker {
             case Assert a -> checkAssert(b, a);
             case Block block -> checkBlock(b, block, true);
             case VarDecl v -> {
-                Type t = v.type() != null ? resolveType(v.type(), b.env, Opts.PLAIN) : inferredType(b, v.init());
+                boolean var = isVar(v.type());
+                Type t = var ? varType(b, v) : v.type() != null ? resolveType(v.type(), b.env, Opts.PLAIN) : inferredType(b, v.init());
                 b.locals.put(v, t);
                 if (b.scopes.peek().containsKey(v.name())) {
                     report(v.pos(), "variable " + v.name() + " is already declared in this scope");
                 }
-                if (v.init() != null) {
+                if (var && !t.isError()) {
+                    warn(Warning.VAR, v.pos(), v.name() + " is declared with var: its type is " + written(t));
+                }
+                if (var && t.isError()) {
+                    // reported: its initializer is checked already
+                } else if (v.init() != null) {
                     Type it = checkExpr(b, v.init(), t);
                     requireConvertible(b, v.init(), it, t, "initializer of " + v.name());
                     requireNotCopied(b, v.init(), t, "initializer of " + v.name());
