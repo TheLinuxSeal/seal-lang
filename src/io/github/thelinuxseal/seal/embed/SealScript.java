@@ -18,6 +18,7 @@ import io.github.thelinuxseal.seal.check.Checker;
 import io.github.thelinuxseal.seal.check.ClassInfo;
 import io.github.thelinuxseal.seal.check.Diagnostic;
 import io.github.thelinuxseal.seal.jvm.JvmGen;
+import io.github.thelinuxseal.seal.jvm.MemoryClassLoader;
 import io.github.thelinuxseal.seal.runtime.Exit;
 
 /**
@@ -306,12 +307,9 @@ public final class SealScript implements AutoCloseable {
      * program's state; the rest of the runtime is the engine's, shared, and every other class the
      * parent's.
      */
-    private static final class Loader extends ClassLoader {
-        private final Map<String, byte[]> classes;
-
+    private static final class Loader extends MemoryClassLoader {
         Loader(Map<String, byte[]> classes, ClassLoader parent) {
-            super(parent);
-            this.classes = classes;
+            super(classes, parent);
         }
 
         @Override

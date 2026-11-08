@@ -337,6 +337,7 @@ public final class CliTest {
         check(r.code() == 1 && r.err().contains("struct Right must be in a file named Right"), "file name rule " + r);
 
         classPath(dir);
+        sealHost(dir);
         jarsAndLibraries(dir);
         javaFiles(dir);
     }
@@ -579,6 +580,44 @@ public final class CliTest {
             Thread.currentThread().interrupt();
             return "";
         }
+    }
+
+    /**
+     * A Seal program that hosts scripts, through the Java API: under `seal run`, its classes are in
+     * memory, and the script's compile reads them from there, so a script implements its interface.
+     */
+    private static void sealHost(Path dir) throws IOException {
+        write(dir, "host/Greeter.seal", "interface Greeter { string greet(string name); }\n");
+        String host = write(dir, "host/Main.seal", """
+                import io.github.thelinuxseal.seal.embed.SealEngine;
+                import io.github.thelinuxseal.seal.embed.SealScript;
+                import java.lang.Class;
+                import java.util.List;
+                import seal.java.*;
+
+                class Main {
+                    static void main() {
+                        Class<JavaObject> greeter = (Class<JavaObject>) Class.forName(JavaString.of("Greeter"));
+                        SealEngine engine = SealEngine.builder().parent(greeter.getClassLoader()).entry(greeter).build();
+                        string code = \"""
+                                import seal.java.*;
+
+                                class Hi implements(Greeter) {
+                                    public JavaString greet(JavaString name) { return JavaString.of("hi " + (string) name); }
+                                }
+                                \""";
+                        SealScript script = engine.compile(JavaString.of("Hi.seal"), JavaString.of(code));
+                        if (!(bit) script.ok()) {
+                            System.stdout.println((string) script.errors().toString());
+                            return;
+                        }
+                        List<JavaObject> made = script.create(greeter);
+                        System.stdout.println(((Greeter) made.get(JavaInt.of(0))).greet("Seal"));
+                    }
+                }
+                """).getParent().toString();
+        Run r = run("run", "--classpath", System.getProperty("java.class.path"), host);
+        check(r.code() == 0 && r.out().equals("hi Seal\n"), "run: a script implements its Seal host's own interface " + r);
     }
 
     /** --classpath: Java classes of a class folder and of a jar, which a program imports (docs/JAVA.md §6). */

@@ -304,12 +304,9 @@ public final class JvmRunner {
     }
 
     /** Defines the program's classes, and leaves the runtime's and the JDK's to its parent. */
-    private static final class Loader extends ClassLoader {
-        private final Map<String, byte[]> classes;
-
+    private static final class Loader extends MemoryClassLoader {
         Loader(Map<String, byte[]> classes, ClassLoader parent) {
-            super(parent);
-            this.classes = classes;
+            super(classes, parent);
         }
 
         @Override
