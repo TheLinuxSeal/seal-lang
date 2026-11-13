@@ -134,6 +134,7 @@ seal run   [options] PATH...   compile to JVM class files and run them
 seal check [options] PATH...   only report errors
 seal dump  [options] PATH...   print the class files
 seal build [options] PATH...   write the class files, for java to run
+seal lsp   [options]           the language server editors start (docs/LSP.md)
 
   --main Class       the class whose main() runs (default Main; com.example.Main in a package)
   --classpath PATH   jars and class folders of the Java classes the program imports (also -cp)
@@ -197,7 +198,9 @@ A script can't use `seal.embed` itself unless its host allows it (docs/EMBED.md 
 ## Editors
 
 [`editors/`](editors) has syntax highlighting for VSCodium (and VS Code), IntelliJ IDEA and Kate,
-and how to install it ([`editors/README.md`](editors/README.md)).
+and how to install it ([`editors/README.md`](editors/README.md)). `seal lsp` is a language server:
+in those editors, or any with an LSP client, it shows errors and warnings as you type, what a name
+is on hover, where it is declared, and a file's outline ([`docs/LSP.md`](docs/LSP.md)).
 
 ## Examples
 
@@ -235,6 +238,7 @@ The compiler is in the Java package `io.github.thelinuxseal.seal`, under
 | `jvm/` | code generation for the JVM: class files, and running them |
 | `runtime/` | the Java classes compiled programs use on the JVM |
 | `embed/` | Seal inside a Java program: `SealEngine`, `SealScript`, which Seal programs use as `seal.embed` |
+| `lsp/` | the language server, `seal lsp`, which editors start (`docs/LSP.md`) |
 | `Main.java` | the command line, which the `seal` script runs |
 
 And at the top of the repository:
@@ -245,7 +249,7 @@ And at the top of the repository:
 | `jar.sh` | builds `seal.jar`: the compiler and its standard library in one jar |
 | `stdlib/` | the standard library, in Seal: `seal/lang/`, `seal/util/`, `seal/io/`, and the built-in `string` and `array` |
 | `examples/` | example programs and their output |
-| `editors/` | syntax highlighting for VSCodium, IntelliJ IDEA and Kate (`editors/README.md`) |
+| `editors/` | syntax highlighting for VSCodium, IntelliJ IDEA and Kate, and their language server setup (`editors/README.md`) |
 | `test/` | the test suites, run by `./test.sh` |
 | `SPEC.md` | the language specification |
 

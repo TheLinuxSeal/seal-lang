@@ -1500,18 +1500,23 @@ public final class Parser {
                         typeArgs.add(parseType());
                     } while (accept(COMMA));
                     expectGt();
-                    Select callee = new Select(expr.pos(), expr, expectIdent("method name after the type arguments"));
+                    Pos namePos = here();
+                    Select callee = new Select(expr.pos(), expr, expectIdent("method name after the type arguments"), namePos);
                     if (!check(LPAREN)) {
                         throw error("type arguments <...> go only before a method call: x.<T>f(...)");
                     }
                     expr = new Call(expr.pos(), callee, parseArgs(), typeArgs);
                     continue;
                 }
-                expr = new Select(expr.pos(), expr, check(DELETE) ? advance().text() : expectIdent("member name after '.'"));
+                Pos namePos = here();
+                expr = new Select(expr.pos(), expr, check(DELETE) ? advance().text() : expectIdent("member name after '.'"),
+                        namePos);
             } else if (check(COLON_COLON)) {
                 // A method reference, JavaInt::of or Box::new (§30.3): it ends the postfix chain, as in Java.
                 advance();
-                return new MethodRef(expr.pos(), expr, check(NEW) ? advance().text() : expectIdent("method name after '::'"));
+                Pos namePos = here();
+                return new MethodRef(expr.pos(), expr, check(NEW) ? advance().text() : expectIdent("method name after '::'"),
+                        namePos);
             } else if (check(PLUS_PLUS) || check(MINUS_MINUS)) {
                 expr = new IncDec(expr.pos(), advance().kind() == PLUS_PLUS ? BinaryOp.ADD : BinaryOp.SUB, false, expr);
             } else if (check(LPAREN)) {

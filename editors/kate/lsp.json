@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "seal": {
+      "command": ["seal", "lsp"],
+      "url": "https://github.com/TheLinuxSeal/seal-lang/blob/main/docs/LSP.md",
+      "highlightingModeRegex": "^Seal$"
+    }
+  }
+}

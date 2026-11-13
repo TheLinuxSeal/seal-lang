@@ -17,8 +17,9 @@ import io.github.thelinuxseal.seal.lexer.Lexer;
 /**
  * The editors' grammars (editors/README.md) keep up with the language: every keyword the lexer
  * has, and each word Seal knows by where it is (var, record, yield, size, as) and the built-in
- * types, is in the TextMate grammar (VSCodium, IntelliJ IDEA) and in Kate's; and Sample.seal,
- * which shows them all, compiles.
+ * types, is in the TextMate grammar (VSCodium, IntelliJ IDEA) and in Kate's; the extension and
+ * Kate's settings start the language server (docs/LSP.md); and Sample.seal, which shows them all,
+ * compiles.
  */
 public final class EditorsTest {
     private static int passed = 0;
@@ -41,6 +42,14 @@ public final class EditorsTest {
         String manifest = Files.readString(Path.of("editors/vscode/package.json"));
         check(manifest.contains("\"path\": \"./syntaxes/seal.tmLanguage.json\"") && manifest.contains("\".seal\""),
                 "package.json gives .seal files the grammar");
+        String client = Files.readString(Path.of("editors/vscode/extension.js"));
+        check(manifest.contains("\"main\": \"./extension.js\"") && manifest.contains("\"onLanguage:seal\"")
+                && client.contains("['lsp', ") && client.contains("textDocument/publishDiagnostics"),
+                "the extension starts seal lsp for .seal files, and shows its diagnostics");
+        String kate = Files.readString(Path.of("editors/kate/lsp.json"));
+        check(kate.contains("\"command\": [\"seal\", \"lsp\"]") && kate.contains("\"highlightingModeRegex\": \"^Seal$\"")
+                && Files.readString(Path.of("editors/kate/seal.xml")).contains("<language name=\"Seal\""),
+                "Kate's server settings start seal lsp for files with the Seal highlighting");
 
         ByteArrayOutputStream err = new ByteArrayOutputStream();
         int code = Main.run(new String[] {"check", "editors/Sample.seal"}, new PrintStream(new ByteArrayOutputStream()),

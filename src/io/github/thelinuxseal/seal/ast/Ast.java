@@ -345,8 +345,16 @@ public final class Ast {
     public record This(Pos pos) implements Expr {
     }
 
-    /** Member access `target.name`. */
-    public record Select(Pos pos, Expr target, String name) implements Expr {
+    /**
+     * Member access `target.name`, starting where its target does.
+     *
+     * @param namePos where the name is: the position of {@code name} in `a.b().name`
+     */
+    public record Select(Pos pos, Expr target, String name, Pos namePos) implements Expr {
+        /** One the checker writes, whose name is where it is. */
+        public Select(Pos pos, Expr target, String name) {
+            this(pos, target, name, pos);
+        }
     }
 
     /** @param typeArgs explicit type arguments of a generic method, `Main.<int>f(x)`; usually empty */
@@ -449,7 +457,10 @@ public final class Ast {
      * lambda that calls the method with its parameters, as many as the interface it goes to takes.
      * {@code target} is a type's name, a variable or `this`; {@code name} is "new" for a constructor.
      */
-    public record MethodRef(Pos pos, Expr target, String name) implements Expr {
+    public record MethodRef(Pos pos, Expr target, String name, Pos namePos) implements Expr {
+        public MethodRef(Pos pos, Expr target, String name) {
+            this(pos, target, name, pos);
+        }
     }
 
     /**

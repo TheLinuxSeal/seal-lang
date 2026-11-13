@@ -1,7 +1,7 @@
 {
   "name": "seal",
   "displayName": "Seal",
-  "description": "Syntax highlighting for the Seal programming language",
+  "description": "The Seal programming language: highlighting, and seal lsp's errors, hover, go to definition and outline",
   "version": "0.1.0",
   "publisher": "thelinuxseal",
   "license": "GPL-3.0-only",
@@ -13,7 +13,28 @@
     "vscode": "^1.60.0"
   },
   "categories": ["Programming Languages"],
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:seal"],
   "contributes": {
+    "configuration": {
+      "title": "Seal",
+      "properties": {
+        "seal.path": {
+          "type": "string",
+          "default": "seal",
+          "description": "The seal command, which the language server is started with as seal lsp: a path, or a name on PATH."
+        },
+        "seal.serverArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Options for seal lsp, as for seal check: --classpath PATH, --stdlib DIR, -Wall, -Wvar..."
+        }
+      }
+    },
+    "commands": [
+      { "command": "seal.restartServer", "title": "Seal: Restart the Language Server" }
+    ],
     "languages": [
       {
         "id": "seal",

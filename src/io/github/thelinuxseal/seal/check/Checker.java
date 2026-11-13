@@ -175,6 +175,39 @@ public final class Checker {
         return c;
     }
 
+    /**
+     * As {@link #analyze(Map, Map, Set, JavaClasses)}, keeping what checking each body found, for
+     * an editor's language server (docs/LSP.md): {@link #checkedBodies}.
+     */
+    public static Checker analyzeForTools(Map<String, String> sources, Map<String, String> library, Set<Warning> warn,
+                                          JavaClasses java) {
+        Checker c = new Checker();
+        c.warn.addAll(warn);
+        c.javaClasses = java;
+        c.javaRestricted = Set.of();
+        c.kept = new ArrayList<>();
+        c.run(sources, library);
+        return c;
+    }
+
+    /** A member's body as checking it found it: each expression's type, what each name and call is. */
+    public record Checked(ClassInfo cls, MemberInfo member, TypedBody body) {
+    }
+
+    /** The bodies checked, with {@link #analyzeForTools}: one for each shape of a member's class; empty otherwise. */
+    public List<Checked> checkedBodies() {
+        return kept == null ? List.of() : List.copyOf(kept);
+    }
+
+    /** With {@link #analyzeForTools}, the bodies checked; null otherwise. */
+    private List<Checked> kept;
+
+    private void keep(ClassInfo c, MemberInfo m, Body b, List<Type> params, Type ret) {
+        if (kept != null) {
+            kept.add(new Checked(c, m, new TypedBody(c.file, b, params, ret, List.of())));
+        }
+    }
+
     /** The Java classes the program sees (docs/JAVA.md §6). */
     public JavaClasses javaClasses() {
         return javaClasses;
@@ -4550,6 +4583,7 @@ public final class Checker {
                                 requireConvertible(b, f.init(), t, ft, "initializer of " + f.name());
                                 requireNotCopied(b, f.init(), ft, "initializer of " + f.name());
                             }
+                            keep(c, m, b, List.of(), ft);
                         }
                     }
                     case Method md when isNative(md) -> {
@@ -4573,6 +4607,7 @@ public final class Checker {
                             continue; // abstract: only its signature is checked
                         }
                         checkBlock(b, md.body(), false);
+                        keep(c, m, b, params, ret);
                         if (!(ret instanceof VoidT) && !ret.isError() && !returns(md.body())) {
                             report(md.pos(), "method " + md.name() + " can reach its end without returning a " + ret);
                         }
@@ -4591,10 +4626,12 @@ public final class Checker {
                             b.paramNames.add(p.name());
                         }
                         checkBlock(b, ctor.body(), false);
+                        keep(c, m, b, List.of(), Type.VOID);
                     }
                     case Destructor d -> {
                         Body b = new Body(c, s, env, false, false, Type.VOID, "delete");
                         checkBlock(b, d.body(), false);
+                        keep(c, m, b, List.of(), Type.VOID);
                     }
                 }
             }
@@ -4910,10 +4947,24 @@ public final class Checker {
         return t;
     }
 
-    /** A type as source code writes it: List<int>, not the handle<List<int>> a class's value is held by. */
-    private static String written(Type t) {
+    /**
+     * A type as source code writes it: List<int>, not the handle<List<int>> a class's value is held
+     * by; also where it is an element, array<Dog><<3>>, or a type argument.
+     */
+    public static String written(Type t) {
         return switch (t) {
             case HandleT h -> written(h.target());
+            case AddrT a -> "addr<" + written(a.target()) + ">";
+            case ArrayT a -> {
+                List<String> lengths = new ArrayList<>();
+                Type e = a;
+                while (e instanceof ArrayT inner) {
+                    lengths.add(inner.size() == null ? "?" : inner.size().toString());
+                    e = inner.element();
+                }
+                yield "array<" + written(e) + "><<" + String.join(", ", lengths) + ">>";
+            }
+            case StrConstT str -> "string";
             case ClassT ct -> {
                 StringBuilder sb = new StringBuilder(ct.cls().name);
                 if (!ct.typeArgs().isEmpty()) {

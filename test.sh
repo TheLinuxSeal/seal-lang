@@ -24,6 +24,7 @@ suites=(
     io.github.thelinuxseal.seal.JavaInteropTest
     io.github.thelinuxseal.seal.EmbedTest
     io.github.thelinuxseal.seal.EditorsTest
+    io.github.thelinuxseal.seal.lsp.LspTest
 )
 
 failed=0

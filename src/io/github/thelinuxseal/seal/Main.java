@@ -31,6 +31,7 @@ import io.github.thelinuxseal.seal.parser.Parser;
  *   seal dump  [options] PATH...   print the generated class files
  *   seal build [options] PATH...   write the class files, and the runtime's, so that `java -cp DIR Main` runs
  *                                  the program (docs/JVM.md)
+ *   seal lsp   [options]           the language server editors start, on standard input and output (docs/LSP.md)
  *
  *   -d DIR            where build writes the class files (default: classes)
  *   --jar FILE        build writes a jar instead, with the runtime's classes; a program's runs with java -jar FILE
@@ -68,8 +69,15 @@ public final class Main {
 
     /** Runs the command line with the program's standard input, output and error. */
     public static int run(String[] args, java.io.InputStream in, PrintStream out, PrintStream err) throws IOException {
+        if (args.length >= 1 && args[0].equals("lsp")) {
+            if (out == System.out) {
+                System.setOut(err); // what else prints goes to the log, not into the messages to the editor
+            }
+            return io.github.thelinuxseal.seal.lsp.LanguageServer.run(java.util.Arrays.copyOfRange(args, 1, args.length),
+                    in, out, err);
+        }
         if (args.length < 2) {
-            err.println("usage: seal run|check|dump|build [--main Class] [--classpath PATH] [-d DIR] [--jar FILE]"
+            err.println("usage: seal run|check|dump|build|lsp [--main Class] [--classpath PATH] [-d DIR] [--jar FILE]"
                     + " [--resources DIR] [--library] [-WautoCast] [-WautoCastLossy] [-Wassert] [-Wdiamond] [-WmissingDiamond] [-Wvar] [-Wall] PATH...");
             return 2;
         }
