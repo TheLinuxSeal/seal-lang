@@ -338,6 +338,28 @@ public final class StdlibTest {
                 string<<5>> loud = word.toUpper();
                 System.stdout.println(loud + word);
                 """, "jello ell JELLO abc\nababab||jeLLo\nHELLOhello\n");
+        // Made at once from the array: one character at a time, 300,000 of them took minutes.
+        run("long strings from builders and arrays, and empty ones", """
+                StringBuilder b = new StringBuilder();
+                for (int i = 0; i < 50_000; i++) { b.append(i % 10).append("ab").append(','); }
+                string s = b.toString();
+                array<char> cs = new array<char>(300_000);
+                cs.fill('z');
+                cs[299_999] = '!';
+                string t = new string(cs);
+                System.stdout.println("" + s.length() + " " + s.substring(0, 9) + " " + s.charAt(199_996) + " " + t.length() + " "
+                        + t.charAt(299_998) + t.charAt(299_999) + " " + (new string(cs, 299_998, 2) == "z!"));
+                array<char> none = new array<char>(0);
+                System.stdout.println("[" + new string(none) + new string(cs, 300_000, 0) + new StringBuilder().toString() + "]"
+                        + (new string(none) == ""));
+                """, "200000 0ab,1ab,2 9 300000 z! true\n[]true\n");
+        run("a string read from memory", """
+                addr<char> text = new<char>(4);
+                for (int i = 0; i < 4; i++) { &(text + i * sizeof(char)) = (char)('w' + i); }
+                System.stdout.println("[" + string.fromChars(text, 4) + "][" + string.fromChars(text, 2) + "]["
+                        + string.fromChars(text, 0) + "][" + string.fromChars(text, -1) + "]");
+                delete text;
+                """, "[wxyz][wx][][]\n");
         run("comparison", """
                 string a = "apple";
                 string<<6>> b = "banana";

@@ -1,0 +1,6 @@
+class Pair {
+    public int a;
+    public int b;
+    public new(int x, int y) { a = x; b = y; }
+    public int sum() { return a + b; }
+}

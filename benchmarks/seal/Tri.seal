@@ -1,0 +1,6 @@
+class Tri implements(Shape) {
+    double b;
+    double h;
+    public new(double base, double height) { b = base; h = height; }
+    public double area() { return 0.5 * b * h; }
+}

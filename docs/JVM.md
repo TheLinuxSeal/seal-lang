@@ -436,7 +436,11 @@ language (part of M0):
   `room`, `substring`, `toUpper`, `toLower`, `replace`, `repeat`, `equals`, `compare`, and
   `Double.toString` and `Float.toString`. A `void` method of a string (`put`, `room`, `+=`) returns
   the new `String`, which the caller stores where the string came from; a constructor starts from
-  `""` and returns the string it made.
+  `""` and returns the string it made. Adding a character makes a new `String`, as Java's `s + c`
+  does, so a string of many characters is made from an `array<char>` at once, by `ofChars`
+  (`new String(chars, offset, count)`): `new string(chars)`, `StringBuilder.toString()` and
+  `Integer.toString` do. Adding their characters one at a time, as they did until 2026-11-12, took
+  time growing with the square of the length: minutes for a `StringBuilder` of a million numbers.
 
 ### 8.3 Natives
 

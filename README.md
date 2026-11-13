@@ -209,6 +209,14 @@ generics, fixed point, files, packages, static imports, pure functions and Java'
 three that use Java libraries: a Minecraft mod, a window drawn with OpenGL through LWJGL, and a
 Minecraft mod that runs macros written in Seal. [`examples/README.md`](examples/README.md) says what each one shows.
 
+## Speed
+
+Seal and Java run on the same JIT, and on numbers, arrays, objects and calls Seal is as fast as
+Java, its bytecode there being much the same as javac's. Its collections of numbers are faster, as
+`List<int>` holds plain ints where Java boxes them; structs, fixed arrays, sorting and turning
+numbers into text are slower, for reasons [`benchmarks/README.md`](benchmarks/README.md) gives with
+its measurements (`java benchmarks/Run.java` runs them).
+
 ## Status
 
 Seal is young and still changing. Programs compile to JVM class files, with Minecraft modding as
@@ -250,6 +258,7 @@ And at the top of the repository:
 | `stdlib/` | the standard library, in Seal: `seal/lang/`, `seal/util/`, `seal/io/`, and the built-in `string` and `array` |
 | `examples/` | example programs and their output |
 | `editors/` | syntax highlighting for VSCodium, IntelliJ IDEA and Kate, and their language server setup (`editors/README.md`) |
+| `benchmarks/` | the same kernels in Seal and in Java, and how their times compare (`benchmarks/README.md`) |
 | `test/` | the test suites, run by `./test.sh` |
 | `SPEC.md` | the language specification |
 

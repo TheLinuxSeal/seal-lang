@@ -1,0 +1,456 @@
+// Benchmarks (benchmarks/README.md): kernels that each do one kind of work and
+// return a checksum, which java/Main.java's kernel of the same name must match.
+// Reads a kernel's name and how many times to run it from standard input, and
+// prints "nanoseconds checksum" for each run. benchmarks/Run.java runs them.
+import seal.util.HashMap;
+import seal.util.List;
+
+struct Main {
+    // ------------------------------------------------------------ integers
+
+    static int<<64>> intArith() {
+        int x = 1;
+        int acc = 0;
+        for (int i = 0; i < 200_000_000; i++) {
+            x = x * 1103515245 + 12345;
+            x = x ^ (x <<< -13);
+            acc = acc + (x & 1023);
+        }
+        return acc + x;
+    }
+
+    static int<<64>> intDiv() {
+        int acc = 0;
+        for (int i = 1; i < 50_000_000; i++) {
+            acc = acc + (1_000_000_007 % i) + (i / 3);
+        }
+        return acc;
+    }
+
+    static int<<64>> longArith() {
+        int<<64>> x = 1;
+        int<<64>> acc = 0;
+        for (int i = 0; i < 200_000_000; i++) {
+            x = x * 6364136223846793005 + 1442695040888963407;
+            x = x ^ (x <<< -29);
+            acc = acc + (x & 1023);
+        }
+        return acc + x;
+    }
+
+    static int<<64>> shortArith() {
+        int<<16>> x = 1;
+        int acc = 0;
+        for (int i = 0; i < 200_000_000; i++) {
+            x = x * 25173 + 13849;
+            x = x ^ (x <<< -5);
+            acc = acc + (x & 255);
+        }
+        return acc + x;
+    }
+
+    static int<<64>> uintArith() {
+        uint x = 1;
+        uint acc = 0;
+        uint high = 0;
+        for (int i = 1; i < 50_000_000; i++) {
+            x = x * 1664525 + 1013904223;
+            uint d = (uint)i;
+            acc = acc + x / d;
+            if (x > 2147483648) { high = high + 1; }
+        }
+        return (int<<64>>)acc + high;
+    }
+
+    // ------------------------------------------------------------ floating point
+
+    static int<<64>> doubleArith() {
+        double sum = 0.0;
+        double sign = 1.0;
+        for (int i = 0; i < 100_000_000; i++) {
+            sum = sum + sign / (2.0 * i + 1.0);
+            sign = -sign;
+        }
+        return (int<<64>>)(sum * 1000000000000.0);
+    }
+
+    static int<<64>> doubleMath() {
+        double acc = 0.0;
+        for (int i = 0; i < 50_000_000; i++) {
+            double x = i * 0.0000001;
+            acc = acc + Math.sqrt(x) + ((((x * 0.3 + 0.2) * x + 0.1) * x - 0.5) * x + 1.0);
+        }
+        return (int<<64>>)(acc * 1000.0);
+    }
+
+    static int<<64>> floatMath() {
+        float acc = 0.0;
+        for (int i = 0; i < 50_000_000; i++) {
+            float x = (i % 10000) * 0.0001;
+            acc = acc + Math.sqrt(x) + ((((x * 0.3 + 0.2) * x + 0.1) * x - 0.5) * x + 1.0);
+        }
+        return (int<<64>>)(acc * 10.0);
+    }
+
+    // ------------------------------------------------------------ arrays
+
+    static int<<64>> intArray() {
+        int n = 4_000_000;
+        array<int> a = new array<int>(n);
+        for (int i = 0; i < n; i++) { a[i] = (i * 7) ^ i; }
+        int<<64>> sum = 0;
+        for (int pass = 0; pass < 25; pass++) {
+            for (int i = 0; i < n; i++) { sum = sum + a[i]; }
+            for (int i = 0; i < n; i++) { a[i] = a[i] * 3 + pass; }
+        }
+        return sum;
+    }
+
+    static int<<64>> doubleArray() {
+        int n = 2_000_000;
+        array<double> x = new array<double>(n);
+        array<double> y = new array<double>(n);
+        for (int i = 0; i < n; i++) {
+            x[i] = i * 0.5;
+            y[i] = 1.0 / (i + 1);
+        }
+        double dot = 0.0;
+        for (int pass = 0; pass < 25; pass++) {
+            for (int i = 0; i < n; i++) { y[i] = 1.0001 * x[i] + y[i]; }
+            for (int i = 0; i < n; i++) { dot = dot + x[i] * y[i]; }
+        }
+        return (int<<64>>)(dot / 1000000000.0);
+    }
+
+    static int<<64>> matmul() {
+        int n = 400;
+        array<double> a = new array<double>(n * n);
+        array<double> b = new array<double>(n * n);
+        array<double> c = new array<double>(n * n);
+        for (int i = 0; i < n * n; i++) {
+            a[i] = (i % 13) * 0.25;
+            b[i] = (i % 7) * 0.5;
+        }
+        for (int i = 0; i < n; i++) {
+            for (int k = 0; k < n; k++) {
+                double aik = a[i * n + k];
+                for (int j = 0; j < n; j++) {
+                    c[i * n + j] = c[i * n + j] + aik * b[k * n + j];
+                }
+            }
+        }
+        double sum = 0.0;
+        for (int i = 0; i < n * n; i++) { sum = sum + c[i]; }
+        return (int<<64>>)sum;
+    }
+
+    static int<<64>> byteArray() {
+        int n = 8_000_000;
+        array<uint<<8>>> data = new array<uint<<8>>>(n);
+        uint x = 7;
+        for (int i = 0; i < n; i++) {
+            x = x * 1664525 + 1013904223;
+            data[i] = x <<< -24;
+        }
+        int<<64>> total = 0;
+        for (int pass = 0; pass < 10; pass++) {
+            int a = 1;
+            int b = 0;
+            for (int i = 0; i < n; i++) {
+                a = (a + data[i]) % 65521;
+                b = (b + a) % 65521;
+            }
+            total = total + ((b <<< 16) | a);
+        }
+        return total;
+    }
+
+    static int<<64>> sieve() {
+        int n = 20_000_000;
+        array<bit> composite = new array<bit>(n + 1);
+        int count = 0;
+        for (int i = 2; i <= n; i++) {
+            if (!composite[i]) {
+                count++;
+                if (i <= n / i) {
+                    for (int j = i * i; j <= n; j += i) { composite[j] = true; }
+                }
+            }
+        }
+        return count;
+    }
+
+    static array<int> randomInts(int n) {
+        array<int> a = new array<int>(n);
+        int x = 12345;
+        for (int i = 0; i < n; i++) {
+            x = x * 1103515245 + 12345;
+            a[i] = x;
+        }
+        return a;
+    }
+
+    static int<<64>> sortedSum(array<int> a) {
+        int<<64>> sum = 0;
+        for (int i = 0; i < a.length(); i += 1000) { sum = sum * 31 + a[i]; }
+        return sum;
+    }
+
+    static int<<64>> sortLib() {
+        array<int> a = randomInts(1_000_000);
+        a.sort();
+        return sortedSum(a);
+    }
+
+    static void siftDown(array<int> a, int start, int end) {
+        int root = start;
+        while (root * 2 + 1 < end) {
+            int child = root * 2 + 1;
+            if (child + 1 < end && a[child] < a[child + 1]) { child++; }
+            if (!(a[root] < a[child])) { return; }
+            int t = a[root];
+            a[root] = a[child];
+            a[child] = t;
+            root = child;
+        }
+    }
+
+    static int<<64>> sortHeap() {
+        array<int> a = randomInts(1_000_000);
+        int n = a.length();
+        for (int start = n / 2 - 1; start >= 0; start--) { siftDown(a, start, n); }
+        for (int end = n - 1; end > 0; end--) {
+            int t = a[0];
+            a[0] = a[end];
+            a[end] = t;
+            siftDown(a, 0, end);
+        }
+        return sortedSum(a);
+    }
+
+    static int<<64>> fixedArray() {
+        array<int><<1024>> a;
+        for (int i = 0; i < 1024; i++) { a[i] = i; }
+        int<<64>> total = 0;
+        for (int pass = 0; pass < 50_000; pass++) {
+            for (int i = 1; i < 1024; i++) { a[i] = a[i] + a[i - 1] - pass; }
+            total = total + a[1023];
+        }
+        return total;
+    }
+
+    // ------------------------------------------------------------ collections and text
+
+    static int<<64>> listInt() {
+        List<int> xs = new List();
+        for (int i = 0; i < 5_000_000; i++) { xs.add(i ^ 0x5555); }
+        int<<64>> sum = 0;
+        for (int pass = 0; pass < 4; pass++) {
+            for (int i = 0; i < xs.size(); i++) { sum = sum + xs.get(i); }
+            for (int i = 0; i < xs.size(); i++) { xs.set(i, xs.get(i) + 1); }
+        }
+        return sum;
+    }
+
+    static int<<64>> hashMap() {
+        HashMap<int, int> m = new HashMap();
+        int n = 500_000;
+        int x = 1;
+        for (int i = 0; i < n; i++) {
+            x = x * 1103515245 + 12345;
+            m.put(x, i);
+        }
+        int<<64>> sum = 0;
+        x = 1;
+        for (int i = 0; i < n; i++) {
+            x = x * 1103515245 + 12345;
+            sum = sum + m.get(x);
+            sum = sum + m.getOrDefault(i, -1);
+        }
+        return sum + m.size();
+    }
+
+    static int<<64>> stringBuilder() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 1_000_000; i++) {
+            sb.append(i);
+            sb.append(',');
+        }
+        string s = sb.toString();
+        int<<64>> sum = s.length();
+        for (int i = 0; i < s.length(); i++) { sum = sum + (int)s.charAt(i); }
+        return sum;
+    }
+
+    static int<<64>> stringConcat() {
+        int<<64>> total = 0;
+        for (int i = 0; i < 1_000_000; i++) {
+            string s = "item" + i + "/" + (i * 3);
+            total = total + s.length() + (int)s.charAt(s.length() - 1);
+        }
+        return total;
+    }
+
+    // ------------------------------------------------------------ objects
+
+    static int<<64>> virtualCalls() {
+        int n = 1_000_000;
+        array<Shape> shapes = new array<Shape>(n);
+        for (int i = 0; i < n; i++) {
+            int k = i % 3;
+            if (k == 0) { shapes[i] = new Circle(i % 10); }
+            else if (k == 1) { shapes[i] = new Square(i % 10); }
+            else { shapes[i] = new Tri(i % 10, i % 7); }
+        }
+        double total = 0.0;
+        for (int pass = 0; pass < 20; pass++) {
+            for (int i = 0; i < n; i++) { total = total + shapes[i].area(); }
+        }
+        return (int<<64>>)total;
+    }
+
+    static int<<64>> allocObjects() {
+        array<Pair> ring = new array<Pair>(1024);
+        for (int i = 0; i < 1024; i++) { ring[i] = new Pair(0, 0); }
+        int<<64>> acc = 0;
+        for (int i = 0; i < 20_000_000; i++) {
+            ring[i & 1023] = new Pair(i, i + 1);
+            acc = acc + ring[(i + 512) & 1023].sum();
+        }
+        return acc;
+    }
+
+    static int<<64>> structArray() {
+        int n = 200_000;
+        array<Particle> ps = new array<Particle>(n);
+        for (int i = 0; i < n; i++) { ps[i] = new Particle(i, -i, (i % 7) * 0.1, (i % 5) * 0.2); }
+        for (int step = 0; step < 50; step++) {
+            for (int i = 0; i < n; i++) {
+                Particle p = ps[i];
+                p.x = p.x + p.vx * 0.01;
+                p.y = p.y + p.vy * 0.01;
+                if (p.x > 1000.0) { p.vx = -p.vx; }
+                ps[i] = p;
+            }
+        }
+        double sum = 0.0;
+        for (int i = 0; i < n; i++) { sum = sum + ps[i].x + ps[i].y; }
+        return (int<<64>>)sum;
+    }
+
+    static int<<64>> structLocals() {
+        Vec2 pos = new Vec2(0.0, 0.0);
+        Vec2 vel = new Vec2(1.0, 0.5);
+        for (int i = 0; i < 20_000_000; i++) {
+            pos = pos + vel * 0.001;
+            vel = vel - pos * 0.0001;
+        }
+        return (int<<64>>)((pos.x + pos.y) * 1000000.0);
+    }
+
+    // ------------------------------------------------------------ mixed
+
+    static int<<64>> fixedMandel() {
+        int<<64>> total = 0;
+        fixed<<10, 22>> step = 0.005;
+        for (int row = 0; row < 400; row++) {
+            fixed<<10, 22>> ci = (fixed<<10, 22>>)row * step - 1.0;
+            for (int col = 0; col < 600; col++) {
+                fixed<<10, 22>> cr = (fixed<<10, 22>>)col * step - 2.0;
+                fixed<<10, 22>> zr = 0;
+                fixed<<10, 22>> zi = 0;
+                int i = 0;
+                while (i < 100) {
+                    fixed<<10, 22>> zr2 = zr * zr;
+                    fixed<<10, 22>> zi2 = zi * zi;
+                    if (zr2 + zi2 > 4) { break; }
+                    zi = zr * zi * 2 + ci;
+                    zr = zr2 - zi2 + cr;
+                    i++;
+                }
+                total = total + i;
+            }
+        }
+        return total;
+    }
+
+    static int<<64>> doubleMandel() {
+        int<<64>> total = 0;
+        for (int row = 0; row < 400; row++) {
+            double ci = row * 0.005 - 1.0;
+            for (int col = 0; col < 600; col++) {
+                double cr = col * 0.005 - 2.0;
+                double zr = 0.0;
+                double zi = 0.0;
+                int i = 0;
+                while (i < 100) {
+                    double zr2 = zr * zr;
+                    double zi2 = zi * zi;
+                    if (zr2 + zi2 > 4.0) { break; }
+                    zi = zr * zi * 2.0 + ci;
+                    zr = zr2 - zi2 + cr;
+                    i++;
+                }
+                total = total + i;
+            }
+        }
+        return total;
+    }
+
+    static int fib(int n) {
+        if (n < 2) { return n; }
+        return fib(n - 1) + fib(n - 2);
+    }
+
+    static int<<64>> recursion() { return fib(35); }
+
+    // ------------------------------------------------------------ harness
+
+    /** The kernel of this name's checksum; -1 for a name that isn't one. */
+    static int<<64>> run(string name) {
+        if (name == "intArith") { return intArith(); }
+        if (name == "intDiv") { return intDiv(); }
+        if (name == "longArith") { return longArith(); }
+        if (name == "shortArith") { return shortArith(); }
+        if (name == "uintArith") { return uintArith(); }
+        if (name == "doubleArith") { return doubleArith(); }
+        if (name == "doubleMath") { return doubleMath(); }
+        if (name == "floatMath") { return floatMath(); }
+        if (name == "intArray") { return intArray(); }
+        if (name == "doubleArray") { return doubleArray(); }
+        if (name == "matmul") { return matmul(); }
+        if (name == "byteArray") { return byteArray(); }
+        if (name == "sieve") { return sieve(); }
+        if (name == "sortLib") { return sortLib(); }
+        if (name == "sortHeap") { return sortHeap(); }
+        if (name == "fixedArray") { return fixedArray(); }
+        if (name == "listInt") { return listInt(); }
+        if (name == "hashMap") { return hashMap(); }
+        if (name == "stringBuilder") { return stringBuilder(); }
+        if (name == "stringConcat") { return stringConcat(); }
+        if (name == "virtualCalls") { return virtualCalls(); }
+        if (name == "allocObjects") { return allocObjects(); }
+        if (name == "structArray") { return structArray(); }
+        if (name == "structLocals") { return structLocals(); }
+        if (name == "fixedMandel") { return fixedMandel(); }
+        if (name == "doubleMandel") { return doubleMandel(); }
+        if (name == "recursion") { return recursion(); }
+        return -1;
+    }
+
+    static int main() {
+        string name = System.stdin.readLine();
+        int runs = (int)Integer.parse(System.stdin.readLine());
+        for (int r = 0; r < runs; r++) {
+            int<<64>> t0 = System.nanoTime();
+            int<<64>> check = run(name);
+            if (check == -1) {
+                System.stdout.println("no kernel " + name);
+                return 1;
+            }
+            int<<64>> t1 = System.nanoTime();
+            System.stdout.println(Integer.toString(t1 - t0) + " " + Integer.toString(check));
+        }
+        return 0;
+    }
+}

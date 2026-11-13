@@ -36,8 +36,7 @@ struct string<<int N>> {
 
     /** The characters of an array, as Java's new String(char[]). */
     public new<<>>(array<char> chars) {
-        room(chars.length());
-        for (int i = 0; i < chars.length(); i++) { put(chars[i]); }
+        put(ofChars(chars, 0, chars.length()));
     }
 
     /** count characters of an array, from offset on, as Java's new String(char[], offset, count). */
@@ -45,9 +44,14 @@ struct string<<int N>> {
         if (offset < 0 || count < 0 || offset > chars.length() - count) {
             throw new IndexOutOfBoundsException("offset " + offset + " and count " + count + " out of range for an array of length " + chars.length());
         }
-        room(count);
-        for (int i = 0; i < count; i++) { put(chars[offset + i]); }
+        put(ofChars(chars, offset, count));
     }
+
+    /**
+     * count characters of an array from offset, which are in it, as a new string, made at once:
+     * adding characters one at a time copies the string each time (`put` below).
+     */
+    @jvm("Strings.ofChars") static string ofChars(array<char> chars, int offset, int count);
 
     /** The n characters the last file operation produced, as a new bare string (§42.1). */
     @jvm("Natives.takeText") private<Files, Reader> static string takeText(int n);
@@ -70,10 +74,10 @@ struct string<<int N>> {
 
     /** A bare string holding n characters read from memory. */
     public static string fromChars(addr<char> chars, int n) {
-        string s;
-        s.room(n);
-        for (int i = 0; i < n; i++) { s.put(&(chars + (int<<64>>)i * 16)); }
-        return s;
+        if (n <= 0) { return ""; }
+        array<char> read = new array<char>(n);
+        for (int i = 0; i < n; i++) { read[i] = &(chars + (int<<64>>)i * 16); }
+        return ofChars(read, 0, n);
     }
 
     // ------------------------------------------------------------ size

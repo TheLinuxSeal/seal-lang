@@ -1,0 +1,8 @@
+struct Particle {
+    public double x;
+    public double y;
+    public double vx;
+    public double vy;
+    public new() { }
+    public new(double x0, double y0, double vx0, double vy0) { x = x0; y = y0; vx = vx0; vy = vy0; }
+}

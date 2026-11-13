@@ -1,0 +1,5 @@
+class Circle implements(Shape) {
+    double r;
+    public new(double radius) { r = radius; }
+    public double area() { return 3.14159 * r * r; }
+}

@@ -1,0 +1,5 @@
+class Square implements(Shape) {
+    double s;
+    public new(double side) { s = side; }
+    public double area() { return s * s; }
+}

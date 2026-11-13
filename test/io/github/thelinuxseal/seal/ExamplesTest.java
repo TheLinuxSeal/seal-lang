@@ -50,6 +50,17 @@ public final class ExamplesTest {
                         + (errText.isEmpty() ? "" : "\n    stderr: " + errText.strip()));
             }
         }
+        // The benchmarks take minutes (benchmarks/Run.java): here, only that their Seal program still compiles.
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        int code = Main.run(new String[]{"check", "benchmarks/seal"},
+                new PrintStream(out, true, StandardCharsets.UTF_8), new PrintStream(err, true, StandardCharsets.UTF_8));
+        String said = (out.toString(StandardCharsets.UTF_8) + err.toString(StandardCharsets.UTF_8)).strip();
+        if (code == 0 && said.isEmpty()) {
+            passed++;
+        } else {
+            failures.add("benchmarks/seal: exit " + code + (said.isEmpty() ? "" : "\n    " + said));
+        }
         System.out.println(passed + " passed, " + failures.size() + " failed"
                 + (skipped.isEmpty() ? "" : "  (" + String.join(", ", skipped) + " run with their own scripts, not here)"));
         failures.forEach(f -> System.out.println("FAIL: " + f));

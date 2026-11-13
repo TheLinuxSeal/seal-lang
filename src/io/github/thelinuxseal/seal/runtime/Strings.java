@@ -17,12 +17,23 @@ public final class Strings {
         return s.charAt(i);
     }
 
+    /**
+     * A character added to a string: a new String, a copy of the whole of it, as Java's s + c. Code
+     * that makes a string of many characters makes them an array first, and the string from it at
+     * once (ofChars), as adding them one at a time takes time growing with the square of the length.
+     */
     public static String put(String s, char c) {
         return s + c;
     }
 
+    /** A string added to one: the other itself when this one is empty, as Strings never change. */
     public static String put(String s, String more) {
-        return s.concat(more);
+        return s.isEmpty() ? more : s.concat(more);
+    }
+
+    /** count characters of an array from offset, which the caller has checked are in it, as one String. */
+    public static String ofChars(char[] chars, int offset, int count) {
+        return new String(chars, offset, count);
     }
 
     /** Making room in a string's buffer: nothing to do for a String. */
