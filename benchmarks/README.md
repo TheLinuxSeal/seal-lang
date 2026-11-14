@@ -84,7 +84,7 @@ kernel, the median of 3 rounds' medians of 10 runs, after 5 to warm up:
 | stringConcat | 23.0 | 22.4 | 0.98 |
 | virtualCalls | 97.3 | 101.9 | 1.05 |
 | allocObjects | 55.4 | 71.4 | 1.29 |
-| structArray | 29.0 | 43.6 | 1.51 |
+| structArray | 29.0 | 24.9 | 0.86 |
 | structLocals | 132.2 | 89.8 | 0.68 |
 | fixedMandel | 19.9 | 20.3 | 1.02 |
 | doubleMandel | 21.2 | 21.3 | 1.00 |
@@ -111,15 +111,14 @@ A chain of `+` on strings is one call of Java's `StringConcatFactory`, as javac 
   object for each number.
 * `structLocals`: the struct operators work on values in place; Java's record version was slower
   here, which wasn't looked into.
+* `structArray`: an `array<Particle>` is one block, its elements in a row, where Java's array holds
+  a reference to each object; and `p` is a JVM local per field (docs/JVM.md §4.5).
 * `shortArith`: a chain of `+`, `-`, `*`, `&`, `|` and `^` on an `int<<16>>` is normalized to 16
   bits once, at its end (docs/JVM.md §3.1), and `x ^ (x <<< -5)` not at all, both sides being
   16-bit values already; Java's `(short)` cast normalizes that one too.
 
 **Seal slower:**
 
-* `structArray`: structs live in storage blocks, `long[]`s that are read and written a field's
-  bits at a time (docs/JVM.md §4). A class's fields are JVM fields, as Java's are; a later
-  optimization can keep a struct's fields in JVM locals (docs/JVM.md §4.5).
 * `byteArray`: the inner loop is the same as before (an `array<uint<<8>>>` is an `int[]`, where
   Java's is a `byte[]`), and took 3% longer than Java's while `(b <<< 16) | a`, outside it, called
   `Ints.shift`. With that shift inline, as javac's, C2 unrolls the inner loop 8 times rather than
@@ -158,3 +157,8 @@ A chain of `+` on strings is one call of Java's `StringConcatFactory`, as javac 
 * 2026-11-13: a fixed array lived in the frame's storage block, read and written a word's bits at
   a time, so `fixedArray` took 4.8 times as long as Java's. One its method only indexes is a Java
   array now (docs/JVM.md §4.5): 29.6 ms (from 139; Java's 29.4).
+* 2026-11-13: `Particle p = ps[i]` copied the element into the frame's block, whose fields were then
+  read and written there, a word's bits at a time, and copied back by `ps[i] = p`: `structArray`
+  took 1.5 times as long as Java's. A struct its method only uses by its fields, and copies whole,
+  is a JVM local per field now, read from the element and stored into it field by field (docs/JVM.md
+  §4.5): 24.9 ms (from 43.6; Java's 29.0).

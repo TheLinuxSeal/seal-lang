@@ -213,9 +213,10 @@ Minecraft mod that runs macros written in Seal. [`examples/README.md`](examples/
 
 Seal and Java run on the same JIT, and on numbers, arrays and fixed arrays, objects, calls,
 sorting and joining strings with `+` Seal is as fast as Java, its bytecode there being much the
-same as javac's. Its collections of numbers are faster, as `List<int>` holds plain ints where Java
-boxes them; structs are slower, for reasons [`benchmarks/README.md`](benchmarks/README.md) gives
-with its measurements (`java benchmarks/Run.java` runs them).
+same as javac's. Its collections of numbers and arrays of structs are faster, as `List<int>` holds
+plain ints where Java boxes them, and an `array<Particle>` its elements in a row where Java's
+holds objects apart. [`benchmarks/README.md`](benchmarks/README.md) has the measurements, and
+where the differences come from (`java benchmarks/Run.java` runs them).
 
 ## Status
 

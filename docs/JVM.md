@@ -250,6 +250,18 @@ behind an address, made by a call) stays in the block, and so does one too large
 what compiles doesn't change. `fixedArray` took 4.8 times as long as Java's `int[1024]`, and
 takes as long now.
 
+Done for structs the same day: a local struct whose fields are numbers, bits, chars, strings or
+handles (none a struct, and nothing to destroy), which its method only reads and sets the fields
+of, sets whole (`p = q`) and copies whole (as its initializer, the value of an assignment, an
+argument, what is returned), is a JVM local per field, which the JIT keeps in registers. It is
+set field by field from the value it copies, read where it is: an element of an `array<T>` of
+structs is read in its block, not copied out by its `[]` first, and so is one whose field alone
+is read (`ps[i].x`); where it is copied, its fields are stored one by one. A method or operator
+of it called, a cast, a lambda, an address, keeps it in the block, as `LocalForms` decides for
+fixed arrays. `structArray`'s `Particle p = ps[i]; ...; ps[i] = p;` took 1.5 times as long as
+Java's objects, and now takes less, the elements being in one block where Java's are objects
+apart.
+
 ### 4.6 Done in M3
 
 - The runtime's `Block` is §4.1's, with an element count for an `array<T>` of structs, which is one

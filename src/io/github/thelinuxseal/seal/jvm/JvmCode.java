@@ -105,6 +105,8 @@ final class JvmCode {
     private java.util.Set<String> addressTaken = java.util.Set.of();
     /** The fixed-array locals the body only indexes: Java arrays in JVM locals (LocalForms, docs/JVM.md §4.5). */
     private java.util.Set<String> javaArrays = java.util.Set.of();
+    /** The struct locals the body uses only by their fields and copies whole: a JVM local per field (LocalForms, §4.5). */
+    private java.util.Set<String> splitStructs = java.util.Set.of();
 
     /** A unique made for a statement, and a flag in the frame set when it is: code may skip making it (`a && f()`). */
     private record Temp(Stored value, Mem made) {
@@ -128,7 +130,7 @@ final class JvmCode {
      */
     private final Map<Expr, Local> pinned = new java.util.IdentityHashMap<>();
 
-    sealed interface Var permits Local, Captured, Stored, JavaArray {
+    sealed interface Var permits Local, Captured, Stored, JavaArray, Split {
         Type type();
     }
 
@@ -155,6 +157,13 @@ final class JvmCode {
      * elements, as an array<T> of them is, in a JVM local (docs/JVM.md §4.5).
      */
     record JavaArray(ArrayT type, int slot) implements Var {
+    }
+
+    /**
+     * A struct that its method only reads and sets the fields of, and copies whole: a JVM local
+     * for each field, by the layout's members (docs/JVM.md §4.5).
+     */
+    record Split(ClassT type, Map<MemberInfo, Local> fields) implements Var {
     }
 
     /** A variable a lambda captured: a field of its class. */
@@ -271,6 +280,7 @@ final class JvmCode {
         }
         addressTaken = AddressTaken.in(md.body());
         javaArrays = LocalForms.javaArrays(md.body(), tb, addressTaken, this::plainFixedArray);
+        splitStructs = LocalForms.splitStructs(md.body(), tb, addressTaken, this::plainStruct);
         first = bindParams(md.params(), tb.params, first, params);
         openScope(params);
         block(md.body());
@@ -349,6 +359,7 @@ final class JvmCode {
             tb = typed(k.cls(), t, k.member(), k.binders());
             addressTaken = AddressTaken.in(ctor.body());
             javaArrays = LocalForms.javaArrays(ctor.body(), tb, addressTaken, this::plainFixedArray);
+            splitStructs = LocalForms.splitStructs(ctor.body(), tb, addressTaken, this::plainStruct);
             bindParams(ctor.params(), tb.params, 0, params);
             body = ctor.body().stmts();
         }
@@ -447,6 +458,7 @@ final class JvmCode {
             tb = typed(k.cls(), t, k.member(), k.binders());
             addressTaken = AddressTaken.in(ctor.body());
             javaArrays = LocalForms.javaArrays(ctor.body(), tb, addressTaken, this::plainFixedArray);
+            splitStructs = LocalForms.splitStructs(ctor.body(), tb, addressTaken, this::plainStruct);
             bindParams(ctor.params(), tb.params, 0, params);
         }
         thisLocal = new Local(t, c.allocateLocal(kind(t)));
@@ -472,6 +484,7 @@ final class JvmCode {
             tb = typed(k.cls(), t, k.member(), k.binders());
             addressTaken = AddressTaken.in(ctor.body());
             javaArrays = LocalForms.javaArrays(ctor.body(), tb, addressTaken, this::plainFixedArray);
+            splitStructs = LocalForms.splitStructs(ctor.body(), tb, addressTaken, this::plainStruct);
             bindParams(ctor.params(), tb.params, 2, params);
         }
         openScope(params);
@@ -537,6 +550,7 @@ final class JvmCode {
         thisMem = new Mem(c.parameterSlot(0), c.parameterSlot(1), 0);
         addressTaken = AddressTaken.in(d.body());
         javaArrays = LocalForms.javaArrays(d.body(), tb, addressTaken, this::plainFixedArray);
+        splitStructs = LocalForms.splitStructs(d.body(), tb, addressTaken, this::plainStruct);
         openScope(new HashMap<>());
         block(d.body());
         c.return_();
@@ -706,6 +720,7 @@ final class JvmCode {
                 ? new ExprStmt(lam.pos(), lam.expr()) : new Return(lam.pos(), lam.expr())));
         addressTaken = AddressTaken.in(body);
         javaArrays = LocalForms.javaArrays(body, tb, addressTaken, this::plainFixedArray);
+        splitStructs = LocalForms.splitStructs(body, tb, addressTaken, this::plainStruct);
         bindParams(lam.params(), li.params(), 0, params);
         if (li.iface().cls().java != null) {
             // Java passes its erased types, compare(Object, Object): each parameter checked as the Seal type it is (docs/JAVA.md §5).
@@ -760,6 +775,7 @@ final class JvmCode {
             case Stored st when !g.isAggregate(st.type()) -> loadFrom(st.mem(), st.type());
             case Stored st -> throw new IllegalStateException("a struct variable used as a single value: " + st.type());
             case JavaArray ja -> throw new IllegalStateException("a fixed array held as a Java array, used as a value: LocalForms let it through");
+            case Split sp -> throw new IllegalStateException("a struct held as its fields, used as a value: LocalForms let it through");
         }
     }
 
@@ -1074,6 +1090,93 @@ final class JvmCode {
         }
         value(index, Type.INT);
         boundsCheck((int) n, index.pos());
+    }
+
+    /**
+     * Whether a struct local can be held as its fields, if its method only uses it so (LocalForms):
+     * a struct, not a unique and with nothing to destroy, whose fields are numbers, bits, chars,
+     * strings or handles, none a value of its own.
+     */
+    private boolean plainStruct(Type t) {
+        if (!(t instanceof ClassT ct) || !g.isAggregate(ct) || Checker.isUnique(ct) || g.needsDestroy(ct)) {
+            return false;
+        }
+        try {
+            for (Type ft : g.layouts.of(ct).types().values()) {
+                if (g.isAggregate(ft) || ft instanceof JavaPrimT
+                        || (kind(ft) == TypeKind.REFERENCE && !isString(ft) && !(ft instanceof HandleT))) {
+                    return false;
+                }
+            }
+        } catch (Unsupported u) {
+            return false;
+        }
+        return true;
+    }
+
+    /** The local a name gives, if it is a struct held as its fields (§4.5); null for anything else. */
+    private Split split(Expr e) {
+        return e instanceof Name n && "local".equals(tb.nameKinds.get(n)) && !tb.rewritten.containsKey(n)
+                && !splitStructs.isEmpty() && lookup(n.name()) instanceof Split sp ? sp : null;
+    }
+
+    /** Sets a struct held as its fields to e's value: another's fields, or the fields of the value e makes or names. */
+    private void fillSplit(Split sp, Expr e) {
+        if (split(e) instanceof Split from) {
+            for (Map.Entry<MemberInfo, Local> f : sp.fields().entrySet()) {
+                Local src = from.fields().get(f.getKey());
+                c.loadLocal(load(src.type()), src.slot());
+                c.storeLocal(load(f.getValue().type()), f.getValue().slot());
+            }
+            return;
+        }
+        loadSplit(sp, readMem(e));
+    }
+
+    /** Sets a struct held as its fields from a value of its type in a block. */
+    private void loadSplit(Split sp, Mem src) {
+        for (Map.Entry<MemberInfo, Local> f : sp.fields().entrySet()) {
+            loadFrom(fieldMem(src, sp.type(), f.getKey()), f.getValue().type());
+            c.storeLocal(load(f.getValue().type()), f.getValue().slot());
+        }
+    }
+
+    /**
+     * Where e's struct value is, to read it at once: an element of an array<T> of structs where
+     * it is, which its [] would copy first (an assignment to a part of xs[i] changes a copy, so
+     * this is for reading only), else aggregateOf's place or copy.
+     */
+    private Mem readMem(Expr e) {
+        Expr x = e;
+        while (!pinned.containsKey(x) && tb.rewritten.get(x) instanceof Expr instead) {
+            x = instead;
+        }
+        if (x instanceof Index ix && !pinned.containsKey(x) && tb.calls.get(ix) instanceof CallInfo ci && isArray(ci.owner())
+                && g.isAggregate(ci.owner().typeArgs().get(0)) && ci.member().member instanceof Method md
+                && "array.get".equals(Checker.jvmName(md))) {
+            value(ix.target(), ci.owner());
+            return structElement(ci, ix.index(), ix.pos());
+        }
+        return aggregateOf(e);
+    }
+
+    /** With an array<T> of structs on the stack: the place of its element at index, checked as its [] checks one. */
+    private Mem structElement(CallInfo ci, Expr index, Pos at) {
+        ClassT owner = ci.owner();
+        long stride = g.layouts.stride(owner.typeArgs().get(0));
+        int array = c.allocateLocal(TypeKind.REFERENCE);
+        int slot = c.allocateLocal(TypeKind.INT);
+        c.astore(array);
+        value(index, Type.INT);
+        c.istore(slot);
+        c.aload(array);
+        c.iload(slot);
+        JvmGen.invoke(c, g.ref(new FnKey("method", owner.cls(), owner, member(owner, "check"), Map.of()), at));
+        c.iload(slot);
+        c.loadConstant((int) stride);
+        c.imul();
+        c.istore(slot);
+        return new Mem(array, slot, 0);
     }
 
     /** Pushes the value of type t stored at m. */
@@ -1484,6 +1587,31 @@ final class JvmCode {
                     flushTemps();
                     c.astore(slot);
                     scopes.peek().put(v.name(), new JavaArray(at, slot));
+                    return;
+                }
+                if (t instanceof ClassT ct && splitStructs.contains(v.name())) {
+                    // Only its fields used, and copied whole: a JVM local per field (docs/JVM.md §4.5).
+                    Layouts.Layout layout = g.layouts.of(ct);
+                    Map<MemberInfo, Local> fields = new java.util.LinkedHashMap<>();
+                    for (MemberInfo m : layout.offsets().keySet()) {
+                        Type ft = layout.types().get(m);
+                        fields.put(m, new Local(ft, c.allocateLocal(kind(ft))));
+                    }
+                    Split sp = new Split(ct, fields);
+                    Label start = here();
+                    if (v.init() != null) {
+                        fillSplit(sp, v.init());
+                    } else {
+                        pos = v.pos();
+                        requireDefaultConstructible(t, "variable " + v.name());
+                        Mem made = temp(t);
+                        zeroMem(made, t);
+                        initZeroed(made, t);
+                        loadSplit(sp, made);
+                    }
+                    guardTemps(start, stmtTemps);
+                    flushTemps();
+                    scopes.peek().put(v.name(), sp);
                     return;
                 }
                 if (g.isAggregate(t)) {
@@ -2286,6 +2414,15 @@ final class JvmCode {
                     switchExpr(se, t, dst);
                     return;
                 }
+                case Name n when split(n) instanceof Split sp -> {
+                    // A struct held as its fields, copied whole.
+                    for (Map.Entry<MemberInfo, Local> f : sp.fields().entrySet()) {
+                        push(fieldMem(dst, sp.type(), f.getKey()));
+                        c.loadLocal(load(f.getValue().type()), f.getValue().slot());
+                        storePushed(f.getValue().type());
+                    }
+                    return;
+                }
                 default -> {
                     Mem src = mem(e);
                     if (src == null) {
@@ -2357,8 +2494,8 @@ final class JvmCode {
         switch (e) {
             case Name n when "local".equals(tb.nameKinds.get(n)) -> {
                 Var v = lookup(n.name());
-                if (v instanceof JavaArray) {
-                    throw new IllegalStateException("a fixed array held as a Java array, used as a value: LocalForms let it through");
+                if (v instanceof JavaArray || v instanceof Split) {
+                    throw new IllegalStateException("a local held as a Java array or its fields, used as a value: LocalForms let it through");
                 }
                 return v instanceof Stored st ? st.mem() : null;
             }
@@ -2668,8 +2805,13 @@ final class JvmCode {
             return getStatic(m, s.pos());
         }
         Type tt = type(s.target());
+        if (split(s.target()) instanceof Split sp) {
+            Local l = sp.fields().get(m);
+            c.loadLocal(load(l.type()), l.slot());
+            return t;
+        }
         if (tt instanceof ClassT ct && g.isAggregate(ct)) {
-            loadFrom(fieldMem(aggregateOf(s.target()), ct, m), t);
+            loadFrom(fieldMem(readMem(s.target()), ct, m), t);
             return t;
         }
         Type target = value(s.target(), null);
@@ -3901,6 +4043,9 @@ final class JvmCode {
                 if (f.modifiers().isStatic()) {
                     return staticPlace(m);
                 }
+                if (split(s.target()) instanceof Split sp) {
+                    return new LocalPlace(sp.fields().get(m));
+                }
                 if (type(s.target()) instanceof ClassT ct && g.isAggregate(ct)) {
                     return new MemPlace(fieldMem(aggregateOf(s.target()), ct, m), type(s));
                 }
@@ -4017,6 +4162,10 @@ final class JvmCode {
         if (g.isAggregate(t)) {
             if (keep) {
                 throw unsupported(a.pos(), "the value of an assignment of a " + t);
+            }
+            if (split(a.target()) instanceof Split sp) {
+                fillSplit(sp, a.value());
+                return;
             }
             Mem dst = mem(a.target());
             if (dst == null) {
@@ -4664,19 +4813,7 @@ final class JvmCode {
                 c.astore(thisLocal.slot());
             }
             case "array.get", "array.set" -> {
-                int array = c.allocateLocal(TypeKind.REFERENCE);
-                int index = c.allocateLocal(TypeKind.INT);
-                c.astore(array);
-                value(args.get(0), Type.INT);
-                c.istore(index);
-                c.aload(array);
-                c.iload(index);
-                JvmGen.invoke(c, g.ref(new FnKey("method", owner.cls(), owner, member(owner, "check"), Map.of()), at));
-                c.iload(index);
-                c.loadConstant((int) stride);
-                c.imul();
-                c.istore(index);
-                Mem element_ = new Mem(array, index, 0);
+                Mem element_ = structElement(ci, args.get(0), at);
                 if (spec.equals("array.get")) {
                     copy(dst, element_, element);
                 } else if (isPlace(args.get(1))) {

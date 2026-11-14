@@ -3442,6 +3442,155 @@ struct Main {
                 "Main", main("Word<<40>> wide;\n")), "in Word<<40>>: an array's length must be less than 2 ** 31, not 1099511627776");
         compileError("and so is a value too large for memory", files("Main", main("array<int<<64>>><<2 ** 26>> wide;\n")),
                 "offset or size 4294967296 is too large");
+        // A struct its method only uses by its fields, and copies whole, is a JVM local per field (docs/JVM.md §4.5);
+        // one whose method or operator is called, captured, or holding a struct, stays in the block.
+        output("struct locals held as their fields, and ones that stay in the block", files("P", """
+                struct P {
+                    public int x;
+                    public double y;
+                    public string name;
+                    public bit on;
+                    public int<<8>> small;
+                    public char c;
+                    public fixed<<8, 8>> f;
+                    public Tag tag;
+                    public new() { }
+                    public new(int x0, double y0) { x = x0; y = y0; name = "p" + x0; }
+                    public int sum() { return x + (int)y; }
+                }
+                """,
+                "Tag", """
+                class Tag {
+                    public string label;
+                    public new(string l) { label = l; }
+                }
+                """,
+                "Init", """
+                struct Init {
+                    public int a = 41;
+                    public string s = "init";
+                    public double d;
+                    public new() { d = 2.5; }
+                }
+                """,
+                "Outer", """
+                struct Outer {
+                    public P inner;
+                    public int n;
+                    public new() { }
+                }
+                """,
+                "V", """
+                struct V {
+                    public double x;
+                    public double y;
+                    public new() { }
+                    public new(double x0, double y0) { x = x0; y = y0; }
+                    @overload(Operator.ADD) public V add(V o) { return new V(x + o.x, y + o.y); }
+                }
+                """,
+                "Main", """
+                import seal.util.function.Supplier;
+
+                struct Main {
+                    static string show(P p) { return p.name + ":" + p.x + "," + p.y + "," + p.on + "," + p.small + "," + p.c + "," + p.f + "," + (p.tag == null ? "-" : p.tag.label); }
+                    static P bump(P p) { p.x = p.x + 100; return p; }
+                    static P make(int k) { P p = new P(k, k * 0.5); p.on = true; return p; }
+                    static void change(P p) { p.x = -1; }
+
+                    static int main() {
+                        P a = new P(3, 1.5);
+                        a.x += 2; a.y *= 3.0; a.small = 127; a.small++; a.c = 'q'; a.c++; a.f = 1.5; a.f *= 2; a.on = !a.on;
+                        a.x[0] = false; a.x[4..8] = 9;
+                        a.tag = new Tag("t");
+                        a.name += "!";
+                        System.stdout.println(show(a));
+                        P b = a;
+                        System.stdout.println("copied " + show(b));
+                        b.x = 0;
+                        System.stdout.println(show(a) + " | " + show(b));
+                        P c;
+                        System.stdout.println(show(c));
+                        b.x = 21;
+                        c = b;
+                        System.stdout.println("assigned " + c.x + " " + c.name);
+                        c = c;
+                        c = new P(c.x + 1, c.y + a.y);
+                        System.stdout.println(show(c));
+                        change(c);
+                        System.stdout.println("after change " + c.x);
+                        P d = bump(c);
+                        System.stdout.println("bump " + c.x + " " + d.x);
+                        P e = make(7);
+                        System.stdout.println(show(e));
+                        array<P> ps = new array<P>(3);
+                        ps[0] = e;
+                        e.x = 99;
+                        ps[1] = a;
+                        P f = ps[0];
+                        f.y = f.y + ps[1].y;
+                        ps[2] = f;
+                        System.stdout.println(show(ps[0]) + " | " + show(ps[2]) + " | " + ps[1].x + " " + ps[2].name.length());
+                        array<P><<2>> fixedPs;
+                        fixedPs[1] = f;
+                        P g = fixedPs[1];
+                        g.x = g.x * 2;
+                        fixedPs[0] = g;
+                        System.stdout.println(fixedPs[0].x + " " + fixedPs[1].x);
+                        Init in1;
+                        System.stdout.println(in1.a + " " + in1.s + " " + in1.d);
+                        in1.a = 1;
+                        Init in2;
+                        System.stdout.println(in2.a + " " + in1.a);
+                        for (int i = 0; i < 3; i++) {
+                            P loop;
+                            loop.x = loop.x + i;
+                            System.stdout.print(loop.x + " ");
+                        }
+                        System.stdout.println("");
+                        P m = new P(5, 5.5);
+                        System.stdout.println("method " + m.sum());
+                        V v1 = new V(1.0, 2.0);
+                        V v2 = new V(0.5, 0.25);
+                        V v3 = v1 + v2;
+                        v3.x = v3.x * 10.0;
+                        System.stdout.println("ops " + v3.x + " " + v3.y);
+                        P cap = new P(8, 8.0);
+                        Supplier<int> sup = () -> cap.x + 1;
+                        System.stdout.println("lambda " + sup.get());
+                        Outer o;
+                        o.inner.x = 4;
+                        o.n = o.inner.x + 1;
+                        Outer o2 = o;
+                        o2.inner.x = 40;
+                        System.stdout.println("outer " + o.inner.x + " " + o.n + " " + o2.inner.x);
+                        P q = new P(1, 1.0);
+                        int i = 0;
+                        P r = ps[i++];
+                        System.stdout.println("index once " + i + " " + r.x);
+                        return 0;
+                    }
+                }
+                """),
+                "p3!:148,4.5,true,-128,r,3.0,t\n"
+                        + "copied p3!:148,4.5,true,-128,r,3.0,t\n"
+                        + "p3!:148,4.5,true,-128,r,3.0,t | p3!:0,4.5,true,-128,r,3.0,t\n"
+                        + ":0,0.0,false,0,\0,0.0,-\n"
+                        + "assigned 21 p3!\n"
+                        + "p22:22,9.0,false,0,\0,0.0,-\n"
+                        + "after change 22\n"
+                        + "bump 22 122\n"
+                        + "p7:7,3.5,true,0,\0,0.0,-\n"
+                        + "p7:7,3.5,true,0,\0,0.0,- | p7:7,8.0,true,0,\0,0.0,- | 148 2\n"
+                        + "14 7\n"
+                        + "41 init 2.5\n"
+                        + "41 1\n"
+                        + "0 1 2 \n"
+                        + "method 10\n"
+                        + "ops 15.0 2.25\n"
+                        + "lambda 9\n"
+                        + "outer 4 5 40\n"
+                        + "index once 1 7\n");
         // A fixed array its method only indexes is a Java array (docs/JVM.md §4.5); one used whole stays in the block.
         output("fixed arrays only indexed, of each kind, and ones passed, sorted, copied and captured", files("Main", """
                 import seal.util.function.Function;
