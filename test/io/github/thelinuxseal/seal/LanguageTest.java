@@ -3543,6 +3543,33 @@ struct Main {
                     }
                 }
                 """), "10 285 5 168 3 1402 57 5.25 6\n10 285 5 168 3 1402 57 5.25\n");
+        // NaN and -0.0 are equal to or unordered with others, so where they end up is the algorithm's: the
+        // compiler's must be the library's, step for step, on more elements than its insertion sort takes.
+        String unordered = "[3.5, 0.0 / 0.0, -0.0, 2.0, 0.0, -1.5, 0.0 / 0.0, 7.25, -0.0, 0.0, 1.0, -3.0, 0.0 / 0.0, 2.0, 0.5, -0.0, "
+                + "9.0, 0.0, -2.5, 0.0 / 0.0, 4.0, -0.0, 6.5, 0.0]";
+        output("a pure method sorts NaN and -0.0 while compiling as the program does", files("Order", """
+                struct Order {
+                    public static pure double of(array<double> xs) {
+                        array<double> s = xs.copy();
+                        s.sort();
+                        double h = 0.0;
+                        for (int k = 0; k < s.length(); k++) {
+                            double x = s[k];
+                            h = h * 3.0 + (x != x ? 1000.0 : x == 0.0 ? (1.0 / x > 0.0 ? 0.5 : -0.5) : x);
+                        }
+                        return h;
+                    }
+                }
+                """, "Main", """
+                struct Main {
+                    const double WHILE_COMPILING = Order.of(%s);
+                    static int main() {
+                        array<double> xs = %s;
+                        System.stdout.println(WHILE_COMPILING == Order.of(xs));
+                        return 0;
+                    }
+                }
+                """.formatted(unordered, unordered)), "true\n");
         compileError("an index outside an array, while compiling", files("Stats", stats, "Main", main("""
                         array<int><<Stats.median(Stats.squares(0))>> xs;
                         """)), "Stats.median(Stats.squares(0)) can't be worked out while compiling: it threw IndexOutOfBoundsException: "

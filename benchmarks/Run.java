@@ -35,7 +35,7 @@ public final class Run {
     static final List<String> KERNELS = List.of(
             "intArith", "intDiv", "longArith", "shortArith", "uintArith",
             "doubleArith", "doubleMath", "floatMath",
-            "intArray", "doubleArray", "matmul", "byteArray", "sieve", "sortLib", "sortHeap", "fixedArray",
+            "intArray", "doubleArray", "matmul", "byteArray", "sieve", "sortLib", "sortHeap", "sortDoubles", "fixedArray",
             "listInt", "hashMap", "stringBuilder", "stringConcat",
             "virtualCalls", "allocObjects", "structArray", "structLocals",
             "fixedMandel", "doubleMandel", "recursion");

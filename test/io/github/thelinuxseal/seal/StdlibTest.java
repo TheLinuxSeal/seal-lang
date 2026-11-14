@@ -538,6 +538,69 @@ public final class StdlibTest {
                 for (int i = 0; i < xs.size(); i += 1) { System.stdout.print(xs.get(i)); }
                 System.stdout.println();
                 """, "true\n321\n");
+        // Integers, chars and fixed point sort with Java's Arrays.sort on the JVM, unsigned ones with their
+        // sign bits flipped; doubles and strings with the library's introsort.
+        run("sorting numbers of every kind, unsigned ones too, and a List's own elements only", """
+                array<uint> u = [4000000000, 1, 2147483648, 7];
+                array<uint<<64>>> w = [18446744073709551615, 0, 9223372036854775808, 5];
+                array<int<<8>>> b = [-128, 127, 0, -1];
+                array<char> cs = ['b', 'a', 'Z'];
+                array<ufixed<<16, 16>>> f = [3.5, 65535.5, 0.25];
+                array<int<<64>>> l = [5, -9223372036854775808, 9223372036854775807, -1];
+                u.sort(); w.sort(); b.sort(); cs.sort(); f.sort(); l.sort();
+                System.stdout.println(u[0] + " " + u[1] + " " + u[2] + " " + u[3] + " | " + w[0] + " " + w[1] + " " + w[2] + " " + w[3]);
+                System.stdout.println(b[0] + " " + b[1] + " " + b[2] + " " + b[3] + " | " + cs[0] + cs[1] + cs[2] + " | " + f[0] + " " + f[1]
+                        + " " + f[2] + " | " + l[0] + " " + l[1] + " " + l[2] + " " + l[3]);
+                List<int> xs = new List();
+                xs.add(5); xs.add(-3); xs.add(9); xs.add(1); xs.add(-7);
+                xs.sort();
+                System.stdout.println(xs.get(0) + " " + xs.get(1) + " " + xs.get(2) + " " + xs.get(3) + " " + xs.get(4) + " " + xs.size());
+                array<double><<20>> twenty;
+                for (int i = 0; i < 20; i++) { twenty[i] = (i * 7) % 20 - 9.5; }
+                twenty.sort();
+                System.stdout.println(twenty[0] + " " + twenty[19]);
+                """, "1 7 2147483648 4000000000 | 0 5 9223372036854775808 18446744073709551615\n"
+                + "-128 -1 0 127 | Zab | 0.25 3.5 65535.5 | -9223372036854775808 -1 5 9223372036854775807\n"
+                + "-7 -3 1 5 9 5\n-9.5 9.5\n");
+        run("sorting arrays of each kind, of each length and order", """
+                int seed = 12345;
+                int fails = 0;
+                array<int> sizes = [0, 1, 2, 16, 17, 300, 5000];
+                for (int n : sizes) {
+                    for (int pattern = 0; pattern < 5; pattern++) {
+                        array<int> a = new array<int>(n);
+                        array<uint> u = new array<uint>(n);
+                        array<uint<<64>>> w = new array<uint<<64>>>(n);
+                        array<int<<8>>> b = new array<int<<8>>>(n);
+                        array<char> cs = new array<char>(n);
+                        array<double> d = new array<double>(n);
+                        array<string> s = new array<string>(n);
+                        array<fixed<<8, 8>>> f = new array<fixed<<8, 8>>>(n);
+                        List<int> list = new List();
+                        int<<64>> before = 0;
+                        for (int i = 0; i < n; i++) {
+                            seed = seed * 1103515245 + 12345;
+                            int v = pattern == 0 ? seed : pattern == 1 ? i - n : pattern == 2 ? n - i : pattern == 3 ? 7 : (seed <<< -28) & 3;
+                            a[i] = v; u[i] = (uint)v; w[i] = (uint<<64>>)(int<<64>>)v * 2654435761; b[i] = v; cs[i] = (char)v;
+                            d[i] = v / 7.0; s[i] = "s" + v % 1000; f[i] = (fixed<<8, 8>>)((v % 30000) / 256.0);
+                            list.add(v);
+                            before += v;
+                        }
+                        a.sort(); u.sort(); w.sort(); b.sort(); cs.sort(); d.sort(); s.sort(); f.sort(); list.sort();
+                        int<<64>> after = 0;
+                        for (int i = 0; i < n; i++) {
+                            after += a[i];
+                            if (list.get(i) != a[i]) { fails++; }
+                        }
+                        if (after != before) { fails++; }
+                        for (int i = 1; i < n; i++) {
+                            if (a[i] < a[i - 1] || u[i] < u[i - 1] || w[i] < w[i - 1] || b[i] < b[i - 1] || cs[i] < cs[i - 1]
+                                    || d[i] < d[i - 1] || s[i] < s[i - 1] || f[i] < f[i - 1]) { fails++; }
+                        }
+                    }
+                }
+                System.stdout.println(fails);
+                """, "0\n");
         run("List of strings and objects", """
                 List<string<<8>>> words = new List();
                 words.add("pear");

@@ -97,4 +97,19 @@ public final class Strings {
     public static String of(float x) {
         return Float.toString(x);
     }
+
+    /** Integer.toString of an int<<64>>, and of every narrower signed width, widened to it. */
+    public static String of(long x) {
+        return Long.toString(x);
+    }
+
+    /** Integer.toString of a uint<<64>>: its bits read without a sign. */
+    public static String ofUnsigned(long x) {
+        return Long.toUnsignedString(x);
+    }
+
+    /** In a base from 2 to 36, which Integer.toString has checked, with the digits past 9 as a to z. */
+    public static String ofUnsigned(long x, int base) {
+        return Long.toUnsignedString(x, base);
+    }
 }

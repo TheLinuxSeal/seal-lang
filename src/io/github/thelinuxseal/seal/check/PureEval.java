@@ -1221,30 +1221,107 @@ final class PureEval {
         items[(int) j] = t;
     }
 
-    /** The library's sort(): heapsort with <, so equal and unordered elements end up as they do when the program runs. */
+    /**
+     * The library's sort() (stdlib/array.seal): introsort with <, step for step as its introsort,
+     * partition and heapsort, so that equal and unordered elements (NaN) end up as they do when the
+     * program runs. On the JVM, Java's Arrays.sort sorts integers, chars and fixed point instead,
+     * which gives the same array: equal numbers are the same.
+     */
     private void sort(Object[] items, Type t, Pos p) {
         int n = items.length;
-        for (int start = n / 2 - 1; start >= 0; start--) {
-            siftDown(items, t, start, n, p);
+        if (n < 2) {
+            return;
         }
-        for (int end = n - 1; end > 0; end--) {
-            swap(items, 0, end);
-            siftDown(items, t, 0, end, p);
+        int depth = 0;
+        for (int k = n; k > 1; k = k / 2) {
+            depth += 2;
+        }
+        introsort(items, t, 0, n - 1, depth, p);
+    }
+
+    private void introsort(Object[] items, Type t, int lo, int hi, int depth, Pos p) {
+        while (hi - lo >= 16) {
+            tick(p);
+            if (depth == 0) {
+                heapsort(items, t, lo, hi, p);
+                return;
+            }
+            depth--;
+            int q = partition(items, t, lo, hi, p);
+            if (q - lo < hi - q) {
+                introsort(items, t, lo, q, depth, p);
+                lo = q + 1;
+            } else {
+                introsort(items, t, q + 1, hi, depth, p);
+                hi = q;
+            }
+        }
+        for (int i = lo + 1; i <= hi; i++) {
+            tick(p);
+            Object x = items[i];
+            int j = i - 1;
+            while (j >= lo && less(t, x, items[j])) {
+                items[j + 1] = items[j];
+                j--;
+            }
+            items[j + 1] = x;
         }
     }
 
-    private void siftDown(Object[] items, Type t, int start, int end, Pos p) {
+    private int partition(Object[] items, Type t, int lo, int hi, Pos p) {
+        int mid = lo + (hi - lo) / 2;
+        if (less(t, items[mid], items[lo])) {
+            swap(items, lo, mid);
+        }
+        if (less(t, items[hi], items[mid])) {
+            swap(items, mid, hi);
+            if (less(t, items[mid], items[lo])) {
+                swap(items, lo, mid);
+            }
+        }
+        Object pivot = items[mid];
+        int i = lo - 1;
+        int j = hi + 1;
+        while (true) {
+            tick(p);
+            i++;
+            while (less(t, items[i], pivot)) {
+                i++;
+            }
+            j--;
+            while (less(t, pivot, items[j])) {
+                j--;
+            }
+            if (i >= j) {
+                return j;
+            }
+            swap(items, i, j);
+        }
+    }
+
+    private void heapsort(Object[] items, Type t, int lo, int hi, Pos p) {
+        int n = hi - lo + 1;
+        for (int start = n / 2 - 1; start >= 0; start--) {
+            siftDown(items, t, lo, start, n, p);
+        }
+        for (int end = n - 1; end > 0; end--) {
+            swap(items, lo, lo + end);
+            siftDown(items, t, lo, 0, end, p);
+        }
+    }
+
+    private void siftDown(Object[] items, Type t, int base, int start, int end, Pos p) {
         int root = start;
         while (root * 2 + 1 < end) {
             tick(p);
             int child = root * 2 + 1;
-            if (child + 1 < end && less(t, items[child], items[child + 1])) {
+            if (child + 1 < end && less(t, items[base + child], items[base + child + 1])) {
                 child++;
             }
-            if (!less(t, items[root], items[child])) {
+            if (!less(t, items[base + root], items[base + child])) {
                 return;
             }
-            swap(items, root, child);
+            swap(items, base + root, base + child);
             root = child;
         }
     }

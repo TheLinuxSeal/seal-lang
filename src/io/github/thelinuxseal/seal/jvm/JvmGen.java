@@ -90,6 +90,7 @@ public final class JvmGen {
             "io.github.thelinuxseal.seal.runtime.Natives$FileOp",
             "io.github.thelinuxseal.seal.runtime.Ints",
             "io.github.thelinuxseal.seal.runtime.Strings",
+            "io.github.thelinuxseal.seal.runtime.Sorting",
             "io.github.thelinuxseal.seal.runtime.FixedPoint",
             "io.github.thelinuxseal.seal.runtime.Block",
             "io.github.thelinuxseal.seal.runtime.Ptr",

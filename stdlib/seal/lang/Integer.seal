@@ -10,44 +10,24 @@ struct Integer {
 
     // ------------------------------------------------------------ text
 
-    /** Decimal text of x, as a new bare string (§43). */
-    public static string toString(int<<64>> x) {
-        if (x < 0) {
-            return digits(0 - (uint<<64>>)x, 10, true); // negated as unsigned, so that MIN_INT64 works
-        }
-        return digits((uint<<64>>)x, 10, false);
-    }
+    // On the JVM these are Java's Long.toString and Long.toUnsignedString (docs/JVM.md §8.2).
 
-    public static string toString(uint<<64>> x) { return digits(x, 10, false); }
+    /** Decimal text of x, as a new bare string (§43). */
+    @jvm("Strings.of") public static string toString(int<<64>> x);
+
+    @jvm("Strings.ofUnsigned") public static string toString(uint<<64>> x);
 
     public static string toString(int x) { return toString((int<<64>>)x); }
     public static string toString(size x) { return toString((int<<64>>)x); }
     public static string toString(uint x) { return toString((uint<<64>>)x); }
 
-    /** Text of x in the given base (2 to 36), as a new bare string. */
+    /** Text of x in the given base (2 to 36), as a new bare string; the digits past 9 are a to z. */
     public static string toString(uint<<64>> x, int base) {
         if (base < 2 || base > 36) { throw new IllegalArgumentException("base must be between 2 and 36, not " + base); }
-        return digits(x, base, false);
+        return inBase(x, base);
     }
 
-    /** The digits of x in a base, after a minus sign if negative. */
-    static string digits(uint<<64>> x, int base, bit negative) {
-        array<char> text = new array<char>(65);
-        int at = 65;   // the digits fill the array from its end
-        uint<<64>> b = (uint<<64>>)base;
-        while (true) {
-            uint<<64>> d = x % b;
-            at--;
-            if (d < 10) { text[at] = (char)(d + '0'); } else { text[at] = (char)(d - 10 + 'a'); }
-            x = x / b;
-            if (x == 0) { break; }
-        }
-        if (negative) {
-            at--;
-            text[at] = '-';
-        }
-        return new string(text, at, 65 - at);
-    }
+    @jvm("Strings.ofUnsigned") static string inBase(uint<<64>> x, int base);
 
     public static int<<64>> parse(string s) { return s.toInt(); }
     public static int<<64>> parse(string<<int N>> s) { return s.toInt(); }

@@ -126,23 +126,98 @@ unique array<T> {
         }
     }
 
-    /** Sorts ascending with <, in place (heapsort: O(n log n), not stable). */
-    public void sort() {
-        int n = length();
-        for (int start = n / 2 - 1; start >= 0; start--) { siftDown(start, n); }
-        for (int end = n - 1; end > 0; end--) {
-            swap(0, end);
-            siftDown(0, end);
+    /**
+     * Sorts ascending with <, in place: introsort, a quicksort that turns to heapsort where its
+     * splits go badly, so O(n log n), and not stable. On the JVM an array of integers, chars or
+     * fixed-point numbers is sorted with Java's Arrays.sort instead, which gives the same array,
+     * as numbers that are equal are the same.
+     */
+    public void sort() { sortRange(0, length()); }
+
+    /** Sorts the elements from `from` up to `to`, as sort() does; a List sorts its own with it. */
+    private<List> void sortRange(int from, int to) {
+        if (to - from < 2 || sortsNumbers(from, to)) { return; }
+        int depth = 0;   // twice log2 of the length: more splits than that and it turns to heapsort
+        for (int n = to - from; n > 1; n = n / 2) { depth += 2; }
+        introsort(from, to - 1, depth);
+    }
+
+    /** On the JVM, sorts an array of integers, chars or fixed-point numbers with Java's sort and is true; false for others. */
+    @jvm("array.sortNumbers") bit sortsNumbers(int from, int to);
+
+    // The compiler's PureEval sorts as introsort, partition and heapsort below do, step for step,
+    // so that equal elements, and NaN, end up as they do when the program runs.
+
+    /** Sorts the elements from lo to hi, both included. */
+    void introsort(int lo, int hi, int depth) {
+        while (hi - lo >= 16) {
+            if (depth == 0) {
+                heapsort(lo, hi);
+                return;
+            }
+            depth--;
+            int p = partition(lo, hi);
+            // The smaller side in a call, the larger in this loop, so calls go O(log n) deep.
+            if (p - lo < hi - p) {
+                introsort(lo, p, depth);
+                lo = p + 1;
+            } else {
+                introsort(p + 1, hi, depth);
+                hi = p;
+            }
+        }
+        for (int i = lo + 1; i <= hi; i++) {   // insertion sort, for the few left
+            T x = get(i);
+            int j = i - 1;
+            while (j >= lo && x < get(j)) {
+                set(j + 1, get(j));
+                j--;
+            }
+            set(j + 1, x);
         }
     }
 
-    void siftDown(int start, int end) {
+    /**
+     * Hoare's partition around the median of the first, middle and last elements: the result p
+     * is from lo to hi - 1, and no element up to p is greater than one after it.
+     */
+    int partition(int lo, int hi) {
+        int mid = lo + (hi - lo) / 2;
+        if (get(mid) < get(lo)) { swap(lo, mid); }
+        if (get(hi) < get(mid)) {
+            swap(mid, hi);
+            if (get(mid) < get(lo)) { swap(lo, mid); }
+        }
+        T pivot = get(mid);
+        int i = lo - 1;
+        int j = hi + 1;
+        while (true) {
+            i++;
+            while (get(i) < pivot) { i++; }
+            j--;
+            while (pivot < get(j)) { j--; }
+            if (i >= j) { return j; }
+            swap(i, j);
+        }
+    }
+
+    /** Heapsort of the elements from lo to hi, both included. */
+    void heapsort(int lo, int hi) {
+        int n = hi - lo + 1;
+        for (int start = n / 2 - 1; start >= 0; start--) { siftDown(lo, start, n); }
+        for (int end = n - 1; end > 0; end--) {
+            swap(lo, lo + end);
+            siftDown(lo, 0, end);
+        }
+    }
+
+    void siftDown(int base, int start, int end) {
         int root = start;
         while (root * 2 + 1 < end) {
             int child = root * 2 + 1;
-            if (child + 1 < end && get(child) < get(child + 1)) { child++; }
-            if (!(get(root) < get(child))) { return; }
-            swap(root, child);
+            if (child + 1 < end && get(base + child) < get(base + child + 1)) { child++; }
+            if (!(get(base + root) < get(base + child))) { return; }
+            swap(base + root, base + child);
             root = child;
         }
     }

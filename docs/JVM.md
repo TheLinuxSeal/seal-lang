@@ -390,6 +390,16 @@ instructions, and the rest of `stdlib/array.seal` (`fill`, `copy`, `copyOf`, `sl
 as ordinary Seal code over that core. (On the VM, `array.seal` held an `addr<T>` buffer that its
 destructor freed; that code is removed with the VM, §13.)
 
+`sort()` is an introsort in Seal (since 2026-11-13; a heapsort before), which the compiler's
+`PureEval` follows step for step, so that equal and unordered elements (NaN) end up the same while
+compiling as while running. An array of integers, chars or fixed-point numbers is sorted with
+Java's `Arrays.sort` instead, through the runtime's `Sorting` (`@jvm("array.sortNumbers")`, which
+`JvmGen` makes true for those and false for the rest): it gives the same array, as numbers that are
+equal are the same, and on processors with wide vector instructions it is several times faster. A
+value as wide as its Java array's element (a `uint` in an `int[]`, a `uint<<64>>` in a `long[]`)
+is sorted with its sign bit flipped, so that it compares without its sign. `List.sort()` and a
+fixed array's `sort()` sort with array's.
+
 Done in M2. A library method the runtime does says what stands for it on the JVM with
 **`@jvm`** (library code only, as `@native`), and has no Seal body: `@jvm("Strings.at")` is a
 static method of the runtime's `Strings`, and `@jvm("array.get")` is one `JvmGen` generates itself.
@@ -438,9 +448,11 @@ language (part of M0):
   the new `String`, which the caller stores where the string came from; a constructor starts from
   `""` and returns the string it made. Adding a character makes a new `String`, as Java's `s + c`
   does, so a string of many characters is made from an `array<char>` at once, by `ofChars`
-  (`new String(chars, offset, count)`): `new string(chars)`, `StringBuilder.toString()` and
-  `Integer.toString` do. Adding their characters one at a time, as they did until 2026-11-12, took
-  time growing with the square of the length: minutes for a `StringBuilder` of a million numbers.
+  (`new String(chars, offset, count)`): `new string(chars)` and `StringBuilder.toString()` do.
+  Adding their characters one at a time, as they did until 2026-11-12, took time growing with the
+  square of the length: minutes for a `StringBuilder` of a million numbers. `Integer.toString` is
+  Java's `Long.toString` and `Long.toUnsignedString` (since 2026-11-13; before, Seal code that
+  divided by the base for each digit, four times slower).
 
 ### 8.3 Natives
 
@@ -477,6 +489,7 @@ A small Java package, `io.github.thelinuxseal.seal.runtime`, shipped with every 
   the JDK's `Integer` and `Long` directly);
 - `FixedPoint`: fixed-point multiplication, division, rescaling and text (done in M4, §3.2);
 - `Strings`: what the library's `@jvm("Strings...")` methods stand for (§8.2);
+- `Sorting`: `sort()` of arrays of integers, chars and fixed point, with Java's `Arrays.sort` (§8.1);
 - `Natives`: the natives (§8.3), and the entry point (§10);
 - `Exit` (`System.exit`) and `Trap` (what stops a program, as a VM trap does);
 - `Stopped`: what stops a program that counts its steps past its limits, a host's script

@@ -4193,6 +4193,20 @@ final class JvmCode {
                     c.arrayStore(ek);
                 }
             }
+            case "array.sortNumbers" -> {
+                // Integers, chars and fixed point: Java's Arrays.sort, which gives the array the library's
+                // introsort would, as equal numbers are the same (runtime Sorting). Others: false, sorted in Seal.
+                if (raw(element) instanceof IntT && (ek == TypeKind.INT || ek == TypeKind.LONG || ek == TypeKind.CHAR)) {
+                    value(args.get(0), Type.INT);
+                    value(args.get(1), Type.INT);
+                    c.invokestatic(ClassDesc.of(JvmGen.RUNTIME + "Sorting"), fullUnsigned(element) ? "sortUnsigned" : "sort",
+                            MethodTypeDesc.of(CD_void, g.desc(element, at).arrayType(), CD_int, CD_int));
+                    c.iconst_1();
+                } else {
+                    c.pop();
+                    c.iconst_0();
+                }
+            }
             default -> throw unsupported(at, "the JVM intrinsic " + spec);
         }
     }
@@ -4235,6 +4249,10 @@ final class JvmCode {
                     into(fresh, args.get(1), element);
                     copy(element_, fresh, element);
                 }
+            }
+            case "array.sortNumbers" -> {
+                c.pop(); // structs are sorted in Seal, with their <
+                c.iconst_0();
             }
             default -> throw unsupported(at, "the JVM intrinsic " + spec);
         }

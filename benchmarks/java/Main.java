@@ -204,6 +204,20 @@ public class Main {
         return sortedSum(a);
     }
 
+    static long sortDoubles() {
+        int n = 1_000_000;
+        double[] a = new double[n];
+        int x = 12345;
+        for (int i = 0; i < n; i++) {
+            x = x * 1103515245 + 12345;
+            a[i] = x / 1000.0;
+        }
+        Arrays.sort(a);
+        long sum = 0;
+        for (int i = 0; i < n; i += 1000) { sum = sum * 31 + (long) a[i]; }
+        return sum;
+    }
+
     static void siftDown(int[] a, int start, int end) {
         int root = start;
         while (root * 2 + 1 < end) {
@@ -465,6 +479,7 @@ public class Main {
             case "sieve" -> sieve();
             case "sortLib" -> sortLib();
             case "sortHeap" -> sortHeap();
+            case "sortDoubles" -> sortDoubles();
             case "fixedArray" -> fixedArray();
             case "listInt" -> listInt();
             case "hashMap" -> hashMap();

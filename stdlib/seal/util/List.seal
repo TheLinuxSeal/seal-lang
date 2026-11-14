@@ -106,14 +106,8 @@ class List<T> {
 
     public bit contains(T value) { return indexOf(value) >= 0; }
 
-    /** Sorts ascending with <, in place (heapsort: O(n log n), not stable). */
-    public void sort() {
-        for (int start = count / 2 - 1; start >= 0; start--) { siftDown(start, count); }
-        for (int end = count - 1; end > 0; end--) {
-            items.swap(0, end);
-            siftDown(0, end);
-        }
-    }
+    /** Sorts ascending with <, in place, as array's sort() (introsort: O(n log n), not stable). */
+    public void sort() { items.sortRange(0, count); }
 
     /**
      * Sorts in place in the order `cmp` gives, keeping equal elements in their
@@ -174,21 +168,6 @@ class List<T> {
         if (c < 8) { c = 8; }
         if (c < n) { c = n; }
         items = items.copyOf(c);
-    }
-
-    void siftDown(int root, int end) {
-        int r = root;
-        while (true) {
-            int child = 2 * r + 1;
-            if (child >= end) { return; }
-            if (child + 1 < end && items[child] < items[child + 1]) { child++; }
-            if (items[r] < items[child]) {
-                items.swap(r, child);
-                r = child;
-            } else {
-                return;
-            }
-        }
     }
 
     void check(int i) {

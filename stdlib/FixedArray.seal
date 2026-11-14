@@ -42,24 +42,11 @@ struct FixedArray<T><<int N>> {
         }
     }
 
-    /** Sorts ascending with <, in place (heapsort: O(n log n), not stable). */
+    /** Sorts ascending with <, in place, as array's sort() (introsort: O(n log n), not stable). */
     public void sort() {
-        for (int start = N / 2 - 1; start >= 0; start--) { siftDown(start, N); }
-        for (int end = N - 1; end > 0; end--) {
-            swap(0, end);
-            siftDown(0, end);
-        }
-    }
-
-    void siftDown(int start, int end) {
-        int root = start;
-        while (root * 2 + 1 < end) {
-            int child = root * 2 + 1;
-            if (child + 1 < end && items[child] < items[child + 1]) { child++; }
-            if (!(items[root] < items[child])) { return; }
-            swap(root, child);
-            root = child;
-        }
+        array<T> sorted = toArray();
+        sorted.sort();
+        for (int i = 0; i < N; i++) { items[i] = sorted[i]; }
     }
 
     /** Sorts in the order cmp gives, keeping equal elements in order (stable). */
