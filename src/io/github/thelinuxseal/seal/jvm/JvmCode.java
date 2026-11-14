@@ -3093,8 +3093,7 @@ final class JvmCode {
             }
             case SHIFT -> {
                 value(b.left(), t);
-                value(b.right(), Type.INT);
-                shift(t);
+                shiftBy(b.right(), t);
                 return t;
             }
             default -> {
@@ -3107,11 +3106,72 @@ final class JvmCode {
                     operate(b.op(), b.left(), t, b.pos());
                     return t;
                 }
+                if (isWrapping(b, t)) {
+                    if (!wrappedBits(b, t)) {
+                        normalize(t);
+                    }
+                    return t;
+                }
                 value(b.left(), t);
                 operate(b.op(), b.right(), t, b.pos());
                 return t;
             }
         }
+    }
+
+    /**
+     * + - * & | ^ on integers of type t, whose result's low bits depend on their operands' low bits
+     * alone: in a + b * c, b * c isn't normalized to t's width before the +, which normalizes once,
+     * as javac's (short)(a + b * c) does. Not on a size, which each step checks (§37.2).
+     */
+    private boolean isWrapping(Expr e, Type t) {
+        return e instanceof Binary b && t instanceof IntT it && !it.isSize() && type(b).equals(t)
+                && switch (b.op()) {
+                    case ADD, SUB, MUL, BIT_AND, BIT_OR, BIT_XOR -> true;
+                    default -> false;
+                }
+                && !tb.calls.containsKey(b) && !tb.rewritten.containsKey(b) && !pinned.containsKey(b)
+                && !tb.implicitCasts.containsKey(b);
+    }
+
+    /**
+     * Pushes e, of type t, with its low bits (t's width) right, and says whether it is normalized
+     * too. A wrapping operator's operands needn't be; & | ^ of normalized ones are, sign- or
+     * zero-extended as both were, and so is & with a constant the type holds that is not negative.
+     */
+    private boolean wrappedBits(Expr e, Type t) {
+        if (!isWrapping(e, t)) {
+            value(e, t);
+            return true;
+        }
+        Binary b = (Binary) e;
+        boolean left = wrappedBits(b.left(), t);
+        boolean right = wrappedBits(b.right(), t);
+        boolean l = kind(t) == TypeKind.LONG;
+        switch (b.op()) {
+            case ADD -> { if (l) c.ladd(); else c.iadd(); }
+            case SUB -> { if (l) c.lsub(); else c.isub(); }
+            case MUL -> { if (l) c.lmul(); else c.imul(); }
+            case BIT_AND -> { if (l) c.land(); else c.iand(); }
+            case BIT_OR -> { if (l) c.lor(); else c.ior(); }
+            default -> { if (l) c.lxor(); else c.ixor(); }
+        }
+        return switch (b.op()) {
+            case BIT_AND -> (left && right) || smallMask(b.left(), t) || smallMask(b.right(), t);
+            case BIT_OR, BIT_XOR -> left && right;
+            default -> false;
+        };
+    }
+
+    /** A constant of t from 0 to below t's sign bit (its top bit, unsigned): x & it is normalized, whatever x's high bits. */
+    private boolean smallMask(Expr e, Type t) {
+        if (!(type(e) instanceof IntConstT) || tb.implicitCasts.containsKey(e) || pinned.containsKey(e)
+                || !(ck.constantIn(tb, e) instanceof IntV iv)) {
+            return false;
+        }
+        IntT it = (IntT) t;
+        int w = width(t);
+        return iv.value().signum() >= 0 && iv.value().bitLength() <= (it.signed() ? w - 1 : w);
     }
 
     /**
@@ -3187,6 +3247,44 @@ final class JvmCode {
                 c.lushr();
             }
         }
+    }
+
+    /**
+     * Seal's <<< (§50) by amount, the value of type t on the stack. A constant amount is the JVM's
+     * shift that Ints.shift would make, inline: left and normalized, right (arithmetic when signed),
+     * or, for one of the width or more, 0 (or the sign, shifting right). Any other goes through it.
+     */
+    private void shiftBy(Expr amount, Type t) {
+        if (raw(t) instanceof IntT it && !it.isSize() && !tb.implicitCasts.containsKey(amount) && !pinned.containsKey(amount)
+                && type(amount) instanceof IntConstT && ck.constantIn(tb, amount) instanceof IntV iv) {
+            int k = iv.value().intValue(); // as value(amount, int) wraps it
+            int w = width(t);
+            boolean wide = kind(t) == TypeKind.LONG;
+            if (k >= w || (k < 0 && !it.signed() && (k == Integer.MIN_VALUE || -k >= w))) {
+                if (wide) {
+                    c.pop2();
+                    c.lconst_0();
+                } else {
+                    c.pop();
+                    c.iconst_0();
+                }
+            } else if (k > 0) {
+                c.loadConstant(k);
+                if (wide) c.lshl(); else c.ishl();
+                normalize(t);
+            } else if (k < 0) {
+                int right = k == Integer.MIN_VALUE || -k >= w ? (wide ? 63 : 31) : -k; // all out: the sign, a signed type's
+                c.loadConstant(right);
+                if (it.signed()) {
+                    if (wide) c.lshr(); else c.ishr();
+                } else {
+                    if (wide) c.lushr(); else c.iushr();
+                }
+            }
+            return;
+        }
+        value(amount, Type.INT);
+        shift(t);
     }
 
     /** Seal's <<< (§50): value and amount (an int) on the stack, through the runtime. */
@@ -3865,8 +3963,7 @@ final class JvmCode {
             dupBase(p);
             get(p);
             if (a.op() == BinaryOp.SHIFT) {
-                value(a.value(), Type.INT);
-                shift(t);
+                shiftBy(a.value(), t);
             } else if (t instanceof JavaPrimT jt) {
                 // In the type Java promotes to, then back to the target's, as Java's b += c is b = (byte)(b + c).
                 JavaPrimT wide = tb.narrowed.get(a) instanceof JavaPrimT w ? w : jt;

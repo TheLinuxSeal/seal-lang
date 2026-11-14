@@ -64,7 +64,7 @@ kernel, the median of 3 rounds' medians of 10 runs, after 5 to warm up:
 | intArith | 289.6 | 290.6 | 1.00 |
 | intDiv | 110.7 | 110.9 | 1.00 |
 | longArith | 302.1 | 302.9 | 1.00 |
-| shortArith | 381.2 | 430.7 | 1.13 |
+| shortArith | 383.2 | 339.3 | 0.89 |
 | uintArith | 129.4 | 129.7 | 1.00 |
 | doubleArith | 95.3 | 95.3 | 1.00 |
 | doubleMath | 95.9 | 97.7 | 1.02 |
@@ -72,7 +72,7 @@ kernel, the median of 3 rounds' medians of 10 runs, after 5 to warm up:
 | intArray | 42.8 | 44.7 | 1.05 |
 | doubleArray | 112.6 | 112.3 | 1.00 |
 | matmul | 30.3 | 30.3 | 1.00 |
-| byteArray | 297.1 | 307.1 | 1.03 |
+| byteArray | 297.6 | 321.4 | 1.08 |
 | sieve | 112.7 | 103.1 | 0.91 |
 | sortLib | 12.0 | 12.0 | 1.00 |
 | sortHeap | 110.0 | 128.5 | 1.17 |
@@ -111,14 +111,20 @@ A chain of `+` on strings is one call of Java's `StringConcatFactory`, as javac 
   object for each number.
 * `structLocals`: the struct operators work on values in place; Java's record version was slower
   here, which wasn't looked into.
+* `shortArith`: a chain of `+`, `-`, `*`, `&`, `|` and `^` on an `int<<16>>` is normalized to 16
+  bits once, at its end (docs/JVM.md §3.1), and `x ^ (x <<< -5)` not at all, both sides being
+  16-bit values already; Java's `(short)` cast normalizes that one too.
 
 **Seal slower:**
 
 * `fixedArray` and `structArray`: fixed arrays and structs live in storage blocks, `long[]`s that
   are read and written a field's bits at a time (docs/JVM.md §4). A class's fields are JVM fields,
   as Java's are; a later optimization can keep a struct's fields in JVM locals (docs/JVM.md §4.5).
-* `shortArith`: `x <<< -5` on an `int<<16>>` calls the runtime's `Ints.shift`, though the amount is
-  a constant.
+* `byteArray`: the inner loop is the same as before (an `array<uint<<8>>>` is an `int[]`, where
+  Java's is a `byte[]`), and took 3% longer than Java's while `(b <<< 16) | a`, outside it, called
+  `Ints.shift`. With that shift inline, as javac's, C2 unrolls the inner loop 8 times rather than
+  4, which is slower for its two dependent `%`s: with `-XX:LoopMaxUnroll=4`, it takes 301 ms, to
+  308 with the call.
 * `sortHeap`: the same heapsort in both is about 16% slower in Seal, for a reason not found yet:
   not the bounds check, as Java with the same check runs as fast as without it.
 * `sortDoubles`: the library sorts floating point itself, with an introsort, which compiling
@@ -145,3 +151,7 @@ A chain of `+` on strings is one call of Java's `StringConcatFactory`, as javac 
   multiply, rounding and a shift, where the Java multiplies by the integer 2. A fixed-point value
   times a whole-number constant is an integer multiply now (docs/JVM.md §3.2): 20 ms (from 27;
   Java's 20).
+* 2026-11-13: `shortArith` normalized each result to 16 bits, `x * 25173 + 13849` twice, where
+  javac's `(short)` cast does once, and `x <<< -5` called `Ints.shift`. A chain of wrapping
+  operators is normalized at its end, and a shift by a constant is inline (docs/JVM.md §3.1):
+  339 ms (from 431; Java's 383).

@@ -56,6 +56,7 @@ public final class JvmTest {
         pointers();
         random(randomPrograms, seed);
         randomPure(Math.max(1, randomPrograms / 3), seed);
+        wrapping(seed);
         writeRecorded();
 
         System.out.println(passed + " passed, " + failures.size() + " failed");
@@ -1176,6 +1177,158 @@ public final class JvmTest {
             String where = "random program " + p + " (seed " + seed + ")\n" + body + "\n    JVM " + jvm;
             compareRecorded("random program " + p, seed, jvm, where);
         }
+    }
+
+    /** An integer type of a width, and its values wrapped as §37.2 wraps them. */
+    private record IntFormat(boolean signed, int w) {
+        String type() {
+            return w == 32 ? (signed ? "int" : "uint") : (signed ? "int" : "uint") + "<<" + w + ">>";
+        }
+
+        BigInteger wrap(BigInteger x) {
+            BigInteger r = x.mod(BigInteger.ONE.shiftLeft(w));
+            return signed && r.testBit(w - 1) ? r.subtract(BigInteger.ONE.shiftLeft(w)) : r;
+        }
+
+        BigInteger max() {
+            return BigInteger.ONE.shiftLeft(signed ? w - 1 : w).subtract(BigInteger.ONE);
+        }
+
+        BigInteger random(Random rnd) {
+            BigInteger low = signed ? BigInteger.ONE.shiftLeft(w - 1).negate() : BigInteger.ZERO;
+            return switch (rnd.nextInt(5)) {
+                case 0 -> low;
+                case 1 -> max();
+                case 2 -> wrap(BigInteger.valueOf(rnd.nextInt(5) - 2));
+                default -> wrap(new BigInteger(w, rnd));
+            };
+        }
+
+        /** A value of the type: a constant cast to it, which the checker takes as it fits. */
+        String literal(BigInteger v) {
+            String digits = v.equals(BigInteger.ONE.shiftLeft(63).negate()) ? "-9223372036854775807 - 1" : v.toString();
+            return "(" + type() + ")(" + digits + ")";
+        }
+    }
+
+    /** An expression's text and the value it must have. */
+    private record Piece(String text, BigInteger value) {
+    }
+
+    /**
+     * Chains of + - * & | ^ ~ / % <<< and comparisons on integers of each width from 1 to 64,
+     * against exact arithmetic: the compiler normalizes a chain of wrapping operators once, at its
+     * end, and shifts by a constant inline (docs/JVM.md §3.1).
+     */
+    private static void wrapping(long seed) {
+        Random rnd = new Random(seed);
+        int[] widths = {1, 2, 3, 7, 8, 9, 15, 16, 17, 24, 31, 32, 33, 40, 48, 63, 64};
+        for (boolean signed : new boolean[] {true, false}) {
+            for (int w : widths) {
+                IntFormat f = new IntFormat(signed, w);
+                BigInteger[] vars = {f.random(rnd), f.random(rnd), f.random(rnd)};
+                StringBuilder body = new StringBuilder();
+                StringBuilder want = new StringBuilder();
+                for (int i = 0; i < 3; i++) {
+                    body.append("        ").append(f.type()).append(" ").append("abc".charAt(i)).append(" = ")
+                            .append(f.literal(vars[i])).append(";\n");
+                }
+                for (int k = 0; k < 12; k++) {
+                    Piece e = chain(rnd, f, vars, 4);
+                    switch (k % 3) {
+                        case 0 -> {
+                            body.append("        System.stdout.println(").append(e.text()).append(");\n");
+                            want.append(e.value()).append('\n');
+                        }
+                        case 1 -> {
+                            body.append("        System.stdout.println((int<<64>>)").append(e.text()).append(");\n");
+                            want.append(BigInteger.valueOf(e.value().longValue())).append('\n');
+                        }
+                        default -> {
+                            Piece o = chain(rnd, f, vars, 2);
+                            body.append("        System.stdout.println(").append(e.text()).append(" == ").append(o.text()).append(");\n");
+                            want.append(e.value().equals(o.value())).append('\n');
+                        }
+                    }
+                }
+                // Compound assignments: each normalized as it is stored.
+                BigInteger a = vars[0];
+                BigInteger b = vars[1];
+                BigInteger c = vars[2];
+                body.append("        a += b * c - (").append(f.type()).append(")(int<<64>>)3; b *= a + c; c ^= a & b; a <<= 3; b <<= -2;\n");
+                a = f.wrap(a.add(b.multiply(c)).subtract(f.wrap(BigInteger.valueOf(3))));
+                b = f.wrap(b.multiply(a.add(c)));
+                c = f.wrap(c.xor(a.and(b)));
+                a = shifted(a, 3, f);
+                b = shifted(b, -2, f);
+                body.append("        System.stdout.println(\"\" + a + \" \" + b + \" \" + c);\n");
+                want.append(a).append(' ').append(b).append(' ').append(c).append('\n');
+                Run jvm = onJvm(Map.of("Main.seal", "struct Main {\n    static int main() {\n" + body
+                        + "        return 0;\n    }\n}\n"));
+                check(jvm.error() == null && jvm.fault() == null && jvm.output().equals(want.toString()),
+                        "integer chains in " + f.type() + " (seed " + seed + ")\n" + body + "    JVM " + jvm
+                                + firstDifference(want.toString(), jvm.output()));
+            }
+        }
+    }
+
+    /** A random expression of f's type over a, b and c, which have the values vars. */
+    private static Piece chain(Random rnd, IntFormat f, BigInteger[] vars, int depth) {
+        if (depth == 0 || rnd.nextInt(5) == 0) {
+            if (rnd.nextInt(3) > 0) {
+                int i = rnd.nextInt(3);
+                return new Piece(String.valueOf("abc".charAt(i)), vars[i]);
+            }
+            BigInteger v = f.random(rnd);
+            return new Piece(f.literal(v), v);
+        }
+        Piece x = chain(rnd, f, vars, depth - 1);
+        Piece y = chain(rnd, f, vars, depth - 1);
+        String t = f.type();
+        return switch (rnd.nextInt(14)) {
+            case 0, 1 -> new Piece("(" + x.text() + " + " + y.text() + ")", f.wrap(x.value().add(y.value())));
+            case 2, 3 -> new Piece("(" + x.text() + " - " + y.text() + ")", f.wrap(x.value().subtract(y.value())));
+            case 4, 5 -> new Piece("(" + x.text() + " * " + y.text() + ")", f.wrap(x.value().multiply(y.value())));
+            case 6 -> new Piece("(" + x.text() + " & " + y.text() + ")", x.value().and(y.value()));
+            case 7 -> new Piece("(" + x.text() + " | " + y.text() + ")", x.value().or(y.value()));
+            case 8 -> new Piece("(" + x.text() + " ^ " + y.text() + ")", x.value().xor(y.value()));
+            case 9 -> new Piece("(~" + x.text() + ")", f.wrap(x.value().not()));
+            case 10 -> {
+                // x & a constant below the sign bit: normalized, whatever x's high bits were
+                BigInteger m = f.max().min(BigInteger.valueOf(new int[] {0, 1, 3, 255, 4095}[rnd.nextInt(5)]));
+                yield rnd.nextBoolean() ? new Piece("(" + x.text() + " & " + m + ")", x.value().and(m))
+                        : new Piece("(" + m + " & " + x.text() + ")", x.value().and(m));
+            }
+            case 11 -> {
+                BigInteger d = y.value().or(f.wrap(BigInteger.ONE)); // never 0
+                String dt = "(" + y.text() + " | (" + t + ")(int<<64>>)1)";
+                yield rnd.nextBoolean() ? new Piece("(" + x.text() + " / " + dt + ")", f.wrap(x.value().divide(d)))
+                        : new Piece("(" + x.text() + " % " + dt + ")", f.wrap(x.value().remainder(d)));
+            }
+            case 12 -> {
+                int k = new int[] {-2147483648, -70, -64, -63, -33, -32, -31, -17, -16, -9, -1, 0, 1, 5, 15, 16, 31, 32, 33, 63, 64, 70}[rnd.nextInt(22)];
+                yield new Piece("(" + x.text() + " <<< " + k + ")", shifted(x.value(), k, f));
+            }
+            default -> {
+                // a shift by an amount known only when running, and a comparison
+                BigInteger m = f.max().min(BigInteger.valueOf(7));
+                int k = y.value().and(m).intValueExact();
+                yield rnd.nextBoolean() ? new Piece("(" + x.text() + " <<< (int)(" + y.text() + " & " + m + "))", shifted(x.value(), k, f))
+                        : new Piece("((" + x.text() + " < " + y.text() + ") ? " + x.text() + " : " + y.text() + ")",
+                                x.value().compareTo(y.value()) < 0 ? x.value() : y.value());
+            }
+        };
+    }
+
+    /** x <<< k (§50): left and wrapped, or right, arithmetic for a signed type; by the width or more, everything out. */
+    private static BigInteger shifted(BigInteger x, int k, IntFormat f) {
+        if (k >= 0) {
+            return k >= f.w() ? BigInteger.ZERO : f.wrap(x.shiftLeft(k));
+        }
+        if (k == Integer.MIN_VALUE || -k >= f.w()) {
+            return x.signum() < 0 ? BigInteger.ONE.negate() : BigInteger.ZERO;
+        }
+        return x.shiftRight(-k);
     }
 
     /**

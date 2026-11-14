@@ -83,13 +83,20 @@ desugared (`rewritten`, `desugared` for-each loops, `switches`, `switchExprs`, `
   `uint<<64>>` cost nothing extra.
 - Other widths keep the value in an `int` or `long` and normalize it after each arithmetic result:
   shift left by 32 − W (or 64 − W) and back, arithmetic shift for signed, logical for unsigned.
-  That is what the VM's `TRUNC` does, and two instructions.
+  That is what the VM's `TRUNC` does, and two instructions. Since 2026-11-13, not after each:
+  `+`, `-`, `*`, `&`, `|` and `^` give low bits that depend on their operands' low bits alone, so
+  in a chain of them, `x * 25173 + 13849`, only the end is normalized, as javac's
+  `(short)(x * 25173 + 13849)` is; and `&`, `|` and `^` of normalized values, and `&` with a
+  constant below the sign bit (`x & 255`), are normalized already, so not at all. A `size` is
+  still checked at each step (§37.2). `shortArith` took 13% longer than Java's `short`s, and now
+  takes 11% less, a `short`'s `^` being normalized in Java.
 - Unsigned comparison flips the sign bit of both sides (`x ^ MIN_VALUE`) and compares signed.
   Unsigned division, remainder and text use the JDK's `Integer`/`Long.divideUnsigned`,
   `remainderUnsigned` and `toUnsignedString` from the runtime.
 - Division by zero is the JVM's `ArithmeticException`, where the VM traps (§7).
 - Seal's single shift operator `<<<` shifts left for a positive amount and right for a negative
-  one; it becomes a branch, or a runtime helper where the amount isn't a constant.
+  one; by a constant it is the JVM's shift (normalized, shifting left), or for an amount of the
+  width or more, 0 or the sign, and by any other amount the runtime's `Ints.shift`.
 - Bit indexing (`x[3]`) and slices (`x[0..4]`) become shifts and masks, as in the VM.
 - Widening and narrowing (§41.6 of the spec) are `i2l`, `l2i`, `i2d`, `d2i` and friends, plus
   normalization; float to integer uses Seal's rules (truncate, then wrap), which differ from the
