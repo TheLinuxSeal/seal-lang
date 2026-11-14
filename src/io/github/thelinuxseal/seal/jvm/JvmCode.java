@@ -3101,12 +3101,58 @@ final class JvmCode {
                 if (!isNumber(t) && !(t instanceof BitT)) {
                     throw unsupported(b.pos(), "operator " + b.op().symbol + " on " + t);
                 }
+                if (b.op() == BinaryOp.MUL && t instanceof FixedT ft && wholeFactor(b.left(), ft) != null
+                        && wholeFactor(b.right(), ft) == null) {
+                    value(b.right(), t); // 2 * x as x * 2: a constant has nothing to keep in order
+                    operate(b.op(), b.left(), t, b.pos());
+                    return t;
+                }
                 value(b.left(), t);
-                value(b.right(), t);
-                arithmetic(b.op(), t, b.pos());
+                operate(b.op(), b.right(), t, b.pos());
                 return t;
             }
         }
+    }
+
+    /**
+     * The left operand of type t on the stack: e's value, and the operator's result. A fixed-point
+     * x times a whole number k the type holds is x's integer times k, wrapped, the product as fixed
+     * point being x's integer times k's (k * 2^m), which the rounding shift by m makes exactly that
+     * (§37.1): no long product, rounding and shift, and no runtime call for a wide one.
+     */
+    private void operate(BinaryOp op, Expr e, Type t, Pos at) {
+        if (op == BinaryOp.MUL && t instanceof FixedT ft && wholeFactor(e, ft) instanceof BigInteger k) {
+            intConstant(k, raw(ft));
+            arithmetic(op, raw(ft), at);
+            return;
+        }
+        value(e, t);
+        arithmetic(op, t, at);
+    }
+
+    /** A constant whole number that the fixed-point type holds exactly, as k * 2^m; null for anything else. */
+    private BigInteger wholeFactor(Expr e, FixedT ft) {
+        if (tb.implicitCasts.containsKey(e) || pinned.containsKey(e)) {
+            return null;
+        }
+        BigInteger k;
+        if (type(e) instanceof IntConstT ic && ic.value() != null && !ic.isChar()) {
+            k = ic.value();
+        } else if (type(e) instanceof FloatConstT fc && fc.value() != null
+                && (fc.value().signum() == 0 || fc.value().stripTrailingZeros().scale() <= 0)) {
+            k = fc.value().toBigIntegerExact();
+        } else {
+            return null;
+        }
+        int m = frac(ft);
+        int w = width(ft);
+        if (m < 0) {
+            return null;
+        }
+        BigInteger scaled = k.shiftLeft(m);
+        BigInteger lo = ft.signed() ? BigInteger.ONE.shiftLeft(w - 1).negate() : BigInteger.ZERO;
+        BigInteger hi = BigInteger.ONE.shiftLeft(ft.signed() ? w - 1 : w).subtract(BigInteger.ONE);
+        return scaled.compareTo(lo) >= 0 && scaled.compareTo(hi) <= 0 ? k : null;
     }
 
     /**
@@ -3832,8 +3878,7 @@ final class JvmCode {
             } else {
                 Type wide = tb.narrowed.get(a);
                 if (wide == null) {
-                    value(a.value(), t);
-                    arithmetic(a.op(), t, a.pos());
+                    operate(a.op(), a.value(), t, a.pos());
                 } else {
                     // i += 2.5: in the wider type the operator gives, narrowed back as a cast would (§41.6).
                     widen(t, wide);

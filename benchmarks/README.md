@@ -86,7 +86,7 @@ kernel, the median of 3 rounds' medians of 10 runs, after 5 to warm up:
 | allocObjects | 55.4 | 71.4 | 1.29 |
 | structArray | 29.0 | 43.6 | 1.51 |
 | structLocals | 132.2 | 89.8 | 0.68 |
-| fixedMandel | 19.8 | 27.2 | 1.37 |
+| fixedMandel | 19.9 | 20.3 | 1.02 |
 | doubleMandel | 21.2 | 21.3 | 1.00 |
 | recursion | 33.0 | 32.9 | 1.00 |
 
@@ -117,9 +117,6 @@ A chain of `+` on strings is one call of Java's `StringConcatFactory`, as javac 
 * `fixedArray` and `structArray`: fixed arrays and structs live in storage blocks, `long[]`s that
   are read and written a field's bits at a time (docs/JVM.md §4). A class's fields are JVM fields,
   as Java's are; a later optimization can keep a struct's fields in JVM locals (docs/JVM.md §4.5).
-* `fixedMandel`: `zr * zi * 2` multiplies by 2 as a fixed-point number, with a long multiply,
-  rounding and a shift, where the Java multiplies by the integer 2. With `p + p` in place of
-  `p * 2`, Seal takes 21 ms to Java's 20.
 * `shortArith`: `x <<< -5` on an `int<<16>>` calls the runtime's `Ints.shift`, though the amount is
   a constant.
 * `sortHeap`: the same heapsort in both is about 16% slower in Seal, for a reason not found yet:
@@ -144,3 +141,7 @@ A chain of `+` on strings is one call of Java's `StringConcatFactory`, as javac 
   two numbers' texts and three joins. A chain of them is one `invokedynamic` of
   `StringConcatFactory` now, which makes the string at once, as javac's does (docs/JVM.md §8.2):
   `stringConcat` 22 ms (from 72; Java's 23).
+* 2026-11-13: `zr * zi * 2` in `fixedMandel` multiplied by 2 as a fixed-point number, with a long
+  multiply, rounding and a shift, where the Java multiplies by the integer 2. A fixed-point value
+  times a whole-number constant is an integer multiply now (docs/JVM.md §3.2): 20 ms (from 27;
+  Java's 20).

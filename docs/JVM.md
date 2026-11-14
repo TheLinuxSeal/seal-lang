@@ -118,6 +118,12 @@ the fraction bits of each, as the VM's natives do; `Fixed.toString` and `Format`
 `@jvm` methods of `FixedPoint`, since their Seal bodies (removed with the VM) wrote into `addr` buffers. `mul` and `div`
 were checked against the VM's own on 3 million random operands.
 
+Since 2026-11-13, a value times a whole-number constant its format holds, `x * 2`, `2.0 * x` or
+`x *= 3`, is its integer times the number, wrapped as `+` is: the product of the two scaled
+integers is a multiple of 2^M, so rounding and shifting it gives just that. `fixedMandel`'s
+`zr * zi * 2` took a third longer than Java's `int`s before (27 ms to 20). `FixedPointTest`
+checks 200 such products against exact arithmetic.
+
 ## 4. Values: structs and uniques in storage
 
 **Decided: structs and uniques live in `long[]` storage; classes are real JVM classes.** This

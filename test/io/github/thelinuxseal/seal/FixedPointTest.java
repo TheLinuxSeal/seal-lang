@@ -22,6 +22,9 @@ public final class FixedPointTest {
 
     private static final int CASES = 600;
 
+    /** After them, a value times a whole number its format holds: compiled as an integer multiply (docs/JVM.md §3.2). */
+    private static final int WHOLE_CASES = 200;
+
     /** A format: N integer bits (including the sign bit if signed) and M fraction bits. */
     private record Format(int n, int m, boolean signed) {
         int width() {
@@ -88,6 +91,37 @@ public final class FixedPointTest {
             expected.add(result);
             described.add(f.type() + ": " + show(a, f) + " " + op + " " + show(b, f));
         }
+        for (int i = CASES; i < CASES + WHOLE_CASES; i++) {
+            Format f = randomFormat(rnd);
+            BigInteger a = f.random(rnd);
+            BigInteger lo = f.signed() ? BigInteger.ONE.shiftLeft(f.n() - 1).negate() : BigInteger.ZERO;
+            BigInteger hi = BigInteger.ONE.shiftLeft(f.signed() ? f.n() - 1 : f.n()).subtract(BigInteger.ONE);
+            BigInteger k = switch (rnd.nextInt(4)) {
+                case 0 -> lo;
+                case 1 -> hi;
+                default -> BigInteger.valueOf(rnd.nextInt(9) - 3).max(lo).min(hi);
+            };
+            String kText = rnd.nextInt(4) == 0 ? k + ".0" : k.toString();
+            body.append("        ").append(f.type()).append(" a").append(i).append(" = ").append(literal(a, f)).append(";\n");
+            String form;
+            switch (rnd.nextInt(3)) {
+                case 0 -> {
+                    form = "a * " + kText;
+                    body.append("        System.stdout.println(a").append(i).append(" * ").append(kText).append(");\n");
+                }
+                case 1 -> {
+                    form = kText + " * a";
+                    body.append("        System.stdout.println(").append(kText).append(" * a").append(i).append(");\n");
+                }
+                default -> {
+                    form = "a *= " + kText;
+                    body.append("        a").append(i).append(" *= ").append(kText).append(";\n");
+                    body.append("        System.stdout.println(a").append(i).append(");\n");
+                }
+            }
+            expected.add(show(compute("*", a, k.shiftLeft(f.m()), f), f));
+            described.add(f.type() + ": " + form + ", a = " + show(a, f));
+        }
 
         String program = "struct Main {\n    static int main() {\n" + body + "        return 0;\n    }\n}\n";
         Map<String, String> files = new LinkedHashMap<>();
@@ -109,7 +143,7 @@ public final class FixedPointTest {
 
         int passed = 0;
         List<String> failures = new ArrayList<>();
-        for (int i = 0; i < CASES; i++) {
+        for (int i = 0; i < CASES + WHOLE_CASES; i++) {
             String got = i < lines.length ? lines[i] : "(missing)";
             if (got.equals(expected.get(i))) {
                 passed++;
