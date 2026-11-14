@@ -103,6 +103,8 @@ final class JvmCode {
     private List<Temp> stmtTemps = new ArrayList<>();
     /** The locals and parameters whose address the body takes: they live in the frame block (§4.2). */
     private java.util.Set<String> addressTaken = java.util.Set.of();
+    /** The fixed-array locals the body only indexes: Java arrays in JVM locals (LocalForms, docs/JVM.md §4.5). */
+    private java.util.Set<String> javaArrays = java.util.Set.of();
 
     /** A unique made for a statement, and a flag in the frame set when it is: code may skip making it (`a && f()`). */
     private record Temp(Stored value, Mem made) {
@@ -126,7 +128,7 @@ final class JvmCode {
      */
     private final Map<Expr, Local> pinned = new java.util.IdentityHashMap<>();
 
-    sealed interface Var permits Local, Captured, Stored {
+    sealed interface Var permits Local, Captured, Stored, JavaArray {
         Type type();
     }
 
@@ -146,6 +148,13 @@ final class JvmCode {
         Mem at(long bits) {
             return new Mem(block, offSlot, off + bits);
         }
+    }
+
+    /**
+     * A fixed array that its method only indexes and asks the length of: a Java array of its
+     * elements, as an array<T> of them is, in a JVM local (docs/JVM.md §4.5).
+     */
+    record JavaArray(ArrayT type, int slot) implements Var {
     }
 
     /** A variable a lambda captured: a field of its class. */
@@ -261,6 +270,7 @@ final class JvmCode {
             thisType = k.owner();
         }
         addressTaken = AddressTaken.in(md.body());
+        javaArrays = LocalForms.javaArrays(md.body(), tb, addressTaken, this::plainFixedArray);
         first = bindParams(md.params(), tb.params, first, params);
         openScope(params);
         block(md.body());
@@ -338,6 +348,7 @@ final class JvmCode {
         if (ctor != null) {
             tb = typed(k.cls(), t, k.member(), k.binders());
             addressTaken = AddressTaken.in(ctor.body());
+            javaArrays = LocalForms.javaArrays(ctor.body(), tb, addressTaken, this::plainFixedArray);
             bindParams(ctor.params(), tb.params, 0, params);
             body = ctor.body().stmts();
         }
@@ -435,6 +446,7 @@ final class JvmCode {
         if (ctor != null) {
             tb = typed(k.cls(), t, k.member(), k.binders());
             addressTaken = AddressTaken.in(ctor.body());
+            javaArrays = LocalForms.javaArrays(ctor.body(), tb, addressTaken, this::plainFixedArray);
             bindParams(ctor.params(), tb.params, 0, params);
         }
         thisLocal = new Local(t, c.allocateLocal(kind(t)));
@@ -459,6 +471,7 @@ final class JvmCode {
         if (ctor != null) {
             tb = typed(k.cls(), t, k.member(), k.binders());
             addressTaken = AddressTaken.in(ctor.body());
+            javaArrays = LocalForms.javaArrays(ctor.body(), tb, addressTaken, this::plainFixedArray);
             bindParams(ctor.params(), tb.params, 2, params);
         }
         openScope(params);
@@ -523,6 +536,7 @@ final class JvmCode {
         tb = typed(k.cls(), t, k.member(), Map.of());
         thisMem = new Mem(c.parameterSlot(0), c.parameterSlot(1), 0);
         addressTaken = AddressTaken.in(d.body());
+        javaArrays = LocalForms.javaArrays(d.body(), tb, addressTaken, this::plainFixedArray);
         openScope(new HashMap<>());
         block(d.body());
         c.return_();
@@ -691,6 +705,7 @@ final class JvmCode {
         Block body = lam.block() != null ? lam.block() : new Block(lam.pos(), List.of(returnType instanceof VoidT
                 ? new ExprStmt(lam.pos(), lam.expr()) : new Return(lam.pos(), lam.expr())));
         addressTaken = AddressTaken.in(body);
+        javaArrays = LocalForms.javaArrays(body, tb, addressTaken, this::plainFixedArray);
         bindParams(lam.params(), li.params(), 0, params);
         if (li.iface().cls().java != null) {
             // Java passes its erased types, compare(Object, Object): each parameter checked as the Seal type it is (docs/JAVA.md §5).
@@ -744,6 +759,7 @@ final class JvmCode {
             }
             case Stored st when !g.isAggregate(st.type()) -> loadFrom(st.mem(), st.type());
             case Stored st -> throw new IllegalStateException("a struct variable used as a single value: " + st.type());
+            case JavaArray ja -> throw new IllegalStateException("a fixed array held as a Java array, used as a value: LocalForms let it through");
         }
     }
 
@@ -1020,6 +1036,44 @@ final class JvmCode {
         int slot = c.allocateLocal(TypeKind.INT);
         c.istore(slot);
         return new Mem(array.block(), slot, array.off());
+    }
+
+    /**
+     * Whether a fixed-array local can be a Java array, if its method only indexes it (LocalForms):
+     * of numbers, bits, chars or strings, and small enough for a block, so that what compiles
+     * doesn't depend on how the method uses it.
+     */
+    private boolean plainFixedArray(Type t) {
+        if (!(t instanceof ArrayT at) || at.size() == null || g.isAggregate(at.element()) || at.element() instanceof JavaPrimT
+                || g.layouts.sizeOf(t) > Integer.MAX_VALUE) {
+            return false;
+        }
+        try {
+            return isString(at.element()) || kind(at.element()) != TypeKind.REFERENCE;
+        } catch (Unsupported u) {
+            return false;
+        }
+    }
+
+    /** The local a name gives, if it is a fixed array held as a Java array (§4.5); null for anything else. */
+    private JavaArray javaArray(Expr e) {
+        return e instanceof Name n && "local".equals(tb.nameKinds.get(n)) && !tb.rewritten.containsKey(n)
+                && !javaArrays.isEmpty() && lookup(n.name()) instanceof JavaArray ja ? ja : null;
+    }
+
+    /** Pushes a fixed array held as a Java array, and an index into it, checked as elementMem checks one. */
+    private void javaArrayElement(JavaArray ja, Expr index) {
+        c.aload(ja.slot());
+        long n = ja.type().size().intValue().longValueExact();
+        if (type(index) instanceof IntConstT && !tb.implicitCasts.containsKey(index)) {
+            long i = ck.constantIn(tb, index).intValue().longValueExact();
+            if (i >= 0 && i < n) {
+                c.loadConstant((int) i);
+                return;
+            }
+        }
+        value(index, Type.INT);
+        boundsCheck((int) n, index.pos());
     }
 
     /** Pushes the value of type t stored at m. */
@@ -1412,6 +1466,26 @@ final class JvmCode {
             case Block b -> block(b);
             case VarDecl v -> {
                 Type t = tb.locals.get(v);
+                if (t instanceof ArrayT at && javaArrays.contains(v.name())) {
+                    // Only indexed: a Java array of its elements, made zeroed, or of a literal's (docs/JVM.md §4.5).
+                    int slot = c.allocateLocal(TypeKind.REFERENCE);
+                    Label start = here();
+                    c.loadConstant((int) at.size().intValue().longValueExact());
+                    newArray(at.element());
+                    if (v.init() instanceof ArrayLit al) {
+                        for (int i = 0; i < al.elements().size(); i++) {
+                            c.dup();
+                            c.loadConstant(i);
+                            value(al.elements().get(i), at.element());
+                            c.arrayStore(kind(at.element()));
+                        }
+                    }
+                    guardTemps(start, stmtTemps);
+                    flushTemps();
+                    c.astore(slot);
+                    scopes.peek().put(v.name(), new JavaArray(at, slot));
+                    return;
+                }
                 if (g.isAggregate(t)) {
                     Stored st = new Stored(t, temp(t));
                     Label start = here();
@@ -2065,6 +2139,11 @@ final class JvmCode {
             case Index ix when tb.calls.containsKey(ix) -> {
                 return operator(ix);
             }
+            case Index ix when javaArray(ix.target()) instanceof JavaArray ja -> {
+                javaArrayElement(ja, ix.index());
+                c.arrayLoad(kind(ja.type().element()));
+                return t;
+            }
             case Index ix when type(ix.target()) instanceof ArrayT at && at.size() != null -> {
                 loadFrom(elementMem(aggregateOf(ix.target()), at, ix.index()), t);
                 return t;
@@ -2277,7 +2356,11 @@ final class JvmCode {
         }
         switch (e) {
             case Name n when "local".equals(tb.nameKinds.get(n)) -> {
-                return lookup(n.name()) instanceof Stored st ? st.mem() : null;
+                Var v = lookup(n.name());
+                if (v instanceof JavaArray) {
+                    throw new IllegalStateException("a fixed array held as a Java array, used as a value: LocalForms let it through");
+                }
+                return v instanceof Stored st ? st.mem() : null;
             }
             case Name n when "field".equals(tb.nameKinds.get(n)) -> {
                 MemberInfo m = tb.fieldOf.get(n);
@@ -3756,7 +3839,7 @@ final class JvmCode {
      * field. {@link #base} pushes what the place needs (nothing, or the object); {@link #get} and
      * {@link #put} use it up.
      */
-    private sealed interface Place permits LocalPlace, FieldPlace, StaticPlace, MemPlace, JavaElementPlace {
+    private sealed interface Place permits LocalPlace, FieldPlace, StaticPlace, MemPlace, JavaElementPlace, ArrayElementPlace {
         Type type();
     }
 
@@ -3778,6 +3861,10 @@ final class JvmCode {
 
     /** An element of a Java array (docs/JAVA.md §3.1): the array and the index are its base. */
     private record JavaElementPlace(Expr array, Expr index, Type type) implements Place {
+    }
+
+    /** An element of a fixed array held as a Java array (§4.5): the array and the checked index are its base. */
+    private record ArrayElementPlace(JavaArray array, Expr index, Type type) implements Place {
     }
 
     /** The place an expression names, or null if it isn't one (a call's result, say). */
@@ -3819,6 +3906,9 @@ final class JvmCode {
                 }
                 return new FieldPlace(s.target(), type(s.target()), m, type(s));
             }
+            case Index ix when javaArray(ix.target()) instanceof JavaArray ja && !tb.calls.containsKey(ix) -> {
+                return new ArrayElementPlace(ja, ix.index(), type(ix));
+            }
             case Index ix when type(ix.target()) instanceof ArrayT at && at.size() != null && !tb.calls.containsKey(ix) -> {
                 return new MemPlace(elementMem(aggregateOf(ix.target()), at, ix.index()), type(ix));
             }
@@ -3846,7 +3936,7 @@ final class JvmCode {
     }
 
     private int baseSize(Place p) {
-        return p instanceof FieldPlace ? 1 : p instanceof MemPlace || p instanceof JavaElementPlace ? 2 : 0;
+        return p instanceof FieldPlace ? 1 : p instanceof MemPlace || p instanceof JavaElementPlace || p instanceof ArrayElementPlace ? 2 : 0;
     }
 
     private void base(Place p) {
@@ -3856,6 +3946,9 @@ final class JvmCode {
         if (p instanceof JavaElementPlace j) {
             value(j.array(), null);
             value(j.index(), Type.INT);
+        }
+        if (p instanceof ArrayElementPlace a) {
+            javaArrayElement(a.array(), a.index());
         }
         if (p instanceof FieldPlace f) {
             if (f.object() == null) {
@@ -3872,6 +3965,7 @@ final class JvmCode {
             case LocalPlace l -> c.loadLocal(load(l.type()), l.local().slot());
             case FieldPlace f -> getField(f.objectType(), f.field(), pos);
             case JavaElementPlace j -> c.arrayLoad(JvmGen.javaKind(j.type()));
+            case ArrayElementPlace a -> c.arrayLoad(kind(a.array().type().element()));
             case StaticPlace s -> getStatic(s.field(), pos);
         }
     }
@@ -3882,6 +3976,7 @@ final class JvmCode {
             case LocalPlace l -> c.storeLocal(load(l.type()), l.local().slot());
             case FieldPlace f -> putField(f.objectType(), f.field(), pos);
             case JavaElementPlace j -> c.arrayStore(JvmGen.javaKind(j.type()));
+            case ArrayElementPlace a -> c.arrayStore(kind(a.array().type().element()));
             case StaticPlace s -> putStatic(s.field(), pos);
         }
     }
@@ -4400,6 +4495,13 @@ final class JvmCode {
     }
 
     private Type invokeOn(CallInfo ci, Expr receiver, List<Expr> args, Pos at, Mem dst) {
+        if (receiver != null && javaArray(receiver) instanceof JavaArray ja) {
+            if (!(ci.member().member instanceof Method md && md.name().equals("length") && args.isEmpty())) {
+                throw new IllegalStateException("a method of a fixed array held as a Java array: LocalForms let it through");
+            }
+            c.loadConstant((int) ja.type().size().intValue().longValueExact()); // xs.length() of one only indexed
+            return Type.INT;
+        }
         Type recvType = receiver == null ? thisValueType() : type(receiver);
         Type ret = ck.returnTypeOf(ci.owner(), ci.member(), ci.binders());
         if (g.isAggregate(ret) && dst == null) {

@@ -77,6 +77,22 @@ public final class CliTest {
         r = run("run", joins.getParent().toString());
         check(r.code() == 0 && r.out().equals("n=5, c=z!5/z\n"), "run: a chain of + " + r);
 
+        // A fixed array its method only indexes is a Java array, with no frame block (docs/JVM.md §4.5).
+        Path indexed = write(dir, "indexed/Main.seal", """
+                struct Main {
+                    static int main() {
+                        array<int><<8>> a;
+                        for (int i = 1; i < a.length(); i++) { a[i] = a[i - 1] + i; }
+                        System.stdout.println(a[7]);
+                        return 0;
+                    }
+                }
+                """);
+        r = run("dump", indexed.getParent().toString());
+        String indexedMain = r.out().split("\n(?=class |interface )")[0];
+        check(r.code() == 0 && indexedMain.contains("newarray int") && !indexedMain.contains("Block"),
+                "dump: a fixed array only indexed is a Java array " + r);
+
         // Seal's VM is removed (docs/JVM.md §13): --vm says so; --jvm, the only backend, is still accepted.
         r = run("run", "--vm", ok.getParent().toString());
         check(r.code() == 2 && r.out().isEmpty() && r.err().equals(Main.VM_REMOVED + "\n"), "run --vm: says the VM is removed " + r);

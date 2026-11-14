@@ -238,6 +238,18 @@ a struct local whose address is never taken (the checker already knows, `Address
 split into one JVM local per field, which is free. That is an optimization, not part of the first
 version.
 
+Done for fixed arrays on 2026-11-13: a local fixed array of numbers, bits, chars or strings that
+its method only indexes (reads, sets or steps an element, or a bit or slice of one) and asks the
+`length()` of is a Java array of its elements in a JVM local, as an `array<T>` of them is, made
+zeroed or from a literal: `iaload` and `iastore` after Seal's own bounds check, which throws the
+library's `IndexOutOfBoundsException` as before. `jvm/LocalForms` decides, walking the code as
+it is generated (the checker's rewritten expressions and desugared loops, so `for (int x : xs)`
+is indexing), and every part of a node it doesn't know, so an unforeseen use keeps the array in
+the block. One used any other way (passed, returned, copied, a method of it called, in a lambda,
+behind an address, made by a call) stays in the block, and so does one too large for a block, so
+what compiles doesn't change. `fixedArray` took 4.8 times as long as Java's `int[1024]`, and
+takes as long now.
+
 ### 4.6 Done in M3
 
 - The runtime's `Block` is §4.1's, with an element count for an `array<T>` of structs, which is one

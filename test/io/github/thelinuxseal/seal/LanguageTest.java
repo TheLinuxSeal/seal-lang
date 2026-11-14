@@ -3442,6 +3442,107 @@ struct Main {
                 "Main", main("Word<<40>> wide;\n")), "in Word<<40>>: an array's length must be less than 2 ** 31, not 1099511627776");
         compileError("and so is a value too large for memory", files("Main", main("array<int<<64>>><<2 ** 26>> wide;\n")),
                 "offset or size 4294967296 is too large");
+        // A fixed array its method only indexes is a Java array (docs/JVM.md §4.5); one used whole stays in the block.
+        output("fixed arrays only indexed, of each kind, and ones passed, sorted, copied and captured", files("Main", """
+                import seal.util.function.Function;
+                struct Main {
+                    static int sum(array<int><<4>> xs) { int s = 0; for (int x : xs) { s += x; } return s; }
+                    static array<int><<3>> three() { array<int><<3>> t = [7, 8, 9]; return t; }
+
+                    static int main() {
+                        array<int><<5>> a;
+                        for (int i = 0; i < a.length(); i++) { a[i] = i * i - 3; }
+                        a[2] += 10; a[3] *= -2; a[4]++; ++a[0]; a[1]--;
+                        int pre = a[0]++;
+                        System.stdout.println("" + a[0] + " " + a[1] + " " + a[2] + " " + a[3] + " " + a[4] + " pre " + pre);
+                        array<int<<8>>><<3>> small;
+                        small[0] = 127; small[0]++; small[1] = -128; small[1]--; small[2] = 100; small[2] *= 3;
+                        System.stdout.println("" + small[0] + " " + small[1] + " " + small[2]);
+                        array<uint<<4>>><<2>> nib; nib[0] = 15; nib[0] += 1; nib[1] = 7; nib[1] <<= 1;
+                        System.stdout.println("" + nib[0] + " " + nib[1]);
+                        array<bit><<4>> flags; flags[1] = true; flags[3] = !flags[2];
+                        System.stdout.println("" + flags[0] + flags[1] + flags[2] + flags[3]);
+                        array<char><<3>> cs = ['x', 'y', 'z']; cs[1]++;
+                        System.stdout.println("" + cs[0] + cs[1] + cs[2]);
+                        array<double><<3>> ds = [0.5, -1.25, 3.0]; ds[0] /= 4.0; ds[2] = ds[0] + ds[1];
+                        System.stdout.println("" + ds[0] + " " + ds[1] + " " + ds[2]);
+                        array<float><<2>> fs; fs[0] = (float)1.5; fs[1] = fs[0] * fs[0];
+                        System.stdout.println("" + fs[0] + " " + fs[1]);
+                        array<fixed<<8, 8>>><<3>> fx = [1.5, -2.25, 0.125]; fx[0] *= 2; fx[1] = fx[1] * fx[0]; fx[2] += 100.0;
+                        System.stdout.println("" + fx[0] + " " + fx[1] + " " + fx[2]);
+                        array<int<<64>>><<2>> big; big[0] = 9223372036854775807; big[0]++; big[1] = big[0] / 3;
+                        System.stdout.println("" + big[0] + " " + big[1]);
+                        array<uint<<64>>><<2>> ubig; ubig[0] = 18446744073709551615; ubig[1] = ubig[0] / 7;
+                        System.stdout.println("" + ubig[0] + " " + ubig[1]);
+                        array<string><<3>> ss; ss[1] = "mid"; ss[2] += "end" + ss[1];
+                        System.stdout.println("[" + ss[0] + "][" + ss[1] + "][" + ss[2] + "] " + ss[0].length());
+                        array<int><<2>> bitsOf; bitsOf[0] = 5; bitsOf[0][3] = true; bitsOf[1] = 255; bitsOf[1][0..4] = 3;
+                        System.stdout.println("" + bitsOf[0] + " " + bitsOf[1] + " " + bitsOf[0][2] + " " + bitsOf[1][4..8]);
+                        int total = 0;
+                        for (int round = 0; round < 3; round++) {
+                            array<int><<4>> fresh;
+                            fresh[round] = round + 1;
+                            for (int x : fresh) { total = total * 10 + x; }
+                        }
+                        System.stdout.println("fresh " + total);
+                        for (int x : [3, 1, 4]) { total += x; }
+                        System.stdout.println("lit " + total);
+                        array<int><<4>> passed = [1, 2, 3, 4];
+                        System.stdout.println("passed " + sum(passed));
+                        array<int><<4>> sorted = [4, 2, 3, 1];
+                        sorted.sort();
+                        System.stdout.println("sorted " + sorted[0] + sorted[1] + sorted[2] + sorted[3]);
+                        array<int><<3>> got = three();
+                        got[1] = 0;
+                        System.stdout.println("got " + got[0] + got[1] + got[2]);
+                        array<int><<2>> copyA = [5, 6];
+                        array<int><<2>> copyB = copyA;
+                        copyB[0] = 50;
+                        System.stdout.println("copy " + copyA[0] + " " + copyB[0]);
+                        array<int><<3>> idx = [10, 20, 30];
+                        int k = 0;
+                        idx[k++] += 1; idx[k++] += 2;
+                        System.stdout.println("k " + k + " " + idx[0] + " " + idx[1] + " " + idx[2]);
+                        try {
+                            int bad = 3;
+                            System.stdout.println(idx[bad]);
+                        } catch (IndexOutOfBoundsException e) {
+                            System.stdout.println("caught " + e.getMessage());
+                        }
+                        try {
+                            int neg = -1;
+                            idx[neg] = 4;
+                        } catch (IndexOutOfBoundsException e) {
+                            System.stdout.println("caught " + e.getMessage());
+                        }
+                        array<int><<3>> lam = [1, 2, 3];
+                        Function<int, int> f = (int x) -> x + lam[1];
+                        System.stdout.println("lambda " + f.apply(5));
+                        return 0;
+                    }
+                }
+                """), "-1 -3 11 -12 14 pre -2\n"
+                        + "-128 127 44\n"
+                        + "0 14\n"
+                        + "falsetruefalsetrue\n"
+                        + "xzz\n"
+                        + "0.125 -1.25 -1.125\n"
+                        + "1.5 2.25\n"
+                        + "3.0 -6.75 100.125\n"
+                        + "-9223372036854775808 -3074457345618258602\n"
+                        + "18446744073709551615 2635249153387078802\n"
+                        + "[][mid][endmid] 0\n"
+                        + "13 243 true 15\n"
+                        + "fresh 1217752222\n"
+                        + "lit 1217752230\n"
+                        + "passed 10\n"
+                        + "sorted 1234\n"
+                        + "got 709\n"
+                        + "copy 5 50\n"
+                        + "k 2 11 22 30\n"
+                        + "caught index 3 out of range for an array of length 3\n"
+                        + "caught index -1 out of range for an array of length 3\n"
+                        + "lambda 7\n");
     }
 
     private static void pureMethods() {

@@ -77,7 +77,7 @@ kernel, the median of 3 rounds' medians of 10 runs, after 5 to warm up:
 | sortLib | 12.0 | 12.0 | 1.00 |
 | sortHeap | 110.0 | 128.5 | 1.17 |
 | sortDoubles | 69.0 | 74.3 | 1.08 |
-| fixedArray | 28.7 | 138.8 | 4.84 |
+| fixedArray | 29.4 | 29.6 | 1.01 |
 | listInt | 370.0 | 48.3 | 0.13 |
 | hashMap | 73.8 | 59.0 | 0.80 |
 | stringBuilder | 24.9 | 26.6 | 1.07 |
@@ -117,9 +117,9 @@ A chain of `+` on strings is one call of Java's `StringConcatFactory`, as javac 
 
 **Seal slower:**
 
-* `fixedArray` and `structArray`: fixed arrays and structs live in storage blocks, `long[]`s that
-  are read and written a field's bits at a time (docs/JVM.md §4). A class's fields are JVM fields,
-  as Java's are; a later optimization can keep a struct's fields in JVM locals (docs/JVM.md §4.5).
+* `structArray`: structs live in storage blocks, `long[]`s that are read and written a field's
+  bits at a time (docs/JVM.md §4). A class's fields are JVM fields, as Java's are; a later
+  optimization can keep a struct's fields in JVM locals (docs/JVM.md §4.5).
 * `byteArray`: the inner loop is the same as before (an `array<uint<<8>>>` is an `int[]`, where
   Java's is a `byte[]`), and took 3% longer than Java's while `(b <<< 16) | a`, outside it, called
   `Ints.shift`. With that shift inline, as javac's, C2 unrolls the inner loop 8 times rather than
@@ -155,3 +155,6 @@ A chain of `+` on strings is one call of Java's `StringConcatFactory`, as javac 
   javac's `(short)` cast does once, and `x <<< -5` called `Ints.shift`. A chain of wrapping
   operators is normalized at its end, and a shift by a constant is inline (docs/JVM.md §3.1):
   339 ms (from 431; Java's 383).
+* 2026-11-13: a fixed array lived in the frame's storage block, read and written a word's bits at
+  a time, so `fixedArray` took 4.8 times as long as Java's. One its method only indexes is a Java
+  array now (docs/JVM.md §4.5): 29.6 ms (from 139; Java's 29.4).
