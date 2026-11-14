@@ -1199,6 +1199,63 @@ public final class LanguageTest {
                 string s = 4 + "x";
                 System.stdout.print(" " + s);
                 """)), "3 apples 3!true 2.5 4x");
+        // A chain of + is one StringConcatFactory call on the JVM (docs/JVM.md §8.2), each piece's text as string's add makes it.
+        StringBuilder chain = new StringBuilder("string many = \"<\"");
+        StringBuilder chainText = new StringBuilder("<");
+        for (int i = 0; i < 70; i++) {
+            chain.append(" + low + ").append(i); // 3 slots each: past the 200 one call takes
+            chainText.append(Long.MIN_VALUE).append(i);
+        }
+        output("a chain of + is one string, each piece's text as before", files("Box", """
+                class Box {
+                    static int made = 0;
+                    int n;
+                    public new(int n) { this.n = n; }
+                    @overload(Operator.CAST) public string text() { made = made + 1; return "B" + n + "#" + made; }
+                }
+                """, "Main", main("""
+                uint u = 4294967295;
+                uint<<64>> u64 = 18446744073709551615;
+                uint<<40>> u40 = 1099511627775;
+                uint<<31>> u31 = 2147483647;
+                int<<64>> low = -9223372036854775807 - 1;
+                int<<40>> s40 = -549755813888;
+                int<<8>> b = -128;
+                size sz = 64;
+                fixed<<8, 8>> fx = -1.5;
+                ufixed<<16, 16>> ufx = 65535.25;
+                double nan = 0.0 / 0.0;
+                float third = (float)1.0 / (float)3.0;
+                char c = 'Q';
+                string s = "str";
+                string<<4>> four = "four";
+                System.stdout.println("u=" + u + " " + u64 + " " + u40 + " " + u31 + " " + low + " " + s40 + " " + b + " " + sz);
+                System.stdout.println("f=" + fx + " " + ufx + " " + nan + " " + (-0.0) + " " + third + " " + true + c + s + four);
+                System.stdout.println("\\u0001" + c + "\\u0002" + (s + (four + c)) + "\\u0001" + four + "+" + 1);
+                Box one = new Box(1);
+                int k = 0;
+                System.stdout.println("k" + (k = k + 1) + one + (k = k * 10) + one + k);
+                string t = "t";
+                t += one;
+                t += "!" + one + 7 + (c + "x");
+                t += u;
+                t += fx;
+                System.stdout.println(t);
+                """ + chain + """
+                ;
+                System.stdout.println(many);
+                int n = 7;
+                string lit = n + "%s" + n + "%s" + n;
+                System.stdout.println("" + lit.length() + " " + lit.charAt(0) + lit.charAt(1) + lit.charAt(25001) + lit.charAt(25002)
+                        + lit.charAt(50002));
+                """.formatted("x".repeat(25_000), "y".repeat(25_000)))),
+                "u=4294967295 18446744073709551615 1099511627775 2147483647 -9223372036854775808 -549755813888 -128 64\n"
+                        + "f=-1.5 65535.25 NaN -0.0 0.33333334 trueQstrfour\n"
+                        + "\u0001Q\u0002strfourQ\u0001four+1\n"
+                        + "k1B1#110B1#210\n"
+                        + "tB1#3!B1#47Qx4294967295-1.5\n"
+                        + chainText + "\n"
+                        + "50003 7x7y7\n");
         compileError("@implicit is the library's", files("Meters", """
                 struct Meters {
                     public int v;

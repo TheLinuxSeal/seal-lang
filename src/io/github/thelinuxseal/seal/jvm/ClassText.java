@@ -14,6 +14,7 @@ import java.lang.classfile.instruction.ConstantInstruction;
 import java.lang.classfile.instruction.ExceptionCatch;
 import java.lang.classfile.instruction.FieldInstruction;
 import java.lang.classfile.instruction.IncrementInstruction;
+import java.lang.classfile.instruction.InvokeDynamicInstruction;
 import java.lang.classfile.instruction.InvokeInstruction;
 import java.lang.classfile.instruction.LabelTarget;
 import java.lang.classfile.instruction.LineNumber;
@@ -127,6 +128,8 @@ public final class ClassText {
                     + f.typeSymbol().displayName();
             case InvokeInstruction v -> name(v.owner().asInternalName()) + "." + v.name().stringValue()
                     + v.typeSymbol().displayDescriptor();
+            case InvokeDynamicInstruction d -> d.name().stringValue() + d.typeSymbol().displayDescriptor()
+                    + d.bootstrapArgs().stream().map(a -> " " + constant(a)).collect(Collectors.joining()); // + of strings: its recipe
             case BranchInstruction b -> "L" + labels.get(b.target());
             case TableSwitchInstruction t -> cases(t.cases(), labels) + " default L" + labels.get(t.defaultTarget());
             case LookupSwitchInstruction l -> cases(l.cases(), labels) + " default L" + labels.get(l.defaultTarget());
@@ -144,8 +147,31 @@ public final class ClassText {
     }
 
     private static String constant(Object v) {
-        return v instanceof String s ? '"' + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + '"'
+        return v instanceof String s ? quoted(s)
                 : v instanceof Long ? v + "L" : v instanceof Float ? v + "f" : String.valueOf(v);
+    }
+
+    /**
+     * A string as a literal, with any control character but a newline as a Unicode escape: the
+     * character 1 that the recipe of a + of strings has for each value it joins, for one.
+     */
+    private static String quoted(String s) {
+        StringBuilder out = new StringBuilder("\"");
+        for (char ch : s.toCharArray()) {
+            switch (ch) {
+                case '\\' -> out.append("\\\\");
+                case '"' -> out.append("\\\"");
+                case '\n' -> out.append("\\n");
+                default -> {
+                    if (ch < 0x20) {
+                        out.append(String.format("\\u%04x", (int) ch));
+                    } else {
+                        out.append(ch);
+                    }
+                }
+            }
+        }
+        return out.append('"').toString();
     }
 
     /** A class's name as Java writes it: io.github.thelinuxseal.seal.lang.Writer, Main$lambda$1. */

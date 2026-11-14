@@ -11,9 +11,11 @@ import static io.github.thelinuxseal.seal.jvm.JvmGen.kind;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.raw;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.replacesReceiver;
 import static io.github.thelinuxseal.seal.jvm.JvmGen.width;
+import static java.lang.constant.ConstantDescs.CD_Integer;
 import static java.lang.constant.ConstantDescs.CD_Object;
 import static java.lang.constant.ConstantDescs.CD_String;
 import static java.lang.constant.ConstantDescs.CD_boolean;
+import static java.lang.constant.ConstantDescs.CD_char;
 import static java.lang.constant.ConstantDescs.CD_double;
 import static java.lang.constant.ConstantDescs.CD_float;
 import static java.lang.constant.ConstantDescs.CD_int;
@@ -24,6 +26,9 @@ import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.Label;
 import java.lang.classfile.TypeKind;
 import java.lang.constant.ClassDesc;
+import java.lang.constant.ConstantDescs;
+import java.lang.constant.DirectMethodHandleDesc;
+import java.lang.constant.DynamicCallSiteDesc;
 import java.lang.constant.MethodTypeDesc;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -3039,6 +3044,9 @@ final class JvmCode {
     }
 
     private Type binary(Binary b, Type t) {
+        if (isJoin(b)) {
+            return join(b);
+        }
         if (tb.calls.containsKey(b)) {
             return operator(b);
         }
@@ -3335,6 +3343,184 @@ final class JvmCode {
             return l == null || r == null ? null : l + r;
         }
         return null;
+    }
+
+    // ================================================================ strings joined with +
+
+    /** StringConcatFactory takes at most 200 slots; javac makes a string of each 100 or so, and so does this. */
+    private static final int JOIN_SLOTS = 100;
+
+    /** The most characters of literals a recipe takes: a constant is at most 65535 bytes, and a character 3. */
+    private static final int RECIPE_CHARS = 20_000;
+
+    private static final DirectMethodHandleDesc MAKE_CONCAT = ConstantDescs.ofCallsiteBootstrap(
+            ClassDesc.of("java.lang.invoke.StringConcatFactory"), "makeConcatWithConstants", ConstantDescs.CD_CallSite,
+            CD_String, CD_Object.arrayType());
+
+    /**
+     * One piece of a chain of string + (§46): e, as the string's add takes it (as: a string, or the
+     * type of add's parameter), and that add, which makes the text of a piece Java's can't.
+     */
+    private record Piece(Expr e, Type as, CallInfo add) {
+    }
+
+    /** A string's + that gives a string (§46): a link in a chain of them, which is made one string at once. */
+    private boolean isJoin(Expr e) {
+        return e instanceof Binary b && b.op() == BinaryOp.ADD && tb.calls.get(b) instanceof CallInfo ci
+                && !ci.swap() && !ci.negate() && isString(ci.owner())
+                && ci.member().member instanceof Method md && md.name().equals("add")
+                && isString(ck.returnTypeOf(ci.owner(), ci.member(), ci.binders()));
+    }
+
+    /**
+     * a + b + c on strings, as javac makes it (docs/JVM.md §8.2): each piece's value, left to right,
+     * and one invokedynamic of StringConcatFactory that makes the whole string at once, where
+     * calling each + would make a string for each, and one for each number's text.
+     */
+    private Type join(Binary b) {
+        CallInfo ci = tb.calls.get(b);
+        List<Piece> pieces = new ArrayList<>();
+        joinPieces(b.left(), ci.owner(), ci, pieces);
+        joinPieces(b.right(), ck.paramTypes(ci.owner(), ci.member(), ci.binders()).get(0), ci, pieces);
+        joinAtOnce(pieces, false, b.pos());
+        return ck.returnTypeOf(ci.owner(), ci.member(), ci.binders());
+    }
+
+    /** The pieces of e, one of them unless it is a + of strings itself, as (a + b) + c and a + (b + c) are. */
+    private void joinPieces(Expr e, Type as, CallInfo add, List<Piece> out) {
+        Expr j = e; // what value(e) makes: "box: " + box is "box: " + (string)box, and 5 + "x" is "" + 5 + "x"
+        while (!pinned.containsKey(j) && !tb.implicitCasts.containsKey(j) && tb.rewritten.get(j) instanceof Expr instead) {
+            j = instead;
+        }
+        if (isJoin(j) && !pinned.containsKey(j) && !tb.implicitCasts.containsKey(j)) {
+            Binary b = (Binary) j;
+            CallInfo ci = tb.calls.get(b);
+            joinPieces(b.left(), ci.owner(), ci, out);
+            joinPieces(b.right(), ck.paramTypes(ci.owner(), ci.member(), ci.binders()).get(0), ci, out);
+            return;
+        }
+        out.add(new Piece(e, as, add));
+    }
+
+    /**
+     * Makes one string of the pieces, after a string already on the stack if onStack: literals go
+     * into the recipe, and each other piece is pushed as Java's own + would take it.
+     */
+    private void joinAtOnce(List<Piece> pieces, boolean onStack, Pos at) {
+        StringBuilder recipe = new StringBuilder(onStack ? "\1" : "");
+        List<ClassDesc> args = new ArrayList<>(onStack ? List.of(CD_String) : List.of());
+        int slots = args.size();
+        for (Piece p : pieces) {
+            String text = isString(p.as()) ? constText(p.e()) : null;
+            if (text != null && text.indexOf('\1') < 0 && text.indexOf('\2') < 0
+                    && recipe.length() + text.length() <= RECIPE_CHARS) {
+                recipe.append(text);
+                continue;
+            }
+            if (slots + 2 > JOIN_SLOTS) {
+                // The string so far, which the rest joins.
+                c.invokedynamic(DynamicCallSiteDesc.of(MAKE_CONCAT, "makeConcatWithConstants",
+                        MethodTypeDesc.of(CD_String, args), recipe.toString()));
+                recipe = new StringBuilder("\1");
+                args = new ArrayList<>(List.of(CD_String));
+                slots = 1;
+            }
+            ClassDesc d;
+            if (text != null) {
+                c.loadConstant(text); // a literal with a character the recipe keeps for itself, or a long one
+                d = CD_String;
+            } else {
+                d = joinPiece(p, at);
+            }
+            recipe.append('\1');
+            args.add(d);
+            slots += d.equals(CD_long) || d.equals(CD_double) ? 2 : 1;
+        }
+        if (args.isEmpty()) {
+            c.loadConstant(recipe.toString());
+        } else {
+            c.invokedynamic(DynamicCallSiteDesc.of(MAKE_CONCAT, "makeConcatWithConstants",
+                    MethodTypeDesc.of(CD_String, args), recipe.toString()));
+        }
+    }
+
+    /** The text of a string literal, of literals joined with +, or of a constant string; null for anything else. */
+    private String constText(Expr e) {
+        if (tb.rewritten.containsKey(e) || pinned.containsKey(e) || tb.implicitCasts.containsKey(e)) {
+            return null;
+        }
+        if (e instanceof StringLit sl) {
+            return sl.value(); // typed as the string<<N>> it is, where it is a receiver
+        }
+        if (type(e) instanceof StrConstT sc) {
+            String text = constString(e);
+            return text != null ? text : sc.value();
+        }
+        return null;
+    }
+
+    /**
+     * Pushes a piece, as StringConcatFactory takes it, and gives its type there. A number's text
+     * there is Java's, which is the one string's add makes (Integer.toString is Long.toString, and
+     * Double.toString Java's), so a number goes as itself: a uint<<32>> widened to a long, so it
+     * has no sign. A uint<<64>>'s text is Long.toUnsignedString's, and any other piece's, a fixed-point
+     * number's, is what its own add makes of it after "", so a string as the chain gets it.
+     */
+    private ClassDesc joinPiece(Piece p, Pos at) {
+        Type as = p.as();
+        if (isString(as)) {
+            value(p.e(), as);
+            return CD_String;
+        }
+        switch (as) {
+            case BitT bt -> {
+                value(p.e(), as);
+                return CD_boolean;
+            }
+            case FloatT f -> {
+                value(p.e(), as);
+                return CD_float;
+            }
+            case DoubleT d -> {
+                value(p.e(), as);
+                return CD_double;
+            }
+            case IntT it when it.isChar() -> {
+                value(p.e(), as);
+                return CD_char;
+            }
+            case IntT it -> {
+                value(p.e(), as);
+                int w = width(it);
+                if (it.signed() || w < 32) {
+                    return w <= 32 ? CD_int : CD_long;
+                }
+                if (w == 32) {
+                    c.invokestatic(CD_Integer, "toUnsignedLong", MethodTypeDesc.of(CD_long, CD_int));
+                    return CD_long;
+                }
+                if (w == 64) {
+                    c.invokestatic(ClassDesc.of(JvmGen.RUNTIME + "Strings"), "ofUnsigned", MethodTypeDesc.of(CD_String, CD_long));
+                    return CD_String;
+                }
+                return CD_long; // held zero-extended in a long
+            }
+            default -> {
+            }
+        }
+        CallInfo ci = p.add();
+        Method md = (Method) ci.member().member;
+        c.loadConstant("");
+        List<Type> params = ck.paramTypes(ci.owner(), ci.member(), ci.binders());
+        pushArgs(params, List.of(p.e()));
+        String jvm = Checker.jvmName(md);
+        if (jvm != null) {
+            runtimeCall(jvm, ci.owner(), params, ck.returnTypeOf(ci.owner(), ci.member(), ci.binders()), at);
+        } else {
+            ClassT owner = ci.owner();
+            JvmGen.invoke(c, g.ref(new FnKey("method", owner.cls(), owner, ci.member(), ci.binders()), at));
+        }
+        return CD_String;
     }
 
     private static boolean isReference(Type t) {
@@ -4132,6 +4318,14 @@ final class JvmCode {
         List<Type> params = ck.paramTypes(ci.owner(), ci.member(), ci.binders());
         if (jvm != null && jvm.startsWith("array.")) {
             arrayIntrinsic(jvm, ci, args, receiver, at, dst);
+            return ret;
+        }
+        if (replaces && isString(ci.owner()) && md.name().equals("addAssign")) {
+            // s += x: s and x's pieces made one string at once, as javac's s = s + x (docs/JVM.md §8.2).
+            List<Piece> pieces = new ArrayList<>();
+            joinPieces(args.get(0), params.get(0), ci, pieces);
+            joinAtOnce(pieces, true, at);
+            put(p);
             return ret;
         }
         pushResult(ret, dst);

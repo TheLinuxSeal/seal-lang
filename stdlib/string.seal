@@ -142,6 +142,9 @@ struct string<<int N>> {
     // Joining with a bare string, a char, or a number's text gives a bare string:
     // "total: " + n, name + "!", fixed + bare. (`add` is guarded per shape, as the
     // fixed + fixed version above is, so each comes in a <<int N>> and a <<>> form.)
+    // On the JVM a chain of + (and +=) is made at once, as javac's (docs/JVM.md §8.2),
+    // with each number's text Java's, so each add here and addAssign below must be the
+    // string followed by its argument's text: Integer.toString's, Double.toString's.
 
     @overload(Operator.ADD) public string add<<int N>>(string other) { return join(other); }
     @overload(Operator.ADD) public string add<<int N>>(int x) { return join(Integer.toString(x)); }

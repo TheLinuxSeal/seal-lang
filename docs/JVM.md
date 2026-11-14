@@ -453,6 +453,16 @@ language (part of M0):
   square of the length: minutes for a `StringBuilder` of a million numbers. `Integer.toString` is
   Java's `Long.toString` and `Long.toUnsignedString` (since 2026-11-13; before, Seal code that
   divided by the base for each digit, four times slower).
+- Since 2026-11-13, a chain of `+` on strings, `"item" + i + "/" + n`, is one `invokedynamic` of
+  `StringConcatFactory.makeConcatWithConstants`, as javac makes it, not a call of `string`'s `add`
+  for each `+`, which made a string each time, and one more for each number's text: three times
+  slower. Literals go into the recipe, and each other piece is pushed as Java's `+` takes it: a
+  number's text there is Java's, which is the one `add` makes (`Long.toString`, Java's
+  `Double.toString`), except a `uint<<32>>`'s, which goes widened to a `long`, and a `uint<<64>>`'s,
+  made by `Strings.ofUnsigned` first. A piece Java has no text for, a fixed-point number, is what
+  its own `add` makes of it after `""`. `(a + b) + c` and `a + (b + c)` are one chain, and so is
+  `s += a + b`, after `s`, as javac's. A chain of more than 100 slots is made in parts, as
+  StringConcatFactory takes at most 200; and `seal dump` shows each call with its recipe.
 
 ### 8.3 Natives
 

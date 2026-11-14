@@ -58,6 +58,25 @@ public final class CliTest {
         check(r.code() == 0 && r.out().startsWith("class Main  (Main.seal)") && r.out().contains("static main()int")
                 && r.out().contains("; Main.seal:3") && r.out().contains("ldc \"hi\""), "dump: prints the class files " + r);
 
+        // A chain of + on strings is one call that makes the string at once, as javac's (docs/JVM.md §8.2).
+        Path joins = write(dir, "joins/Main.seal", """
+                struct Main {
+                    static string show(int n, char c) {
+                        string s = "n=" + n + ", c=" + c + "!";
+                        s += n + "/" + c;
+                        return s;
+                    }
+                    static int main() { System.stdout.println(show(5, 'z')); return 0; }
+                }
+                """);
+        r = run("dump", joins.getParent().toString());
+        String mainClass = r.out().split("\n(?=class |interface )")[0]; // Main's, before the library's
+        check(r.code() == 0 && mainClass.contains("invokedynamic makeConcatWithConstants(int,char)String \"n=\\u0001, c=\\u0001!\"")
+                && mainClass.contains("invokedynamic makeConcatWithConstants(String,int,char)String \"\\u0001\\u0001/\\u0001\"")
+                && !mainClass.contains("string.add"), "dump: a chain of + is one invokedynamic, with its recipe " + r);
+        r = run("run", joins.getParent().toString());
+        check(r.code() == 0 && r.out().equals("n=5, c=z!5/z\n"), "run: a chain of + " + r);
+
         // Seal's VM is removed (docs/JVM.md §13): --vm says so; --jvm, the only backend, is still accepted.
         r = run("run", "--vm", ok.getParent().toString());
         check(r.code() == 2 && r.out().isEmpty() && r.err().equals(Main.VM_REMOVED + "\n"), "run --vm: says the VM is removed " + r);

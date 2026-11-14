@@ -81,7 +81,7 @@ kernel, the median of 3 rounds' medians of 10 runs, after 5 to warm up:
 | listInt | 370.0 | 48.3 | 0.13 |
 | hashMap | 73.8 | 59.0 | 0.80 |
 | stringBuilder | 24.9 | 26.6 | 1.07 |
-| stringConcat | 23.1 | 72.4 | 3.14 |
+| stringConcat | 23.0 | 22.4 | 0.98 |
 | virtualCalls | 97.3 | 101.9 | 1.05 |
 | allocObjects | 55.4 | 71.4 | 1.29 |
 | structArray | 29.0 | 43.6 | 1.51 |
@@ -101,6 +101,8 @@ and `float`; loops over `array<T>`, which is a Java array (the bounds check `arr
 before reading it is one the JIT removes, so loops vectorize as Java's do); calls through
 interfaces; recursion. Seal's code there is the bytecode javac writes. Sorting integers is Java's
 own `Arrays.sort` (`sortLib`), and turning them into text Java's `Long.toString` (`stringBuilder`).
+A chain of `+` on strings is one call of Java's `StringConcatFactory`, as javac makes it
+(`stringConcat`).
 
 **Seal faster:**
 
@@ -112,8 +114,6 @@ own `Arrays.sort` (`sortLib`), and turning them into text Java's `Long.toString`
 
 **Seal slower:**
 
-* `stringConcat`: each `+` makes a new string, so `"item" + i + "/" + (i * 3)` makes five: the two
-  numbers' texts and three joins. javac makes the whole expression one string, at once.
 * `fixedArray` and `structArray`: fixed arrays and structs live in storage blocks, `long[]`s that
   are read and written a field's bits at a time (docs/JVM.md §4). A class's fields are JVM fields,
   as Java's are; a later optimization can keep a struct's fields in JVM locals (docs/JVM.md §4.5).
@@ -140,3 +140,7 @@ own `Arrays.sort` (`sortLib`), and turning them into text Java's `Long.toString`
   numbers is sorted by Java's `Arrays.sort`: 12 ms.
 * 2026-11-13: `Integer.toString` was Seal code dividing by the base for each digit; it is Java's
   `Long.toString` now: `stringBuilder` 27 ms (from 106), `stringConcat` 72 ms (from 174).
+* 2026-11-13: each `+` on strings made a new string, so `"item" + i + "/" + (i * 3)` made five: the
+  two numbers' texts and three joins. A chain of them is one `invokedynamic` of
+  `StringConcatFactory` now, which makes the string at once, as javac's does (docs/JVM.md §8.2):
+  `stringConcat` 22 ms (from 72; Java's 23).
