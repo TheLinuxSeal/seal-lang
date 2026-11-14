@@ -61,34 +61,34 @@ kernel, the median of 3 rounds' medians of 10 runs, after 5 to warm up:
 
 | Kernel | Java (ms) | Seal (ms) | Seal ÷ Java |
 | ------ | --------: | --------: | ----------: |
-| intArith | 289.6 | 290.6 | 1.00 |
-| intDiv | 110.7 | 110.9 | 1.00 |
-| longArith | 302.1 | 302.9 | 1.00 |
-| shortArith | 383.2 | 339.3 | 0.89 |
-| uintArith | 129.4 | 129.7 | 1.00 |
-| doubleArith | 95.3 | 95.3 | 1.00 |
-| doubleMath | 95.9 | 97.7 | 1.02 |
-| floatMath | 121.0 | 120.8 | 1.00 |
-| intArray | 42.8 | 44.7 | 1.05 |
-| doubleArray | 112.6 | 112.3 | 1.00 |
-| matmul | 30.3 | 30.3 | 1.00 |
-| byteArray | 297.6 | 321.4 | 1.08 |
-| sieve | 112.7 | 103.1 | 0.91 |
-| sortLib | 12.0 | 12.0 | 1.00 |
-| sortHeap | 110.0 | 128.5 | 1.17 |
-| sortDoubles | 69.0 | 74.3 | 1.08 |
-| fixedArray | 29.4 | 29.6 | 1.01 |
-| listInt | 370.0 | 48.3 | 0.13 |
-| hashMap | 73.8 | 59.0 | 0.80 |
-| stringBuilder | 24.9 | 26.6 | 1.07 |
-| stringConcat | 23.0 | 22.4 | 0.98 |
-| virtualCalls | 97.3 | 101.9 | 1.05 |
-| allocObjects | 55.4 | 71.4 | 1.29 |
-| structArray | 29.0 | 24.9 | 0.86 |
-| structLocals | 132.2 | 89.8 | 0.68 |
-| fixedMandel | 19.9 | 20.3 | 1.02 |
-| doubleMandel | 21.2 | 21.3 | 1.00 |
-| recursion | 33.0 | 32.9 | 1.00 |
+| intArith | 289.8 | 290.2 | 1.00 |
+| intDiv | 110.9 | 110.5 | 1.00 |
+| longArith | 302.1 | 302.4 | 1.00 |
+| shortArith | 381.0 | 336.7 | 0.88 |
+| uintArith | 129.2 | 129.3 | 1.00 |
+| doubleArith | 95.4 | 95.4 | 1.00 |
+| doubleMath | 95.7 | 97.5 | 1.02 |
+| floatMath | 120.7 | 120.8 | 1.00 |
+| intArray | 42.7 | 44.9 | 1.05 |
+| doubleArray | 109.2 | 112.5 | 1.03 |
+| matmul | 29.8 | 30.0 | 1.01 |
+| byteArray | 296.6 | 320.0 | 1.08 |
+| sieve | 112.7 | 104.7 | 0.93 |
+| sortLib | 12.0 | 12.1 | 1.01 |
+| sortHeap | 109.8 | 128.4 | 1.17 |
+| sortDoubles | 69.3 | 73.0 | 1.05 |
+| fixedArray | 28.7 | 28.7 | 1.00 |
+| listInt | 363.8 | 48.4 | 0.13 |
+| hashMap | 73.9 | 57.6 | 0.78 |
+| stringBuilder | 24.6 | 23.6 | 0.96 |
+| stringConcat | 26.8 | 20.5 | 0.77 |
+| virtualCalls | 97.3 | 101.4 | 1.04 |
+| allocObjects | 55.7 | 55.1 | 0.99 |
+| structArray | 27.5 | 24.6 | 0.90 |
+| structLocals | 132.0 | 89.7 | 0.68 |
+| fixedMandel | 19.8 | 20.1 | 1.02 |
+| doubleMandel | 21.2 | 21.2 | 1.00 |
+| recursion | 33.2 | 32.9 | 0.99 |
 
 Seal ÷ Java is Seal's time over Java's: 1 is the same speed, below 1 Seal is faster. A kernel's
 rounds are mostly within 3% of each other; those of `stringBuilder`, `stringConcat` and
